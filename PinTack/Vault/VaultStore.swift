@@ -204,7 +204,7 @@ final class VaultStore {
     // MARK: - Writing
 
     @discardableResult
-    func createNote(body: String = "", folder: String? = nil,
+    func createNote(body: String = "", folder: String? = nil, tags: [String] = [],
                     defaults: NoteDefaults = NoteDefaults(), frame: NSRect? = nil) -> Note {
         let dir = (folder?.isEmpty == false) ? vaultURL.appendingPathComponent(folder!, isDirectory: true) : vaultURL
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -214,6 +214,7 @@ final class VaultStore {
                         cardFrame: frame ?? NSRect(origin: NSPoint(x: 200, y: 200), size: defaults.size))
         note.colorHex = defaults.colorHex
         note.opacity = defaults.opacity
+        note.tags = tags
         note.hasFrame = frame != nil
         notes.append(note)
         save(note)

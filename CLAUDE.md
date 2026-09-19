@@ -198,6 +198,15 @@ honest placeholder. The pushpin is a vector stand-in for the PNG asset (SPEC §1
 The app is a normal Dock app (no `LSUIElement`) plus a menu-bar item: an
 owner decision that replaced the original menu-bar-only design.
 
+Owner decisions added after the rebuild (2026-09-19):
+- A note's `theme` is its palette mode (Auto/Dark/Light), not a text override. Text color is
+  always automatic. Do not add a text-color control.
+- New todo notes start as `@Todo ` (greyed "todo title" hint), are tagged `todo`, and Enter
+  after the title creates the first checkbox. The default note font is Comic Sans MS.
+- Titles are draggable; double-click renames. The bottom strip is called the **action bar**.
+- Settings use a sidebar (the TabView overflowed into a "»" menu and looked cheap).
+- The menu-bar item takes the system's default position (left end); do not seed one.
+
 Choices that differ from SPEC.md or the prototype, made deliberately:
 - Only New note, New todo, All Notes and Auto-arrange are **global** hotkeys.
   The rest work while a PinTack window is key. Registering ⌥⌘W or ⌥⌘H

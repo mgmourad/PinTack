@@ -2,20 +2,99 @@ import SwiftUI
 import AppKit
 
 /// The seven settings panes. SPEC.md §9.
+///
+/// A sidebar rather than SwiftUI's TabView: seven tabs overflowed the window into a "»"
+/// menu, which read as unfinished. The sidebar lists every pane at once.
 struct SettingsView: View {
 
-    var body: some View {
-        TabView {
-            AppearancePane().tabItem { Label("Appearance", systemImage: "paintbrush") }
-            NotesPane().tabItem { Label("Notes", systemImage: "note.text") }
-            ShortcutsPane().tabItem { Label("Shortcuts", systemImage: "keyboard") }
-            EditorPane().tabItem { Label("Editor", systemImage: "pencil.and.list.clipboard") }
-            VaultPane().tabItem { Label("Vault", systemImage: "externaldrive") }
-            PluginsPane().tabItem { Label("Plugins", systemImage: "puzzlepiece.extension") }
-            AboutPane().tabItem { Label("About", systemImage: "info.circle") }
+    enum Pane: String, CaseIterable, Identifiable {
+        case appearance = "Appearance", notes = "Notes", shortcuts = "Shortcuts", editor = "Editor",
+             vault = "Vault", plugins = "Plugins", about = "About"
+
+        var id: String { rawValue }
+
+        var symbol: String {
+            switch self {
+            case .appearance: return "paintbrush.fill"
+            case .notes:      return "note.text"
+            case .shortcuts:  return "keyboard.fill"
+            case .editor:     return "pencil.and.list.clipboard"
+            case .vault:      return "externaldrive.fill"
+            case .plugins:    return "puzzlepiece.extension.fill"
+            case .about:      return "info.circle.fill"
+            }
         }
-        .frame(width: 560, height: 430)
-        .tint(Color(nsColor: AppSettings.shared.outlineColor))
+
+        var tint: Color {
+            switch self {
+            case .appearance: return Color(red: 0.95, green: 0.45, blue: 0.20)
+            case .notes:      return Color(red: 0.98, green: 0.72, blue: 0.10)
+            case .shortcuts:  return Color(red: 0.36, green: 0.55, blue: 0.95)
+            case .editor:     return Color(red: 0.55, green: 0.42, blue: 0.90)
+            case .vault:      return Color(red: 0.30, green: 0.70, blue: 0.50)
+            case .plugins:    return Color(red: 0.90, green: 0.35, blue: 0.55)
+            case .about:      return Color(red: 0.55, green: 0.58, blue: 0.64)
+            }
+        }
+    }
+
+    @State private var selection: Pane = .appearance
+    @ObservedObject private var settings = AppSettings.shared
+
+    var body: some View {
+        HStack(spacing: 0) {
+            sidebar
+                .frame(width: 196)
+                .background(.regularMaterial)
+            Divider()
+            VStack(alignment: .leading, spacing: 0) {
+                Text(selection.rawValue)
+                    .font(.system(size: 22, weight: .bold))
+                    .padding(.top, 40).padding(.horizontal, 26).padding(.bottom, 6)
+                pane
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(Color(nsColor: .windowBackgroundColor))      // fills under the transparent title bar
+        }
+        .frame(width: 780, height: 540)
+        .tint(Color(nsColor: settings.outlineColor))
+    }
+
+    private var sidebar: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            ForEach(Pane.allCases) { p in
+                let selected = p == selection
+                HStack(spacing: 10) {
+                    Image(systemName: p.symbol)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 24, height: 24)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(p.tint.gradient))
+                    Text(p.rawValue).font(.system(size: 13, weight: selected ? .semibold : .regular))
+                    Spacer()
+                }
+                .padding(.horizontal, 8).padding(.vertical, 5)
+                .foregroundStyle(selected ? Color.white : Color.primary)
+                .background(RoundedRectangle(cornerRadius: 8).fill(selected ? Color(nsColor: settings.outlineColor) : .clear))
+                .contentShape(Rectangle())
+                .onTapGesture { selection = p }
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 10)
+        .padding(.top, 44)          // clears the traffic lights: the sidebar runs under the title bar
+    }
+
+    @ViewBuilder private var pane: some View {
+        switch selection {
+        case .appearance: AppearancePane()
+        case .notes:      NotesPane()
+        case .shortcuts:  ShortcutsPane()
+        case .editor:     EditorPane()
+        case .vault:      VaultPane()
+        case .plugins:    PluginsPane()
+        case .about:      AboutPane()
+        }
     }
 }
 
@@ -23,7 +102,7 @@ struct SettingsView: View {
 
 private struct AppearancePane: View {
     @ObservedObject var s = AppSettings.shared
-    @State private var custom = Color(nsColor: AppSettings.shared.noteDefaults.colorHex.isEmpty ? .yellow : (NSColor(hex: AppSettings.shared.defaultColorHex) ?? .yellow))
+    @State private var custom = Color(nsColor: NSColor(hex: AppSettings.shared.defaultColorHex) ?? .yellow)
 
     var body: some View {
         Form {
@@ -32,20 +111,30 @@ private struct AppearancePane: View {
             }
             .pickerStyle(.segmented)
 
+            Picker("New notes get", selection: $s.newNoteColor) {
+                Text("The default color").tag("default")
+                Text("A random color").tag("random")
+            }
+            .pickerStyle(.segmented)
+
             LabeledContent("Default note color") {
                 HStack(spacing: 8) {
                     ForEach(NotePalette.presets, id: \.hex) { p in
                         Circle().fill(Color(nsColor: NSColor(hex: p.hex) ?? .yellow)).frame(width: 20, height: 20)
                             .overlay(Circle().strokeBorder(.black.opacity(0.2)))
-                            .overlay(Circle().strokeBorder(Color.accentColor, lineWidth: s.defaultColorHex.uppercased() == p.hex ? 2.5 : 0).padding(-3))
+                            .overlay(Circle().strokeBorder(Color(nsColor: AppSettings.shared.outlineColor), lineWidth: s.defaultColorHex.uppercased() == p.hex ? 2.5 : 0).padding(-3))
                             .onTapGesture { s.defaultColorHex = p.hex; custom = Color(nsColor: NSColor(hex: p.hex) ?? .yellow) }
                             .help(p.name)
                     }
                     ColorPicker("Custom", selection: $custom, supportsOpacity: false).labelsHidden()
                         .onChange(of: custom) { _, new in s.defaultColorHex = NSColor(new).hexString }
                 }
+                .opacity(s.newNoteColor == "random" ? 0.35 : 1)
+                .disabled(s.newNoteColor == "random")
             }
-            Text("Text color flips light or dark automatically, so no color can be unreadable.")
+            Text(s.newNoteColor == "random"
+                 ? "Every new note gets one of the five pastel colors at random."
+                 : "Text color flips light or dark automatically, so no color can be unreadable.")
                 .font(.caption).foregroundStyle(.secondary)
 
             Picker("Corners", selection: $s.cornerStyle) {
@@ -103,6 +192,18 @@ private struct NotesPane: View {
                         Text(String(format: "%.1f s", s.autosaveSeconds)).monospacedDigit().frame(width: 48, alignment: .trailing)
                     }
                 }
+            }
+            Section("Action bar") {
+                Toggle("Collapse the action bar again automatically", isOn: $s.actionBarAutoCollapse)
+                LabeledContent("Collapse after") {
+                    HStack {
+                        Slider(value: $s.actionBarCollapseSeconds, in: 2...30, step: 1).frame(width: 160)
+                        Text("\(Int(s.actionBarCollapseSeconds)) s").monospacedDigit().frame(width: 48, alignment: .trailing)
+                    }
+                }
+                .disabled(!s.actionBarAutoCollapse)
+                Text("The action bar is the strip at the bottom of a note. Its > button opens bullets, bold, italic, code and an opacity slider. The countdown only runs while the pointer is away from the bar.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
@@ -178,6 +279,14 @@ private struct EditorPane: View {
                 Text("Copy into the vault").tag("copy"); Text("Link in place").tag("link")
             }
             Text("Copying keeps notes self-contained. Linking keeps the original where it is, using its full path.")
+                .font(.caption).foregroundStyle(.secondary)
+            LabeledContent("Bullet") {
+                HStack {
+                    Text(s.bulletEmoji.isEmpty ? "•  default" : s.bulletEmoji).font(.system(size: 15))
+                    Button("Use default") { s.bulletEmoji = "" }.disabled(s.bulletEmoji.isEmpty)
+                }
+            }
+            Text("Right-click the bullet button in a note's action bar to choose an emoji bullet.")
                 .font(.caption).foregroundStyle(.secondary)
         }
         .formStyle(.grouped)
@@ -317,10 +426,14 @@ final class SettingsWindowController {
 
     func show() {
         if window == nil {
-            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 430),
-                             styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
+            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 780, height: 540),
+                             styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
+                             backing: .buffered, defer: false)
             w.title = "PinTack Settings"
+            w.titleVisibility = .hidden
+            w.titlebarAppearsTransparent = true
             w.contentViewController = NSHostingController(rootView: SettingsView())
+            w.setContentSize(NSSize(width: 780, height: 540))
             w.isReleasedWhenClosed = false
             w.center()
             window = w

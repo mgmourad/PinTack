@@ -15,9 +15,10 @@ final class AppSettings: ObservableObject {
     // Appearance
     @Published var appTheme = "system"            // system | light | dark
     @Published var defaultColorHex = "#FFE38A"
+    @Published var newNoteColor = "default"       // default | random
     @Published var cornerStyle = "rounded"        // rounded | square
     @Published var defaultOpacity = 1.0
-    @Published var fontFamily = ""                // "" = system font
+    @Published var fontFamily = "Comic Sans MS"   // "" = system font
     @Published var fontSize = 13.0
 
     // Notes
@@ -29,12 +30,15 @@ final class AppSettings: ObservableObject {
     @Published var defaultNoteHeight = 210.0
     @Published var placement = "cascade"          // cursor | centered | cascade
     @Published var autosaveSeconds = 0.8
+    @Published var actionBarAutoCollapse = true   // re-collapse the note's bottom action bar
+    @Published var actionBarCollapseSeconds = 6.0
 
     // Editor
     @Published var defaultMode = "live"           // live | source
     @Published var spellcheck = false
     @Published var slashCommands = true
     @Published var imagePaste = "copy"            // copy | link
+    @Published var bulletEmoji = ""               // "" = the ordinary "- " bullet
 
     private var fileURL: URL?
     private var extra: [String: Any] = [:]        // unknown keys, preserved. SPEC.md §12.2
@@ -51,8 +55,10 @@ final class AppSettings: ObservableObject {
     var outlineColor: NSColor { NSColor(hex: outlineColorHex) ?? .systemOrange }
     var cornerRadius: CGFloat { cornerStyle == "square" ? 2 : 12 }
 
+    /// Evaluated per new note, so "random" really is a fresh color each time.
     var noteDefaults: NoteDefaults {
-        NoteDefaults(colorHex: defaultColorHex, opacity: defaultOpacity,
+        NoteDefaults(colorHex: newNoteColor == "random" ? NotePalette.randomPastel : defaultColorHex,
+                     opacity: defaultOpacity,
                      size: NSSize(width: defaultNoteWidth, height: defaultNoteHeight))
     }
 
@@ -72,6 +78,7 @@ final class AppSettings: ObservableObject {
 
         appTheme = s("appTheme") ?? appTheme
         defaultColorHex = s("defaultColor") ?? defaultColorHex
+        newNoteColor = s("newNoteColor") ?? newNoteColor
         cornerStyle = s("cornerStyle") ?? cornerStyle
         defaultOpacity = min(1, max(0.3, d("defaultOpacity") ?? defaultOpacity))
         fontFamily = s("fontFamily") ?? fontFamily
@@ -84,15 +91,19 @@ final class AppSettings: ObservableObject {
         defaultNoteHeight = max(120, d("defaultNoteHeight") ?? defaultNoteHeight)
         placement = s("placement") ?? placement
         autosaveSeconds = min(5, max(0.2, d("autosaveSeconds") ?? autosaveSeconds))
+        actionBarAutoCollapse = b("actionBarAutoCollapse") ?? actionBarAutoCollapse
+        actionBarCollapseSeconds = min(30, max(2, d("actionBarCollapseSeconds") ?? actionBarCollapseSeconds))
         defaultMode = s("defaultMode") ?? defaultMode
         spellcheck = b("spellcheck") ?? spellcheck
         slashCommands = b("slashCommands") ?? slashCommands
         imagePaste = s("imagePaste") ?? imagePaste
+        bulletEmoji = s("bulletEmoji") ?? bulletEmoji
 
         let known: Set<String> = ["appTheme", "defaultColor", "cornerStyle", "defaultOpacity", "fontFamily", "fontSize",
                                   "outlineEnabled", "outlineColor", "outlineWidth", "pinnedGlow", "defaultNoteWidth",
                                   "defaultNoteHeight", "placement", "autosaveSeconds", "defaultMode", "spellcheck",
-                                  "slashCommands", "imagePaste"]
+                                  "slashCommands", "imagePaste", "newNoteColor", "actionBarAutoCollapse",
+                                  "actionBarCollapseSeconds", "bulletEmoji"]
         extra = dict.filter { !known.contains($0.key) }
         applyRuntimeEffects()
     }
@@ -118,6 +129,7 @@ final class AppSettings: ObservableObject {
         var dict = extra
         dict["appTheme"] = appTheme
         dict["defaultColor"] = defaultColorHex
+        dict["newNoteColor"] = newNoteColor
         dict["cornerStyle"] = cornerStyle
         dict["defaultOpacity"] = defaultOpacity
         dict["fontFamily"] = fontFamily
@@ -130,10 +142,13 @@ final class AppSettings: ObservableObject {
         dict["defaultNoteHeight"] = defaultNoteHeight
         dict["placement"] = placement
         dict["autosaveSeconds"] = autosaveSeconds
+        dict["actionBarAutoCollapse"] = actionBarAutoCollapse
+        dict["actionBarCollapseSeconds"] = actionBarCollapseSeconds
         dict["defaultMode"] = defaultMode
         dict["spellcheck"] = spellcheck
         dict["slashCommands"] = slashCommands
         dict["imagePaste"] = imagePaste
+        dict["bulletEmoji"] = bulletEmoji
         guard let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted, .sortedKeys]) else { return }
         do { try AtomicWriter.write(data, to: fileURL) }
         catch { NSLog("PinTack: settings save failed: \(error)") }

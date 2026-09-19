@@ -7,7 +7,7 @@
 // A StateField rather than a ViewPlugin, because block-level replacements
 // (tables) are only legal from a field.
 
-import { EditorState, Compartment, StateField, StateEffect } from "@codemirror/state";
+import { EditorState, Compartment, StateField, StateEffect, Prec } from "@codemirror/state";
 import { EditorView, Decoration, WidgetType, keymap, placeholder, drawSelection } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
@@ -68,6 +68,20 @@ class CheckboxWidget extends WidgetType {
 class HrWidget extends WidgetType {
   eq() { return true; }
   toDOM() { const s = document.createElement("span"); s.className = "cm-hr"; return s; }
+}
+
+// Greyed-out placeholder shown after "@Todo " until a title is typed. It is a widget,
+// not document text, so it never reaches the file.
+class HintWidget extends WidgetType {
+  constructor(text) { super(); this.text = text; }
+  eq(o) { return o.text === this.text; }
+  toDOM() {
+    const s = document.createElement("span");
+    s.className = "cm-hint";
+    s.textContent = this.text;
+    return s;
+  }
+  ignoreEvent() { return true; }
 }
 
 class ImageWidget extends WidgetType {
@@ -278,6 +292,17 @@ function build(state) {
 
   const inRange = (pos, ranges) => ranges.some(([a, b]) => pos >= a && pos <= b);
 
+  // "@Todo <title>" on line 1 marks a todo note: styled as the note's title, with a
+  // greyed hint until the title is typed.
+  const first = doc.line(1);
+  if (/^@Todo(\s|$)/.test(first.text)) {
+    line(first.from, "cm-todo-title");
+    mark(first.from, first.from + 5, "cm-todo-word");
+    if (/^@Todo\s*$/.test(first.text)) {
+      deco.push(Decoration.widget({ widget: new HintWidget("todo title"), side: 1 }).range(first.to));
+    }
+  }
+
   // Constructs markdown has no syntax for: ==highlight==, colored <span>, #tag,
   // and emoji bullets. Handled per line, skipping code. SPEC.md §4.2, §4.3.
   for (let n = 1; n <= doc.lines; n++) {
@@ -440,6 +465,7 @@ function tagSource(ctx) {
 /* --------------------------------------------------------------- emoji UI */
 
 const EMOJI = {
+  Bullets: ["🔹", "🔸", "🔺", "⭐️", "✅", "👉", "➡️", "▶️"],
   Frequent: ["✅", "⭐️", "🔥", "📌", "⚡️", "💡", "🎯", "📝"],
   Status: ["🟢", "🟡", "🔴", "🔵", "⏳", "🚧", "✔️", "❌"],
   Work: ["💼", "📊", "🗂", "📅", "☎️", "🖥", "🔧", "🧪"],
@@ -450,17 +476,24 @@ const emojiEl = document.getElementById("emoji");
 
 function closeEmoji() { emojiEl.classList.add("hidden"); }
 
-function openEmoji(view) {
-  emojiEl.innerHTML =
-    Object.entries(EMOJI).map(([cat, list]) =>
+function openEmoji(view, opts = {}) {
+  const pick = opts.pick === "bullet";
+  emojiEl.innerHTML = (pick ? `<div class="cat">Choose a bullet</div><button type="button" class="wide" data-clear="1">Default bullet ( • ) — clear choice</button>` : "") +
+    Object.entries(EMOJI).filter(([cat]) => pick || cat !== "Bullets").map(([cat, list]) =>
       `<div class="cat">${cat}</div><div class="grid">${list.map((e) => `<button type="button" data-e="${e}">${e}</button>`).join("")}</div>`).join("") +
-    `<div class="mode">
+    (pick ? "" : `<div class="mode">
        <label><input type="radio" name="emode" value="insert" ${emojiMode === "insert" ? "checked" : ""}> Insert</label>
        <label><input type="radio" name="emode" value="bullet" ${emojiMode === "bullet" ? "checked" : ""}> As bullet</label>
-     </div>`;
+     </div>`);
+  const clear = emojiEl.querySelector("button[data-clear]");
+  if (clear) {
+    clear.addEventListener("mousedown", (e) => e.preventDefault());
+    clear.addEventListener("click", () => { post("bullet.changed", { emoji: "" }); closeEmoji(); view.focus(); });
+  }
   emojiEl.querySelectorAll("button[data-e]").forEach((b) => {
     b.addEventListener("mousedown", (e) => e.preventDefault());        // keep editor focus
     b.addEventListener("click", () => {
+      if (pick) { post("bullet.changed", { emoji: b.dataset.e }); closeEmoji(); view.focus(); return; }
       const sel = view.state.selection.main;
       if (emojiMode === "bullet") {
         const l = view.state.doc.lineAt(sel.from);
@@ -476,11 +509,13 @@ function openEmoji(view) {
   });
   emojiEl.querySelectorAll("input[name=emode]").forEach((r) => (r.onchange = () => (emojiMode = r.value)));
 
-  const c = view.coordsAtPos(view.state.selection.main.head) || { left: 20, bottom: 40 };
+  // The bullet picker is opened from the action bar, so it sits at the bottom-left of the
+  // editor. The regular picker opens at the caret.
+  const c = pick ? { left: 6, bottom: window.innerHeight } : (view.coordsAtPos(view.state.selection.main.head) || { left: 20, bottom: 40 });
   emojiEl.classList.remove("hidden");
   const w = emojiEl.offsetWidth, h = emojiEl.offsetHeight;
   emojiEl.style.left = Math.max(4, Math.min(c.left, window.innerWidth - w - 4)) + "px";
-  emojiEl.style.top = Math.max(4, Math.min(c.bottom + 4, window.innerHeight - h - 4)) + "px";
+  emojiEl.style.top = Math.max(4, Math.min(pick ? window.innerHeight - h - 6 : c.bottom + 4, window.innerHeight - h - 4)) + "px";
 }
 document.addEventListener("mousedown", (e) => { if (!e.target.closest("#emoji")) closeEmoji(); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeEmoji(); });
@@ -507,6 +542,104 @@ function wrapSelection(marker) {
     }
     return true;
   };
+}
+
+// ---------------------------------------------------------- action bar commands
+
+// Bold / italic / code from the action bar. With nothing selected, act on the word
+// under the caret, or drop a marker pair and put the caret between them.
+function toggleInline(view, marker) {
+  const st = view.state;
+  let { from, to, empty } = st.selection.main;
+  if (empty) {
+    const w = st.wordAt(from);
+    if (w) { from = w.from; to = w.to; empty = false; }
+  }
+  if (empty) {
+    view.dispatch({ changes: { from, insert: marker + marker }, selection: { anchor: from + marker.length } });
+    view.focus();
+    return;
+  }
+  const before = st.sliceDoc(from - marker.length, from);
+  const after = st.sliceDoc(to, to + marker.length);
+  // "*" also appears inside "**", so single-star italics must not mistake bold for italic.
+  const stray = marker === "*" && (st.sliceDoc(from - 2, from - 1) === "*" || st.sliceDoc(to + 1, to + 2) === "*");
+  if (before === marker && after === marker && !stray) {
+    view.dispatch({ changes: [{ from: from - marker.length, to: from }, { from: to, to: to + marker.length }] });
+  } else {
+    view.dispatch({
+      changes: [{ from, insert: marker }, { from: to, insert: marker }],
+      selection: { anchor: from + marker.length, head: to + marker.length },
+    });
+  }
+  view.focus();
+}
+
+const EMOJI_RUN = "(?:\\p{Extended_Pictographic}[\\u{1F3FB}-\\u{1F3FF}\\uFE0F\\u200D]*)+";
+const EMOJI_ITEM = new RegExp(`^(\\s*)(${EMOJI_RUN})(\\s+)(.*)$`, "u");
+const EMOJI_EMPTY = new RegExp(`^(\\s*)(${EMOJI_RUN})\\s+$`, "u");        // a bullet with nothing after it
+const BULLET_MARK = new RegExp(`^(\\s*)(?:[-*+]\\s(?!\\[[ xX]\\])|${EMOJI_RUN}\\s)`, "u");
+const TASK_LINE = /^\s*[-*+]\s\[[ xX]\]/;
+
+// Toggle the user's chosen bullet (a "- " list marker, or an emoji) on the selected lines.
+function toggleBullet(view) {
+  const st = view.state;
+  const bullet = (noteState.settings && noteState.settings.bullet) || "";
+  const prefix = bullet ? bullet + " " : "- ";
+  const { from, to } = st.selection.main;
+  const a = st.doc.lineAt(from).number, z = st.doc.lineAt(to).number;
+  const lines = [];
+  for (let n = a; n <= z; n++) {
+    const l = st.doc.line(n);
+    if (TASK_LINE.test(l.text)) continue;                       // never break a checkbox
+    if (l.text.trim() !== "" || a === z) lines.push(l);
+  }
+  if (!lines.length) return;
+  const allHave = lines.every((l) => l.text.trimStart().startsWith(prefix));
+  const changes = lines.map((l) => {
+    const indent = /^\s*/.exec(l.text)[0].length;
+    if (allHave) return { from: l.from + indent, to: l.from + indent + prefix.length };
+    const m = BULLET_MARK.exec(l.text);
+    const end = m ? l.from + m[0].length : l.from + indent;
+    return { from: l.from + indent, to: end, insert: prefix };
+  });
+  view.dispatch({ changes });
+  view.focus();
+}
+
+const applyFormat = { bold: (v) => toggleInline(v, "**"), italic: (v) => toggleInline(v, "*"), code: (v) => toggleInline(v, "`"), bullet: toggleBullet };
+
+// Enter: start a todo list from the "@Todo <title>" line, and keep emoji bullets going.
+function enterHandler(view) {
+  const st = view.state;
+  const sel = st.selection.main;
+  if (!sel.empty) return false;
+  const line = st.doc.lineAt(sel.head);
+  if (sel.head !== line.to) return false;
+
+  if (line.number === 1 && /^@Todo(\s|$)/.test(line.text)) {
+    if (/^@Todo\s*$/.test(line.text)) return true;             // no title yet: Enter does nothing
+    if (st.doc.sliceString(line.to).trim() !== "") return false;
+    view.dispatch({
+      changes: { from: line.to, insert: "\n\n- [ ] " },
+      selection: { anchor: line.to + 8 },
+      scrollIntoView: true,
+      userEvent: "input",
+    });
+    return true;
+  }
+
+  if (EMOJI_EMPTY.test(line.text)) {                            // Enter on an empty bullet ends the list
+    view.dispatch({ changes: { from: line.from, to: line.to, insert: "" }, selection: { anchor: line.from } });
+    return true;
+  }
+  const m = EMOJI_ITEM.exec(line.text);
+  if (m && m[4].trim() !== "") {
+    const insert = `\n${m[1]}${m[2]} `;
+    view.dispatch({ changes: { from: line.to, insert }, selection: { anchor: line.to + insert.length }, scrollIntoView: true, userEvent: "input" });
+    return true;
+  }
+  return false;
 }
 
 const imageFiles = (dt) => [...(dt ? dt.files : [])].filter((f) => /^image\//.test(f.type));
@@ -543,6 +676,7 @@ const view = new EditorView({
       spellCompartment.of(EditorView.contentAttributes.of({ spellcheck: "false", autocorrect: "off", autocapitalize: "off" })),
       placeholder("Start typing…  ( / for commands )"),
       autocompletion({ override: [slashSource, tagSource], icons: false, defaultKeymap: true }),
+      Prec.highest(keymap.of([{ key: "Enter", run: enterHandler }])),
       keymap.of([
         { key: "Mod-b", run: wrapSelection("**") },
         { key: "Mod-i", run: wrapSelection("*") },
@@ -581,7 +715,8 @@ function setBody(body, keepSelection) {
   suppress = true;
   view.dispatch({
     changes: { from: 0, to: view.state.doc.length, insert: body },
-    selection: keepSelection ? { anchor: Math.min(sel.anchor, body.length) } : { anchor: 0 },
+    // A fresh "@Todo " note opens with the caret right after it, in front of the hint.
+    selection: keepSelection ? { anchor: Math.min(sel.anchor, body.length) } : { anchor: /^@Todo\s*$/.test(body) ? body.length : 0 },
     effects: refresh.of(null),
   });
   suppress = false;
@@ -591,6 +726,7 @@ function applySettings(s) {
   const root = document.documentElement.style;
   const map = { fg: "--fg", fgDim: "--fg-dim", accent: "--accent", surface: "--surface", rule: "--rule", highlight: "--highlight", font: "--font", size: "--size" };
   for (const [k, cssVar] of Object.entries(map)) if (s[k] != null) root.setProperty(cssVar, k === "size" ? s[k] + "px" : s[k]);
+  noteState.settings = { ...noteState.settings, ...(s.bullet !== undefined ? { bullet: s.bullet } : {}) };
   if (s.spellcheck != null) {
     view.dispatch({ effects: spellCompartment.reconfigure(EditorView.contentAttributes.of({ spellcheck: String(s.spellcheck), autocorrect: "off", autocapitalize: "off" })) });
   }
@@ -607,6 +743,10 @@ function setTitle(title) {
   for (let n = 1; n <= doc.lines; n++) {
     const l = doc.line(n);
     if (l.text.trim() === "") continue;
+    if (/^@Todo(\s|$)/.test(l.text)) {                 // a todo note keeps its marker
+      view.dispatch({ changes: { from: l.from, to: l.to, insert: `@Todo ${title.replace(/^@Todo\s*/, "")}` } });
+      return;
+    }
     const m = /^(#{1,6})\s+.*$/.exec(l.text);
     view.dispatch({ changes: m ? { from: l.from, to: l.to, insert: `${m[1]} ${title}` } : { from: l.from, insert: `# ${title}\n\n` } });
     return;
@@ -632,6 +772,8 @@ window.__pintack = {
       case "mode.set": setMode(p.mode); break;
       case "title.set": setTitle(p.title); break;
       case "emoji.open": view.focus(); openEmoji(view); break;
+      case "bullet.pick": openEmoji(view, { pick: "bullet" }); break;
+      case "format.apply": if (applyFormat[p.kind]) applyFormat[p.kind](view); break;
       case "focus": view.focus(); break;
       case "image.inserted": {
         const sel = view.state.selection.main;

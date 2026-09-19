@@ -17,7 +17,7 @@ final class Note {
     var tags: [String]
     var pinned: Bool
     var colorHex: String
-    var theme: String          // auto | light | dark
+    var theme: String          // palette mode: auto | light | dark (which swatches are offered)
     var opacity: Double        // 0.3 ... 1.0
     var collapsed: Bool
     var visible: Bool
@@ -57,15 +57,9 @@ final class Note {
 
     var color: NSColor { NSColor(hex: colorHex) ?? NSColor(hex: "#FFE38A")! }
 
-    /// Text treatment. `auto` computes from background luminance so a chosen
-    /// color can never produce unreadable text. SPEC.md §9.
-    var isDarkText: Bool {
-        switch theme {
-        case "light": return true      // "light" note = light paper, dark text
-        case "dark":  return false
-        default:      return color.relativeLuminance > 0.45
-        }
-    }
+    /// Text is always automatic: dark text on light paper, light text on dark. Never a user
+    /// choice, so no color can be unreadable. `theme` only selects the palette mode.
+    var isDarkText: Bool { color.relativeLuminance > 0.45 }
 
     init(fileURL: URL,
          body: String = "",

@@ -187,7 +187,7 @@ frame:
 | `tags` | array of strings | `[]` | Canonical tag store. See §3.5. |
 | `pinned` | bool | `false` | Drives `NSWindow.level`. |
 | `color` | hex string | app default | Any hex. Presets are a UI convenience, not a constraint. |
-| `theme` | `auto`/`light`/`dark` | `auto` | Per-note text treatment override. `auto` computes from `color` luminance. |
+| `theme` | `auto`/`light`/`dark` | `auto` | Per-note **palette mode**: which set of preset swatches the Appearance popover offers (standard, deeper, or paler). Text color is never a user choice: it always flips light/dark from the color's luminance. *(Changed from "text treatment override" by the owner, 2026-09-19.)* |
 | `opacity` | float 0.3–1.0 | `1.0` | Maps to `NSWindow.alphaValue`. Floor of 0.3 prevents an invisible, unrecoverable note. |
 | `collapsed` | bool | `false` | |
 | `visible` | bool | `true` | `false` means the note exists but has no open window. |
@@ -378,11 +378,11 @@ Four consequences, all mandatory:
 
 **Right-click anywhere on the title bar** opens a context menu: Pin/Unpin, Collapse/Expand, Minimize to All Notes, Duplicate, Move to folder…, Close, Delete.
 
-**Footer — exactly three controls.** An earlier design put six color swatches, an opacity slider, an emoji button and a todo button in the footer; at a 280 pt default width they overlapped and were unusable. The insight that fixes it: **color and opacity are set-and-forget properties, not per-session controls.** They do not deserve permanent real estate.
+**Footer — three controls, plus the action bar.** *(The action bar was added by the owner on 2026-09-19.)* A `>` next to 🎨 opens the action bar: bullet list (right-click to choose an emoji bullet, or clear it), bold, italic, code, and an opacity slider. It can collapse itself again after a delay (Settings → Notes). An earlier design put six color swatches, an opacity slider, an emoji button and a todo button in the footer; at a 280 pt default width they overlapped and were unusable. The insight that fixes it: **color and opacity are set-and-forget properties, not per-session controls.** They do not deserve permanent real estate.
 
 | Control | Behavior |
 |---|---|
-| 🎨 Appearance | Opens a popover: 6 preset swatches, a "Custom…" well opening `NSColorPanel`, the opacity slider with live percentage, and a per-note light/dark override |
+| 🎨 Appearance | Opens a popover: an Auto / Dark / Light mode switch, 6 preset swatches for that mode (Dark shows deeper versions, Light paler ones; a preset carries across the switch), a "Custom…" well opening `NSColorPanel`, and the opacity slider with live percentage |
 | 🏷 Tags | Shows current tags; click to edit with autocomplete against existing vault tags |
 | ◢ Resize grip | Standard |
 

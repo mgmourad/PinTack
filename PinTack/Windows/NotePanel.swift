@@ -108,7 +108,7 @@ final class NotePanel: NSPanel {
 
     func applyPinned() {
         level = note.pinned ? .floating : .normal
-        card?.needsDisplay = true
+        card?.applyColors()             // refreshes the header pin glyph and the redraw
         card?.updateLayoutForPin()
     }
 

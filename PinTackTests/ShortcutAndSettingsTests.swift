@@ -69,12 +69,14 @@ final class ShortcutAndSettingsTests: VaultTestCase {
         XCTAssertEqual(s.fontSize, 9, accuracy: 0.001)
     }
 
-    func testAutomaticTextContrastForAnyColor() {
+    func testTextColorIsAlwaysAutomaticAndNeverAUserOverride() {
         let n = Note(fileURL: URL(fileURLWithPath: "/tmp/x.md"))
         n.colorHex = "#FFE38A"; XCTAssertTrue(n.isDarkText, "dark text on butter")
         n.colorHex = "#2C2C32"; XCTAssertFalse(n.isDarkText, "light text on graphite")
         n.colorHex = "#000000"; XCTAssertFalse(n.isDarkText)
         n.colorHex = "#FFFFFF"; XCTAssertTrue(n.isDarkText)
-        n.theme = "dark"; XCTAssertFalse(n.isDarkText, "override wins")
+        // `theme` only selects the palette mode now. It must never be able to force unreadable text.
+        n.colorHex = "#FFF1B8"; n.theme = "dark";  XCTAssertTrue(n.isDarkText, "pale paper keeps dark text in any mode")
+        n.colorHex = "#1F1F24"; n.theme = "light"; XCTAssertFalse(n.isDarkText, "dark paper keeps light text in any mode")
     }
 }

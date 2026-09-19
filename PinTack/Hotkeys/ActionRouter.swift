@@ -28,7 +28,7 @@ enum ActionRouter {
         case .moreOpaque:     focused?.nudgeOpacity(by: 0.1)
         case .color1, .color2, .color3, .color4, .color5, .color6:
             if let i = [ShortcutAction.color1, .color2, .color3, .color4, .color5, .color6].firstIndex(of: action) {
-                focused?.setColor(NotePalette.presets[i].hex)
+                focused?.setColor(index: i)
             }
         }
     }

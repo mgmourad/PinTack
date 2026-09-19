@@ -88,8 +88,100 @@ enum SelfTest {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
             let onDisk = (try? String(contentsOf: target.note.fileURL, encoding: .utf8)) ?? ""
             log("bridge round trip (type → JS → Swift → atomic save): file contains edit = \(onDisk.contains("BRIDGE-TEST-OK")); inline #tag merged into frontmatter = \(onDisk.contains("selftest"))")
-            renderWindows(out: out)
+            interactionTest(out: out)
         }
+    }
+
+    // MARK: Interaction: real mouse events through the real window, plus popover placement
+
+    private static func mouse(_ type: NSEvent.EventType, _ p: NSPoint, in panel: NSWindow, clicks: Int = 1) -> NSEvent? {
+        NSEvent.mouseEvent(with: type, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                           windowNumber: panel.windowNumber, context: nil, eventNumber: 0, clickCount: clicks, pressure: 1)
+    }
+
+    private static func interactionTest(out: URL) {
+        let panels = WindowManager.shared.openPanels.sorted { $0.note.created < $1.note.created }
+        guard let p1 = panels.first else { renderWindows(out: out); return }
+
+        // 1. Dragging by the TITLE moves the note (this was broken: the title swallowed the drag).
+        let title = p1.card.debugTitleCenter
+        let before = p1.frame.origin
+        if let d = mouse(.leftMouseDown, title, in: p1), let m = mouse(.leftMouseDragged, NSPoint(x: title.x + 60, y: title.y - 40), in: p1),
+           let u = mouse(.leftMouseUp, NSPoint(x: title.x + 60, y: title.y - 40), in: p1) {
+            p1.sendEvent(d); p1.sendEvent(m); p1.sendEvent(u)
+        }
+        let moved = NSPoint(x: p1.frame.origin.x - before.x, y: p1.frame.origin.y - before.y)
+        log("drag by title: window moved by (\(Int(moved.x)), \(Int(moved.y))) (expected 60, -40); renaming started by a single click = \(p1.card.debugIsRenaming)")
+        let stored = NotePanel.cardRect(forWindow: p1.frame)
+        log("after drag: stored card frame matches window inset by margin = \(p1.note.cardFrame == stored)")
+
+        // 2. Double-click the title starts renaming; leaving the field ends it.
+        if let d1 = mouse(.leftMouseDown, title, in: p1, clicks: 1), let u1 = mouse(.leftMouseUp, title, in: p1, clicks: 1),
+           let d2 = mouse(.leftMouseDown, title, in: p1, clicks: 2), let u2 = mouse(.leftMouseUp, title, in: p1, clicks: 2) {
+            p1.sendEvent(d1); p1.sendEvent(u1); p1.sendEvent(d2); p1.sendEvent(u2)
+        }
+        log("double-click on title: renaming = \(p1.card.debugIsRenaming)")
+        p1.makeFirstResponder(p1.card.editor)
+        log("after leaving the field: renaming = \(p1.card.debugIsRenaming) (false = solid again, draggable)")
+
+        // 3. New todo note: "@Todo " with the hint, tagged #todo.
+        let before3 = VaultStore.shared.notes.count
+        WindowManager.shared.newTodo()
+        if let todo = WindowManager.shared.focusedNote {
+            log("new todo note: notes \(before3) -> \(VaultStore.shared.notes.count), body = \(todo.body.debugDescription), tags = \(todo.tags)")
+        }
+
+        // 3b. Drive the todo flow inside the real WebKit view: title, Enter, item, Enter; then a format button.
+        if let todoPanel = WindowManager.shared.focusedPanel {
+            let ed = todoPanel.card.editor
+            // A brand-new note's WebKit view needs a moment to load the editor module.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+            let js = """
+            const v = window.__pintack._view, wait = ms => new Promise(r => setTimeout(r, ms));
+            const enter = () => v.contentDOM.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', code: 'Enter', bubbles: true, cancelable: true}));
+            const type = t => { const h = v.state.selection.main.head; v.dispatch({changes: {from: h, insert: t}, selection: {anchor: h + t.length}, userEvent: 'input.type'}); };
+            enter(); await wait(40);                       // no title yet: nothing happens
+            const afterEmptyEnter = v.state.doc.toString();
+            type('Groceries'); enter(); await wait(40);    // first checkbox
+            type('milk'); enter(); await wait(40);         // next checkbox
+            type('eggs'); await wait(40);
+            return JSON.stringify({ afterEmptyEnter, doc: v.state.doc.toString() });
+            """
+            ed.callAsyncJavaScript(js, arguments: [:], in: nil, in: .page) { result in
+                switch result {
+                case .success(let value): log("todo flow in WebKit: \(value)")
+                case .failure(let error): log("todo flow in WebKit FAILED: \(error)")
+                }
+                ed.format("bold")            // action-bar button → JS, acts on the word under the caret
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    ed.evaluateJavaScript("JSON.stringify(window.__pintack._view.state.doc.toString())") { r, e in
+                        log("after Bold button: doc = \(String(describing: r ?? e))")
+                    }
+                }
+            }
+            }
+        }
+
+        // 4. Action bar on the second note, then its Appearance popover: where does it land?
+        if panels.count > 1 {
+            let p2 = panels[1]
+            p2.card.debugExpandActionBar()
+            p2.card.debugShowAppearance()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
+                let anchor = p2.card.debugAppearanceButtonScreenRect
+                if let w = p2.card.debugPopoverWindow {
+                    let f = w.frame
+                    // The popover must touch the button: its edge within a few points of the anchor.
+                    let gapBelow = anchor.minY - f.maxY, gapAbove = f.minY - anchor.maxY
+                    log("appearance popover: shown = \(p2.card.debugPopoverShown), frame = \(Int(f.minX)),\(Int(f.minY)) \(Int(f.width))x\(Int(f.height)); button = \(Int(anchor.minX)),\(Int(anchor.minY)) \(Int(anchor.width))x\(Int(anchor.height)); vertical gap to button: below=\(Int(gapBelow)) above=\(Int(gapAbove))")
+                    log("popover attached to button (|gap| < 30 pt) = \(min(abs(gapBelow), abs(gapAbove)) < 30)")
+                    snapshot(window: w, to: out.appendingPathComponent("popover-appearance.png")) { DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { renderWindows(out: out) } }
+                } else {
+                    log("appearance popover: NO WINDOW")
+                    renderWindows(out: out)
+                }
+            }
+        } else { renderWindows(out: out) }
     }
 
     private static let sampleBody = """

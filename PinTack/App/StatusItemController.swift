@@ -14,21 +14,14 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     init(target: AppDelegate) {
         self.target = target
 
-        // New status items are placed at the LEFT end of the status area, against the
-        // notch on a MacBook Pro. With a crowded menu bar (and menu-bar managers such as
-        // Thaw or Bartender) that is exactly where items get pushed out of sight, and it
-        // is why the first two builds "had no icon". Seed a position near the clock
-        // instead. This is only a first-run default: once the user drags the icon, or a
-        // menu-bar manager arranges it, their choice wins. macOS stores the value as the
-        // distance from the right edge of the screen, in points.
-        let name = "PinTack"
-        let key = "NSStatusItem Preferred Position \(name)"
-        if UserDefaults.standard.object(forKey: key) == nil {
-            UserDefaults.standard.set(160.0, forKey: key)
-        }
+        // macOS puts a newly launched app's item at the left end of the status area, which is
+        // where the owner wants it. An earlier build seeded a position near the clock; clear
+        // that one value (and only that value) so the system default applies again.
+        let seeded = "NSStatusItem Preferred Position PinTack"
+        if UserDefaults.standard.double(forKey: seeded) == 160 { UserDefaults.standard.removeObject(forKey: seeded) }
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        statusItem.autosaveName = name
+        statusItem.autosaveName = "PinTack"
         super.init()
 
         if let button = statusItem.button {

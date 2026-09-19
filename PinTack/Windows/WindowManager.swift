@@ -46,16 +46,18 @@ final class WindowManager {
 
     /// New note at the configured placement, ready to type in. SPEC.md §5.5.
     @discardableResult
-    func newNote(body: String = "", folder: String? = nil) -> Note {
+    func newNote(body: String = "", folder: String? = nil, tags: [String] = []) -> Note {
         let settings = AppSettings.shared
         let defaults = settings.noteDefaults
         let frame = nextCardFrame(size: defaults.size)
-        let note = VaultStore.shared.createNote(body: body, folder: folder, defaults: defaults, frame: frame)
+        let note = VaultStore.shared.createNote(body: body, folder: folder, tags: tags, defaults: defaults, frame: frame)
         open(note, focus: true)
         return note
     }
 
-    func newTodo() { newNote(body: "# Todo\n\n- [ ] ") }
+    /// A todo note starts as "@Todo " with a greyed "todo title" hint after it; Enter after the
+    /// title creates the first checkbox (the editor does that). Tagged #todo from the start.
+    func newTodo() { newNote(body: "@Todo ", tags: ["todo"]) }
 
     /// Hide the window but keep the note ("Minimize to All Notes"). SPEC.md §8.
     func close(noteID: String) {

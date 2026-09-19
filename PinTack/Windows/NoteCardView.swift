@@ -10,14 +10,27 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     private let note: Note
     private unowned let panel: NotePanel
 
-    private let titleField = NSTextField()
-    private let modeButton = NSButton()
-    private let collapseButton = NSButton()
-    private let closeButton = NSButton()
-    private let appearanceButton = NSButton()
+    private let titleField = TitleField()
+    private let pinButton = ToolButton()
+    private let modeButton = ToolButton()
+    private let collapseButton = ToolButton()
+    private let closeButton = ToolButton()
+    private let appearanceButton = ToolButton()
     private let tagsButton = NSButton()
     private let grip = ResizeGripView()
     let editor: NoteEditorView
+
+    // The action bar: a `>` in the footer that opens formatting tools. SPEC.md §5.3 keeps the
+    // always-visible footer to three controls; everything else lives behind this one.
+    private let expandButton = ToolButton()
+    private let bulletButton = ToolButton()
+    private let boldButton = ToolButton()
+    private let italicButton = ToolButton()
+    private let codeButton = ToolButton()
+    private let opacitySlider = NSSlider()
+    private var actionBarExpanded = false
+    private var collapseTimer: Timer?
+    private var footerTracking: NSTrackingArea?
 
     private var popover: NSPopover?
     private var dragOrigin: NSPoint?
@@ -59,6 +72,11 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     }
 
     private var cornerRadius: CGFloat { AppSettings.shared.cornerRadius }
+
+    /// Notes are non-activating panels, so a click on one is usually the FIRST click on a window
+    /// that is not key. Without this AppKit spends that click on activating the window and never
+    /// delivers it, and dragging a note from its header silently does nothing until the second try.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     // MARK: - Hit testing
 
@@ -165,8 +183,8 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     // MARK: - Subviews
 
     private func buildSubviews() {
-        titleField.isEditable = true
-        titleField.isSelectable = true
+        titleField.isEditable = false
+        titleField.isSelectable = false
         titleField.isBordered = false
         titleField.drawsBackground = false
         titleField.focusRingType = .none
@@ -178,11 +196,31 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         titleField.delegate = self
         addSubview(titleField)
 
+        configure(pinButton, symbol: "pin", tip: "Pin on top", action: #selector(togglePin))
         configure(modeButton, symbol: "book", tip: "Switch between Live Preview and Source", action: #selector(toggleMode))
         configure(collapseButton, symbol: "chevron.down", tip: "Collapse", action: #selector(toggleCollapse))
         configure(closeButton, symbol: "xmark", tip: "Close (keeps the note in All Notes)", action: #selector(closeNote))
-        configure(appearanceButton, symbol: "paintpalette", tip: "Color and opacity", action: #selector(showAppearance))
-        [modeButton, collapseButton, closeButton, appearanceButton].forEach { addSubview($0) }
+        configure(appearanceButton, symbol: "paintpalette", tip: "Color, mode and opacity", action: #selector(showAppearance))
+        [pinButton, modeButton, collapseButton, closeButton, appearanceButton].forEach { addSubview($0) }
+
+        // Action bar
+        configure(expandButton, symbol: "chevron.right", tip: "Formatting tools", action: #selector(toggleActionBar))
+        configure(bulletButton, symbol: "list.bullet", tip: "Bulleted list. Right-click to choose an emoji bullet", action: #selector(applyBullet))
+        bulletButton.onRightClick = { [weak self] in self?.editor.pickBullet() }
+        configure(boldButton, symbol: "bold", tip: "Bold", action: #selector(applyBold))
+        configure(italicButton, symbol: "italic", tip: "Italic", action: #selector(applyItalic))
+        configure(codeButton, symbol: "chevron.left.forwardslash.chevron.right", tip: "Code", action: #selector(applyCode))
+        [expandButton, bulletButton, boldButton, italicButton, codeButton].forEach { addSubview($0) }
+
+        opacitySlider.minValue = 0.3               // an invisible note would be unrecoverable. SPEC.md §3.3
+        opacitySlider.maxValue = 1.0
+        opacitySlider.doubleValue = note.opacity
+        opacitySlider.controlSize = .mini
+        opacitySlider.isContinuous = true
+        opacitySlider.target = self
+        opacitySlider.action = #selector(opacityChanged(_:))
+        opacitySlider.toolTip = "Opacity"
+        addSubview(opacitySlider)
 
         tagsButton.isBordered = false
         tagsButton.font = .systemFont(ofSize: 11)
@@ -221,17 +259,58 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     func applyColors() {
         titleField.textColor = foreground.withAlphaComponent(0.86)
         let icon = foreground.withAlphaComponent(0.5)
-        [modeButton, collapseButton, closeButton, appearanceButton].forEach { $0.contentTintColor = icon }
+        [modeButton, collapseButton, closeButton, appearanceButton, expandButton,
+         boldButton, italicButton, codeButton].forEach { $0.contentTintColor = icon }
+        refreshPinGlyph()
+        refreshBulletButton()
         refreshTagsButton()
+        opacitySlider.doubleValue = note.opacity
         needsDisplay = true
     }
 
+    private func symbol(_ name: String, weight: NSFont.Weight = .semibold) -> NSImage? {
+        NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 11, weight: weight))
+    }
+
+    /// The header pin: outlined when free, filled and in the accent color when pinned.
+    private func refreshPinGlyph() {
+        pinButton.image = symbol(note.pinned ? "pin.fill" : "pin")
+        pinButton.contentTintColor = note.pinned ? AppSettings.shared.outlineColor : foreground.withAlphaComponent(0.5)
+        pinButton.toolTip = (note.pinned ? "Unpin" : "Pin on top") + "  " + ShortcutStore.shared.combo(for: .pin).display
+    }
+
+    /// Shows the chosen emoji bullet on the button, or the ordinary bullet-list glyph.
+    private func refreshBulletButton() {
+        let emoji = AppSettings.shared.bulletEmoji
+        if emoji.isEmpty {
+            bulletButton.title = ""
+            bulletButton.image = symbol("list.bullet")
+            bulletButton.imagePosition = .imageOnly
+        } else {
+            bulletButton.image = nil
+            bulletButton.font = .systemFont(ofSize: 13)
+            bulletButton.title = emoji
+            bulletButton.imagePosition = .noImage
+        }
+    }
+
     private func refreshTagsButton() {
-        let text = note.tags.isEmpty ? "＋ Tag" : "🏷 " + note.tags.joined(separator: ", ")
-        tagsButton.attributedTitle = NSAttributedString(string: text, attributes: [
+        let color = foreground.withAlphaComponent(note.tags.isEmpty ? 0.38 : 0.6)
+        let text = NSMutableAttributedString()
+        // A tinted SF Symbol, not the 🏷 emoji: an emoji cannot follow the note's text color.
+        if let tag = NSImage(systemSymbolName: note.tags.isEmpty ? "plus" : "tag", accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 10, weight: .semibold).applying(.init(paletteColors: [color]))) {
+            let attachment = NSTextAttachment()
+            attachment.image = tag
+            text.append(NSAttributedString(attachment: attachment))
+            text.append(NSAttributedString(string: " "))
+        }
+        text.append(NSAttributedString(string: note.tags.isEmpty ? "Tag" : note.tags.joined(separator: ", "), attributes: [
             .font: NSFont.systemFont(ofSize: 11),
-            .foregroundColor: foreground.withAlphaComponent(note.tags.isEmpty ? 0.38 : 0.6),
-        ])
+            .foregroundColor: color,
+        ]))
+        tagsButton.attributedTitle = text
     }
 
     private func refreshModeGlyph() {
@@ -246,15 +325,24 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         let c = note.collapsed
         editor.isHidden = c
         appearanceButton.isHidden = c
-        tagsButton.isHidden = c
+        expandButton.isHidden = c
         grip.isHidden = c
         modeButton.isHidden = c
-        collapseButton.image = NSImage(systemSymbolName: c ? "chevron.right" : "chevron.down",
-                                       accessibilityDescription: c ? "Expand" : "Collapse")?
-            .withSymbolConfiguration(.init(pointSize: 11, weight: .semibold))
+        collapseButton.image = symbol(c ? "chevron.right" : "chevron.down")
         collapseButton.toolTip = c ? "Expand" : "Collapse"
+        updateActionBar()
         needsLayout = true
         needsDisplay = true
+    }
+
+    /// Tools show only while the bar is expanded; the tag list takes their place otherwise.
+    private func updateActionBar() {
+        let open = actionBarExpanded && !note.collapsed
+        [bulletButton, boldButton, italicButton, codeButton, opacitySlider].forEach { $0.isHidden = !open }
+        tagsButton.isHidden = open || note.collapsed
+        expandButton.image = symbol(actionBarExpanded ? "chevron.left" : "chevron.right")
+        expandButton.toolTip = actionBarExpanded ? "Hide formatting tools" : "Formatting tools"
+        needsLayout = true
     }
 
     func updateLayoutForPin() { needsLayout = true }
@@ -270,16 +358,32 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         closeButton.frame = NSRect(x: c.maxX - 8 - btn, y: headerY + 5, width: btn, height: btn)
         collapseButton.frame = NSRect(x: closeButton.frame.minX - btn - 1, y: headerY + 5, width: btn, height: btn)
         modeButton.frame = NSRect(x: collapseButton.frame.minX - btn - 1, y: headerY + 5, width: btn, height: btn)
-        let titleRight = (note.collapsed ? collapseButton : modeButton).frame.minX - 6
-        titleField.frame = NSRect(x: left, y: headerY + 7, width: max(20, titleRight - left), height: 17)
+        pinButton.frame = NSRect(x: (note.collapsed ? collapseButton : modeButton).frame.minX - btn - 1,
+                                 y: headerY + 5, width: btn, height: btn)
+        titleField.frame = NSRect(x: left, y: headerY + 7, width: max(20, pinButton.frame.minX - 6 - left), height: 17)
 
         let footer = NotePanel.footerHeight
         editor.frame = NSRect(x: c.minX + 1, y: c.minY + footer,
                               width: c.width - 2, height: max(0, c.height - NotePanel.headerHeight - footer))
-        appearanceButton.frame = NSRect(x: c.minX + 8, y: c.minY + 5, width: 22, height: 20)
+
+        // Footer, left to right: 🎨  >  then either the tags or the tools; the resize grip at the far right.
+        let y = c.minY + 5
+        appearanceButton.frame = NSRect(x: c.minX + 8, y: y, width: 22, height: 20)
+        expandButton.frame = NSRect(x: appearanceButton.frame.maxX + 2, y: y, width: 18, height: 20)
         grip.frame = NSRect(x: c.maxX - 20, y: c.minY + 4, width: 16, height: 16)
-        let tagsX = appearanceButton.frame.maxX + 6
-        tagsButton.frame = NSRect(x: tagsX, y: c.minY + 5, width: max(20, grip.frame.minX - tagsX - 8), height: 20)
+
+        var x = expandButton.frame.maxX + 4
+        if actionBarExpanded {
+            for tool in [bulletButton, boldButton, italicButton, codeButton] {
+                tool.frame = NSRect(x: x, y: y, width: 22, height: 20)
+                x += 23
+            }
+            let sliderWidth = grip.frame.minX - 8 - (x + 4)
+            opacitySlider.frame = NSRect(x: x + 4, y: c.minY + 7, width: max(0, sliderWidth), height: 16)
+            opacitySlider.isHidden = sliderWidth < 36 || note.collapsed          // too narrow to use
+        } else {
+            tagsButton.frame = NSRect(x: x, y: y, width: max(20, grip.frame.minX - x - 8), height: 20)
+        }
     }
 
     // MARK: - Refresh from model
@@ -295,6 +399,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     }
 
     @objc private func settingsChanged() {
+        if !AppSettings.shared.actionBarAutoCollapse { cancelCollapseTimer() }
         applyColors()
         editor.pushSettings()
         needsDisplay = true
@@ -315,6 +420,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     @objc func togglePin() {
         note.pinned.toggle()
         panel.applyPinned()
+        refreshPinGlyph()
         VaultStore.shared.save(note)
         Toast.show(note.pinned ? "📌 Pinned on top" : "Unpinned")
     }
@@ -347,9 +453,11 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         WindowManager.shared.open(copy, focus: true)
     }
 
-    func setColor(_ hex: String) {
-        note.colorHex = hex
-        note.theme = "auto"
+    /// ⌥⌘1…6: the Nth swatch of the note's own palette mode.
+    func setColor(index: Int) {
+        let set = NotePalette.set(for: note.theme)
+        guard set.indices.contains(index) else { return }
+        note.colorHex = set[index].hex
         VaultStore.shared.save(note)
         refreshFromNote()
     }
@@ -364,6 +472,58 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
 
     func focusEditor() { editor.focusEditor() }
     func openEmoji() { editor.openEmoji() }
+
+    // MARK: Action bar
+
+    @objc private func toggleActionBar() {
+        actionBarExpanded.toggle()
+        updateActionBar()
+        if actionBarExpanded { startCollapseTimer() } else { cancelCollapseTimer() }
+    }
+
+    @objc private func applyBullet() { editor.format("bullet"); keepBarOpen() }
+    @objc private func applyBold() { editor.format("bold"); keepBarOpen() }
+    @objc private func applyItalic() { editor.format("italic"); keepBarOpen() }
+    @objc private func applyCode() { editor.format("code"); keepBarOpen() }
+
+    @objc private func opacityChanged(_ slider: NSSlider) {
+        note.opacity = min(1, max(0.3, (slider.doubleValue * 100).rounded() / 100))
+        panel.alphaValue = note.opacity
+        SaveCoordinator.shared.scheduleSave(note)      // debounced: no write per slider tick
+    }
+
+    /// Using a tool restarts the auto-collapse countdown.
+    private func keepBarOpen() { if actionBarExpanded { startCollapseTimer() } }
+
+    private func startCollapseTimer() {
+        cancelCollapseTimer()
+        let s = AppSettings.shared
+        guard actionBarExpanded, s.actionBarAutoCollapse else { return }
+        // While the pointer is over the footer the user is still working in it.
+        if let window, footerRect.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil)) { return }
+        collapseTimer = Timer.scheduledTimer(withTimeInterval: s.actionBarCollapseSeconds, repeats: false) { [weak self] _ in
+            guard let self, self.actionBarExpanded else { return }
+            self.actionBarExpanded = false
+            self.updateActionBar()
+        }
+    }
+
+    private func cancelCollapseTimer() { collapseTimer?.invalidate(); collapseTimer = nil }
+
+    private var footerRect: NSRect {
+        NSRect(x: cardRect.minX, y: cardRect.minY, width: cardRect.width, height: NotePanel.footerHeight)
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let footerTracking { removeTrackingArea(footerTracking) }
+        let area = NSTrackingArea(rect: footerRect, options: [.mouseEnteredAndExited, .activeAlways], owner: self, userInfo: nil)
+        addTrackingArea(area)
+        footerTracking = area
+    }
+
+    override func mouseEntered(with event: NSEvent) { cancelCollapseTimer() }
+    override func mouseExited(with event: NSEvent) { startCollapseTimer() }
 
     @objc private func showAppearance() {
         let view = AppearancePopoverView(note: note) { [weak self] in
@@ -386,21 +546,58 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
 
     private func present<V: View>(_ view: V, from anchor: NSView) {
         popover?.close()
+        let host = NSHostingController(rootView: view)
+        // Measure the SwiftUI content BEFORE showing. Shown unmeasured, the popover is placed for a
+        // placeholder size and then shrinks in place, leaving it floating a couple of hundred points
+        // away from the button it belongs to (found by measuring: 158 pt off).
+        host.view.frame = NSRect(x: 0, y: 0, width: 400, height: 600)
+        host.view.layoutSubtreeIfNeeded()
+        let size = host.view.fittingSize
+
         let p = NSPopover()
         p.behavior = .transient
-        p.contentViewController = NSHostingController(rootView: view)
+        p.animates = false
+        p.contentViewController = host
+        p.contentSize = size
+        // AppKit picks the side with room (below the note when it can), always touching the button.
         p.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .maxY)
         popover = p
     }
 
     // MARK: - Title editing
 
+    /// Double-click the title to rename it. Until then the title is not editable, so a
+    /// single click-drag moves the note. Enter commits and the title is solid again.
+    private func beginRename() {
+        guard !titleField.isRenaming else { return }
+        panel.makeKeyAndOrderFront(nil)
+        titleField.isRenaming = true
+        titleField.isEditable = true
+        titleField.isSelectable = true
+        window?.makeFirstResponder(titleField)
+        titleField.currentEditor()?.selectAll(nil)
+    }
+
+    private func endRename() {
+        titleField.isRenaming = false
+        titleField.isEditable = false
+        titleField.isSelectable = false
+    }
+
     /// Editing the header rewrites the note's first heading. SPEC.md §4.4.
     func controlTextDidEndEditing(_ obj: Notification) {
         let text = titleField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        if text.isEmpty { titleField.stringValue = note.title; return }
-        if text != note.title { editor.setTitle(text) }
+        endRename()
+        if text.isEmpty { titleField.stringValue = note.title } else if text != note.title { editor.setTitle(text) }
         window?.makeFirstResponder(editor)
+    }
+
+    /// Esc abandons the rename.
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        guard selector == #selector(NSResponder.cancelOperation(_:)) else { return false }
+        titleField.stringValue = note.title
+        window?.makeFirstResponder(editor)
+        return true
     }
 
     // MARK: - Resizing
@@ -414,12 +611,15 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         if note.pinned && pinRect.contains(local) && !cardRect.contains(local) { togglePin(); return }
         guard headerRect.contains(local) else { super.mouseDown(with: event); return }
         if note.pinned && pinRect.contains(local) { togglePin(); return }
+        if event.clickCount == 2 && titleField.frame.contains(local) { dragOrigin = nil; beginRename(); return }
         dragOrigin = event.locationInWindow
     }
 
     override func mouseDragged(with event: NSEvent) {
         guard let origin = dragOrigin, let window else { super.mouseDragged(with: event); return }
-        let current = NSEvent.mouseLocation
+        // Screen position of the pointer, from the event itself (not NSEvent.mouseLocation, which
+        // is the real cursor and so cannot be driven by tests).
+        let current = window.convertPoint(toScreen: event.locationInWindow)
         window.setFrameOrigin(NSPoint(x: current.x - origin.x, y: current.y - origin.y))
     }
 
@@ -530,13 +730,13 @@ final class ResizeGripView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         guard let window else { return }
-        startMouse = NSEvent.mouseLocation
+        startMouse = window.convertPoint(toScreen: event.locationInWindow)
         startFrame = window.frame
     }
 
     override func mouseDragged(with event: NSEvent) {
         guard let window else { return }
-        let now = NSEvent.mouseLocation
+        let now = window.convertPoint(toScreen: event.locationInWindow)
         let minW = window.minSize.width, minH = window.minSize.height
         let w = max(minW, startFrame.width + (now.x - startMouse.x))
         let h = max(minH + NotePanel.footerHeight + 40, startFrame.height + (startMouse.y - now.y))
@@ -549,3 +749,42 @@ final class ResizeGripView: NSView {
         if let note = panel?.note { VaultStore.shared.save(note) }
     }
 }
+
+
+// MARK: - Small controls
+
+/// The header title. Not editable until the user double-clicks it, and while it is not
+/// editable it is invisible to mouse hit-testing, so clicks fall through to the card and
+/// the title drags the note like the rest of the header.
+final class TitleField: NSTextField {
+    var isRenaming = false
+    override func hitTest(_ point: NSPoint) -> NSView? { isRenaming ? super.hitTest(point) : nil }
+    override var acceptsFirstResponder: Bool { isRenaming }
+}
+
+/// A borderless icon button that can also react to a right-click.
+final class ToolButton: NSButton {
+    var onRightClick: (() -> Void)?
+    override func rightMouseDown(with event: NSEvent) {
+        if let onRightClick { onRightClick() } else { super.rightMouseDown(with: event) }
+    }
+}
+
+#if DEBUG
+/// Hooks for the self-test (Support/SelfTest.swift). Compiled out of Release.
+extension NoteCardView {
+    func debugExpandActionBar() { if !actionBarExpanded { toggleActionBar() } }
+    func debugShowAppearance() { showAppearance() }
+    var debugIsRenaming: Bool { titleField.isRenaming }
+    var debugTitleCenter: NSPoint { NSPoint(x: titleField.frame.midX, y: titleField.frame.midY) }
+    var debugPopoverWindow: NSWindow? { popover?.contentViewController?.view.window }
+    var debugPopoverShown: Bool { popover?.isShown == true }
+    /// The appearance button's rect in screen coordinates.
+    var debugAppearanceButtonScreenRect: NSRect {
+        guard let window else { return .zero }
+        return window.convertToScreen(appearanceButton.convert(appearanceButton.bounds, to: nil))
+    }
+    var debugActionBarExpanded: Bool { actionBarExpanded }
+    var debugBulletTitle: String { bulletButton.title }
+}
+#endif

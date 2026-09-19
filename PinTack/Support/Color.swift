@@ -42,9 +42,17 @@ extension NSColor {
     }
 }
 
-/// The six preset note colors from the prototype. SPEC.md §5.3.
+/// Note color presets, in three modes. SPEC.md §5.3.
+///
+/// A note's `theme` is its palette mode: `auto` is the standard set, `dark` swaps
+/// the swatches for deeper versions and `light` for paler ones. Text color is NEVER a
+/// user choice: it always flips light/dark from the background's luminance, so no
+/// color can be unreadable. The mode only changes which swatches are offered.
 enum NotePalette {
-    static let presets: [(name: String, hex: String)] = [
+
+    typealias Swatch = (name: String, hex: String)
+
+    static let auto: [Swatch] = [
         ("Butter",   "#FFE38A"),
         ("Peach",    "#FFBA94"),
         ("Mint",     "#A8EBC8"),
@@ -52,4 +60,47 @@ enum NotePalette {
         ("Lilac",    "#CEB8FF"),
         ("Graphite", "#2C2C32"),
     ]
+
+    static let light: [Swatch] = [
+        ("Butter",   "#FFF1B8"),
+        ("Peach",    "#FFD9C4"),
+        ("Mint",     "#D4F5E3"),
+        ("Sky",      "#D2E9FF"),
+        ("Lilac",    "#E6DBFF"),
+        ("Cloud",    "#F5F5F7"),
+    ]
+
+    static let dark: [Swatch] = [
+        ("Butter",   "#A88418"),
+        ("Peach",    "#B8623C"),
+        ("Mint",     "#2E7D5B"),
+        ("Sky",      "#2F62A3"),
+        ("Lilac",    "#6B4FB0"),
+        ("Graphite", "#1F1F24"),
+    ]
+
+    /// The standard set, used by Settings and the menu.
+    static var presets: [Swatch] { auto }
+
+    static func set(for mode: String) -> [Swatch] {
+        switch mode {
+        case "dark":  return dark
+        case "light": return light
+        default:      return auto
+        }
+    }
+
+    /// Switching mode carries a preset color across to the same-named swatch in the new
+    /// set, so pressing Dark actually darkens a Butter note. A custom color is left alone.
+    static func remap(_ hex: String, toMode mode: String) -> String? {
+        for source in [auto, light, dark] {
+            if let i = source.firstIndex(where: { $0.hex.caseInsensitiveCompare(hex) == .orderedSame }) {
+                return set(for: mode)[i].hex
+            }
+        }
+        return nil
+    }
+
+    /// Random new-note colors come from the five pastels (the prototype excluded graphite).
+    static var randomPastel: String { auto.prefix(5).randomElement()!.hex }
 }

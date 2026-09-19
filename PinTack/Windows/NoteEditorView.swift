@@ -143,6 +143,15 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
     func pushTags() { send("tags.changed", ["tags": VaultStore.shared.tagCounts().map(\.tag)]) }
     func setTitle(_ title: String) { send("title.set", ["title": title]) }
     func openEmoji() { send("emoji.open") }
+
+    /// Action-bar buttons: "bold", "italic", "code", "bullet".
+    func format(_ kind: String) {
+        send("format.apply", ["kind": kind])
+        window?.makeFirstResponder(self)          // keep typing after a button click
+    }
+
+    /// Right-click on the bullet button: pick an emoji bullet (or clear the choice).
+    func pickBullet() { send("bullet.pick") }
     func focusEditor() { send("focus"); window?.makeFirstResponder(self) }
 
     func setMode(_ newMode: String) {
@@ -161,7 +170,7 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
         let fg: NSColor = dark ? NSColor(white: 0.08, alpha: 0.88) : NSColor(white: 1, alpha: 0.94)
         let stack = s.fontFamily.isEmpty
             ? "-apple-system, BlinkMacSystemFont, \"SF Pro Text\", system-ui, sans-serif"
-            : "\"\(s.fontFamily.replacingOccurrences(of: "\"", with: ""))\", -apple-system, system-ui, sans-serif"
+            : "\"\(s.fontFamily.replacingOccurrences(of: "\"", with: ""))\", \"Comic Sans MS\", -apple-system, system-ui, sans-serif"
         return [
             "fg": fg.css(),
             "fgDim": fg.css(alpha: 0.45),
@@ -171,6 +180,7 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
             "highlight": dark ? "rgba(255, 214, 0, 0.5)" : "rgba(255, 214, 0, 0.32)",
             "font": stack,
             "size": s.fontSize,
+            "bullet": s.bulletEmoji,
             "spellcheck": s.spellcheck,
             "slashCommands": s.slashCommands,
         ]
@@ -211,6 +221,11 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
 
         case "image.pick":
             pickImage()
+
+        case "bullet.changed":
+            let emoji = payload["emoji"] as? String ?? ""
+            AppSettings.shared.bulletEmoji = emoji
+            Toast.show(emoji.isEmpty ? "Default bullet" : "Bullet: \(emoji)")
 
         case "link.open":
             // Only web and mail links leave the app. SPEC.md §4.4.
