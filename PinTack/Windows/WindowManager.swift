@@ -183,8 +183,11 @@ final class WindowManager {
     // MARK: - External changes (SPEC.md §3.7)
 
     @objc private func noteChangedExternally(_ n: Notification) {
-        guard let note = n.object as? Note, let panel = panels[note.id] else { return }
+        guard let note = n.object as? Note else { return }
         if !note.visible { close(noteID: note.id); return }
+        // A hidden note made visible by an outside edit (e.g. synced from another Mac)
+        // has no window yet: open one.
+        guard let panel = panels[note.id] else { open(note); return }
         panel.applyCardFrame(note.cardFrame)
         panel.card.refreshFromNote()
         panel.card.editor.reloadBody()
