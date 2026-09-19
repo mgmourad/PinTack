@@ -1,0 +1,80 @@
+## macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.Spotlight-V100
+.Trashes
+
+## Xcode
+build/
+DerivedData/
+*.moved-aside
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+xcuserdata/
+*.xccheckout
+*.xcscmblueprint
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+## Xcode Playgrounds
+timeline.xctimeline
+playground.xcworkspace
+
+## Swift Package Manager
+.build/
+Packages/
+Package.resolved
+.swiftpm/
+
+## CocoaPods / Carthage (not used, guarded anyway)
+Pods/
+Carthage/Build/
+
+## Fastlane
+fastlane/report.xml
+fastlane/screenshots/**/*.png
+fastlane/test_output
+
+## Editor / JS tooling for the CodeMirror bundle
+node_modules/
+npm-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+dist/
+.vite/
+.parcel-cache/
+
+## Signing and secrets — never commit these
+*.p12
+*.mobileprovision
+*.provisionprofile
+*.cer
+*.certSigningRequest
+.env
+.env.*
+!.env.example
+sparkle_private_key*
+AuthKey_*.p8
+
+## Local vault used for development
+/DevVault/
+*.pintack-vault/
+
+## Generated
+*.dmg
+*.zip
+appcast.xml
+
+## Node (editor vendoring scratch)
+node_modules/

@@ -1,0 +1,1178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tack — sticky notes interaction prototype</title>
+<style>
+:root {
+  box-sizing: border-box;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --chrome: rgba(28,28,30,.72);
+  --chrome-solid: #1c1c1e;
+  --hairline: rgba(255,255,255,.14);
+  --text: #f2f2f7;
+  --text-dim: rgba(242,242,247,.55);
+  --accent: #ff9f0a;
+  --sel: rgba(255,159,10,.28);
+  --radius-note: 12px;
+}
+*, *::before, *::after { box-sizing: inherit; }
+html, body { height: 100%; margin: 0; }
+body {
+  font-family: var(--font);
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  background: #0d0f14;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------- desktop ---------- */
+#desktop {
+  position: relative;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background:
+    radial-gradient(120% 90% at 20% 10%, #3a2a4d 0%, transparent 55%),
+    radial-gradient(110% 80% at 85% 25%, #7a4a2a 0%, transparent 50%),
+    linear-gradient(160deg, #1a1b2e 0%, #2b2438 45%, #4a3a35 100%);
+}
+#desktop::after {
+  content: "";
+  position: absolute; inset: 0;
+  background: linear-gradient(180deg, transparent 55%, rgba(0,0,0,.45) 100%);
+  pointer-events: none;
+}
+
+/* ---------- menu bar ---------- */
+#menubar {
+  position: absolute; top: 0; left: 0; right: 0;
+  height: 26px;
+  padding-top: env(safe-area-inset-top, 0px);
+  display: flex; align-items: center; gap: 18px;
+  padding-left: 14px; padding-right: 14px;
+  background: rgba(20,20,22,.55);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  border-bottom: .5px solid rgba(255,255,255,.08);
+  font-size: 12.5px;
+  z-index: 9000;
+  user-select: none;
+}
+#menubar .mb-app { font-weight: 700; }
+#menubar .mb-item { color: rgba(255,255,255,.82); cursor: default; }
+#menubar .mb-right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+.tray {
+  cursor: pointer; font-size: 14px; line-height: 1;
+  padding: 2px 5px; border-radius: 5px;
+}
+.tray:hover { background: rgba(255,255,255,.16); }
+.tray[data-open="1"] { background: var(--accent); color: #1a1a1a; }
+#sync-state { font-size: 11.5px; color: rgba(255,255,255,.6); display: flex; align-items: center; gap: 5px; }
+#sync-dot { width: 7px; height: 7px; border-radius: 50%; background: #30d158; box-shadow: 0 0 6px #30d158; }
+#sync-dot.syncing { background: var(--accent); box-shadow: 0 0 6px var(--accent); animation: pulse .8s ease-in-out infinite alternate; }
+@keyframes pulse { to { opacity: .35; } }
+
+/* ---------- canvas + notes ---------- */
+#canvas { position: absolute; inset: 26px 0 0 0; }
+
+.note {
+  position: absolute;
+  width: 280px;
+  min-width: 190px;
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-note);
+  box-shadow: 0 10px 34px rgba(0,0,0,.44), 0 1px 0 rgba(255,255,255,.18) inset;
+  overflow: hidden;
+  backdrop-filter: blur(18px) saturate(150%);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  transition: box-shadow .16s ease;
+}
+body[data-corners="square"] .note { border-radius: 2px; }
+.note.pinned { box-shadow: 0 14px 44px rgba(0,0,0,.55), 0 0 0 1.5px var(--accent) inset; }
+.note.dragging { transition: none; }
+
+.note-head {
+  display: flex; align-items: center; gap: 6px;
+  padding: 7px 8px 6px 11px;
+  cursor: grab;
+  user-select: none;
+  border-bottom: .5px solid rgba(0,0,0,.09);
+}
+.note.dragging .note-head { cursor: grabbing; }
+.note-title {
+  flex: 1; min-width: 0;
+  font-weight: 650; font-size: 12.5px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  outline: none;
+}
+.note-title:focus { text-overflow: clip; }
+.hbtn {
+  border: 0; background: transparent; cursor: pointer;
+  font-size: 12px; line-height: 1; padding: 3px 4px; border-radius: 4px;
+  opacity: .42; color: inherit;
+}
+.hbtn:hover { opacity: 1; background: rgba(0,0,0,.1); }
+.hbtn.on { opacity: 1; }
+.note.pinned .hbtn.pin { opacity: 1; transform: rotate(0deg); }
+
+.note-body {
+  flex: 1; padding: 9px 12px 4px;
+  overflow-y: auto; font-size: 13px; line-height: 1.5;
+  outline: none;
+}
+.note.collapsed .note-body,
+.note.collapsed .note-foot { display: none; }
+.note.collapsed { min-height: 0; height: auto !important; }
+
+.note-body textarea {
+  width: 100%; height: 100%; min-height: 80px;
+  border: 0; background: transparent; resize: none; outline: none;
+  font: inherit; color: inherit; line-height: 1.5;
+}
+.md h1 { font-size: 17px; margin: 2px 0 6px; }
+.md h2 { font-size: 15px; margin: 2px 0 5px; }
+.md p  { margin: 0 0 6px; }
+.md ul { margin: 0 0 6px; padding-left: 18px; }
+.md li { margin-bottom: 2px; }
+.md code {
+  font-family: var(--mono); font-size: 11.5px;
+  background: rgba(0,0,0,.14); padding: 1px 4px; border-radius: 3px;
+}
+.md pre {
+  font-family: var(--mono); font-size: 11.5px; margin: 0 0 7px;
+  background: rgba(0,0,0,.18); padding: 7px 9px; border-radius: 6px;
+  overflow-x: auto; white-space: pre;
+}
+.md blockquote {
+  margin: 0 0 7px; padding: 3px 0 3px 10px;
+  border-left: 3px solid rgba(0,0,0,.2); opacity: .8;
+}
+.md .task { display: flex; gap: 7px; align-items: flex-start; margin-bottom: 3px; cursor: pointer; }
+.md .task .box {
+  flex: none; width: 14px; height: 14px; margin-top: 2px;
+  border: 1.5px solid currentColor; border-radius: 4px; opacity: .5;
+  display: grid; place-items: center; font-size: 10px; line-height: 1;
+}
+.md .task.done .box { opacity: 1; background: currentColor; }
+.md .task.done .box::after { content: "✓"; color: rgba(255,255,255,.9); mix-blend-mode: difference; }
+.md .task.done .label { opacity: .45; text-decoration: line-through; }
+.md .ebullet { display: flex; gap: 7px; margin-bottom: 3px; }
+
+.note-foot {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 9px 7px;
+  border-top: .5px solid rgba(0,0,0,.08);
+}
+.swatches { display: flex; gap: 4px; }
+.sw {
+  width: 13px; height: 13px; border-radius: 50%;
+  border: 1px solid rgba(0,0,0,.18); cursor: pointer;
+}
+.sw[aria-checked="true"] { box-shadow: 0 0 0 2px rgba(0,0,0,.35); }
+.opacity-wrap { flex: 1; display: flex; align-items: center; gap: 5px; min-width: 60px; }
+.opacity-wrap input[type=range] {
+  flex: 1; height: 3px; -webkit-appearance: none; appearance: none;
+  background: rgba(0,0,0,.2); border-radius: 3px; outline: none;
+}
+.opacity-wrap input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 12px; height: 12px; border-radius: 50%;
+  background: #fff; border: 1px solid rgba(0,0,0,.28); cursor: pointer;
+}
+.opacity-wrap input[type=range]::-moz-range-thumb {
+  width: 12px; height: 12px; border-radius: 50%;
+  background: #fff; border: 1px solid rgba(0,0,0,.28); cursor: pointer;
+}
+.fbtn {
+  border: 0; background: transparent; cursor: pointer;
+  font-size: 13px; padding: 2px 4px; border-radius: 4px; opacity: .55; color: inherit;
+}
+.fbtn:hover { opacity: 1; background: rgba(0,0,0,.1); }
+.resize {
+  position: absolute; right: 0; bottom: 0; width: 15px; height: 15px;
+  cursor: nwse-resize; opacity: .3;
+}
+.resize::after {
+  content: ""; position: absolute; right: 3px; bottom: 3px;
+  width: 7px; height: 7px;
+  border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor;
+}
+
+/* ---------- floating windows ---------- */
+.win {
+  position: absolute;
+  background: var(--chrome);
+  backdrop-filter: blur(34px) saturate(170%);
+  -webkit-backdrop-filter: blur(34px) saturate(170%);
+  border: .5px solid var(--hairline);
+  border-radius: 11px;
+  box-shadow: 0 22px 60px rgba(0,0,0,.6);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  z-index: 8000;
+}
+.win-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 12px; cursor: grab; user-select: none;
+  border-bottom: .5px solid var(--hairline);
+}
+.win-head strong { font-size: 12.5px; font-weight: 650; }
+.win-close {
+  margin-left: auto; border: 0; background: transparent; color: var(--text-dim);
+  cursor: pointer; font-size: 15px; line-height: 1; padding: 0 2px;
+}
+.win-close:hover { color: var(--text); }
+.hidden { display: none !important; }
+
+/* all notes window */
+#allnotes { left: 60px; top: 90px; width: 560px; height: 420px; }
+#an-body { flex: 1; display: flex; min-height: 0; }
+#an-side {
+  width: 168px; flex: none; padding: 8px 6px;
+  border-right: .5px solid var(--hairline); overflow-y: auto;
+}
+#an-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+#an-search {
+  margin: 8px 10px; padding: 5px 9px; border-radius: 7px;
+  border: .5px solid var(--hairline); background: rgba(0,0,0,.28);
+  color: var(--text); font: inherit; outline: none;
+}
+#an-search:focus { border-color: var(--accent); }
+#an-list { flex: 1; overflow-y: auto; padding: 0 6px 8px; }
+.folder-row {
+  display: flex; align-items: center; gap: 7px;
+  padding: 5px 8px; border-radius: 6px; cursor: pointer;
+  color: rgba(255,255,255,.78); font-size: 12.5px;
+}
+.folder-row:hover { background: rgba(255,255,255,.08); }
+.folder-row.sel { background: var(--sel); color: #fff; }
+.folder-row .count { margin-left: auto; opacity: .45; font-size: 11px; }
+.side-label {
+  font-size: 10.5px; color: var(--text-dim); padding: 9px 9px 4px; letter-spacing: .3px;
+}
+.note-row {
+  display: flex; align-items: center; gap: 9px;
+  padding: 7px 8px; border-radius: 7px; cursor: pointer;
+}
+.note-row:hover { background: rgba(255,255,255,.07); }
+.note-row .chip { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.note-row .rt { flex: 1; min-width: 0; }
+.note-row .rt b { display: block; font-size: 12.5px; font-weight: 620; }
+.note-row .rt span {
+  display: block; font-size: 11.5px; color: var(--text-dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.note-row .eye {
+  border: 0; background: transparent; cursor: pointer; font-size: 13px;
+  color: var(--text-dim); padding: 2px 4px; border-radius: 4px;
+}
+.note-row .eye:hover { background: rgba(255,255,255,.12); color: var(--text); }
+.note-row.hiddenNote .rt { opacity: .42; }
+#an-foot {
+  display: flex; gap: 7px; padding: 8px 10px;
+  border-top: .5px solid var(--hairline);
+}
+.btn {
+  font: inherit; font-size: 12px;
+  padding: 4px 10px; border-radius: 6px; cursor: pointer;
+  border: .5px solid var(--hairline); background: rgba(255,255,255,.08); color: var(--text);
+}
+.btn:hover { background: rgba(255,255,255,.16); }
+.btn.primary { background: var(--accent); color: #1a1a1a; border-color: transparent; font-weight: 600; }
+.btn.primary:hover { filter: brightness(1.08); }
+#an-foot .spacer { flex: 1; }
+
+/* context menu */
+#ctx {
+  position: absolute; z-index: 9500; min-width: 186px;
+  padding: 5px;
+  background: rgba(40,40,44,.82);
+  backdrop-filter: blur(30px) saturate(180%);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  border: .5px solid var(--hairline); border-radius: 9px;
+  box-shadow: 0 16px 42px rgba(0,0,0,.6);
+}
+.ctx-item {
+  display: flex; align-items: center; gap: 9px;
+  padding: 5px 9px; border-radius: 5px; cursor: pointer; font-size: 12.5px;
+}
+.ctx-item:hover { background: var(--accent); color: #1a1a1a; }
+.ctx-item .key { margin-left: auto; opacity: .55; font-size: 11.5px; font-family: var(--mono); }
+.ctx-item:hover .key { opacity: .75; }
+.ctx-sep { height: .5px; background: var(--hairline); margin: 4px 6px; }
+
+/* emoji picker */
+#emoji {
+  position: absolute; z-index: 9500; width: 268px;
+  padding: 8px;
+  background: rgba(40,40,44,.86);
+  backdrop-filter: blur(30px) saturate(180%);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  border: .5px solid var(--hairline); border-radius: 11px;
+  box-shadow: 0 16px 42px rgba(0,0,0,.6);
+}
+#emoji .cat { font-size: 10.5px; color: var(--text-dim); margin: 6px 3px 3px; }
+#emoji .grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 1px; }
+#emoji .grid button {
+  border: 0; background: transparent; cursor: pointer;
+  font-size: 17px; line-height: 1; padding: 4px; border-radius: 6px;
+}
+#emoji .grid button:hover { background: rgba(255,255,255,.18); }
+#emoji .mode {
+  display: flex; gap: 5px; margin-top: 7px; padding-top: 7px;
+  border-top: .5px solid var(--hairline);
+}
+#emoji .mode label { display: flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--text-dim); cursor: pointer; }
+
+/* tray popover */
+#tray-pop {
+  position: absolute; top: 30px; right: 12px; z-index: 9400; width: 244px;
+  padding: 6px;
+  background: rgba(40,40,44,.84);
+  backdrop-filter: blur(30px) saturate(180%);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  border: .5px solid var(--hairline); border-radius: 11px;
+  box-shadow: 0 16px 42px rgba(0,0,0,.6);
+}
+
+/* widgets */
+#widgets {
+  position: absolute; right: 18px; top: 46px; width: 216px;
+  display: flex; flex-direction: column; gap: 12px; z-index: 100;
+}
+.widget {
+  border-radius: 16px; padding: 12px 13px;
+  background: rgba(30,30,34,.55);
+  backdrop-filter: blur(26px) saturate(160%);
+  -webkit-backdrop-filter: blur(26px) saturate(160%);
+  border: .5px solid rgba(255,255,255,.12);
+  box-shadow: 0 8px 26px rgba(0,0,0,.34);
+}
+.widget h4 {
+  margin: 0 0 8px; font-size: 11px; font-weight: 650;
+  color: var(--text-dim); display: flex; align-items: center; gap: 5px;
+}
+.widget .wtask { display: flex; gap: 7px; align-items: flex-start; font-size: 12px; margin-bottom: 5px; cursor: pointer; }
+.widget .wtask .box {
+  flex: none; width: 13px; height: 13px; margin-top: 1px;
+  border: 1.4px solid rgba(255,255,255,.45); border-radius: 4px;
+  display: grid; place-items: center; font-size: 9px;
+}
+.widget .wtask.done .box { background: var(--accent); border-color: var(--accent); color: #1a1a1a; }
+.widget .wtask.done .box::after { content: "✓"; }
+.widget .wtask.done span { opacity: .42; text-decoration: line-through; }
+.widget .wnote { font-size: 12px; line-height: 1.45; color: rgba(255,255,255,.85); }
+.widget .wmeta { margin-top: 8px; font-size: 10.5px; color: var(--text-dim); }
+
+/* shortcuts overlay */
+#shortcuts {
+  position: absolute; inset: 0; z-index: 9600;
+  background: rgba(0,0,0,.52);
+  backdrop-filter: blur(6px);
+  display: grid; place-items: center;
+}
+#sc-card {
+  width: min(660px, 90%); max-height: 78%; overflow-y: auto;
+  padding: 22px 26px 26px;
+  background: rgba(34,34,38,.94);
+  border: .5px solid var(--hairline); border-radius: 15px;
+  box-shadow: 0 30px 80px rgba(0,0,0,.7);
+}
+#sc-card h3 { margin: 0 0 3px; font-size: 17px; }
+#sc-card p.sub { margin: 0 0 18px; color: var(--text-dim); font-size: 12.5px; }
+.sc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px 32px; }
+.sc-grid h5 { margin: 0 0 7px; font-size: 11px; color: var(--accent); }
+.sc-row { display: flex; align-items: baseline; gap: 10px; margin-bottom: 5px; font-size: 12.5px; }
+.sc-row kbd {
+  font-family: var(--mono); font-size: 11px;
+  background: rgba(255,255,255,.1); border: .5px solid var(--hairline);
+  border-radius: 5px; padding: 2px 6px; white-space: nowrap;
+}
+.sc-row span { color: rgba(255,255,255,.82); }
+
+/* toast */
+#toast {
+  position: absolute; bottom: 26px; left: 50%; transform: translateX(-50%) translateY(14px);
+  z-index: 9700; padding: 9px 17px; border-radius: 10px;
+  background: rgba(40,40,44,.92); border: .5px solid var(--hairline);
+  font-size: 12.5px; opacity: 0; pointer-events: none;
+  transition: opacity .18s ease, transform .18s ease;
+}
+#toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* hint */
+#hint {
+  position: absolute; left: 18px; bottom: 16px; z-index: 50;
+  font-size: 11.5px; color: rgba(255,255,255,.5);
+}
+#hint kbd {
+  font-family: var(--mono); background: rgba(255,255,255,.12);
+  border-radius: 4px; padding: 1px 5px; font-size: 10.5px;
+}
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+</style>
+</head>
+<body data-corners="round">
+
+<div id="desktop">
+  <div id="menubar">
+    <span class="mb-app">Tack</span>
+    <span class="mb-item">File</span>
+    <span class="mb-item">Edit</span>
+    <span class="mb-item">Note</span>
+    <span class="mb-item">Window</span>
+    <span class="mb-item">Help</span>
+    <div class="mb-right">
+      <span id="sync-state"><span id="sync-dot"></span><span id="sync-text">iCloud up to date</span></span>
+      <span class="tray" id="tray" title="Menu bar item">📌</span>
+    </div>
+  </div>
+
+  <div id="canvas"></div>
+
+  <div id="widgets">
+    <div class="widget" id="w-todo">
+      <h4>🧩 Today · Tack widget</h4>
+      <div id="w-todo-body"></div>
+      <div class="wmeta">Interactive via AppIntents</div>
+    </div>
+    <div class="widget" id="w-note">
+      <h4>🧩 Pinned note</h4>
+      <div class="wnote" id="w-note-body"></div>
+    </div>
+  </div>
+
+  <div id="hint">Press <kbd>⌥⌘/</kbd> for the full shortcut list · right-click any note header</div>
+</div>
+
+<!-- All Notes window -->
+<div class="win hidden" id="allnotes">
+  <div class="win-head" id="an-head">
+    <strong>All Notes</strong>
+    <button class="win-close" id="an-close">✕</button>
+  </div>
+  <div id="an-body">
+    <div id="an-side"></div>
+    <div id="an-main">
+      <input id="an-search" type="search" placeholder="Search notes">
+      <div id="an-list"></div>
+      <div id="an-foot">
+        <button class="btn primary" id="an-new">New note</button>
+        <div class="spacer"></div>
+        <button class="btn" id="an-export">Export all</button>
+        <button class="btn" id="an-import">Import</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="ctx" class="hidden"></div>
+<div id="emoji" class="hidden"></div>
+<div id="tray-pop" class="hidden"></div>
+
+<div id="shortcuts" class="hidden">
+  <div id="sc-card">
+    <h3>Keyboard shortcuts</h3>
+    <p class="sub">In the shipping app these register through Carbon <code>RegisterEventHotKey</code>, so they fire even when Tack is not the front app.</p>
+    <div class="sc-grid" id="sc-grid"></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<input type="file" id="file-input" accept=".json,.tackarchive" style="display:none">
+
+<script>
+"use strict";
+
+/* ============================================================
+   Tack prototype
+   Every feature here maps to a line item in the review.
+   Storage uses localStorage; the real app uses SwiftData in an
+   App Group container so the widget extension can read it too.
+   ============================================================ */
+
+const PALETTE = [
+  { id: "butter",   bg: "rgba(255, 227, 138, .92)", fg: "#3a2f10" },
+  { id: "peach",    bg: "rgba(255, 186, 148, .92)", fg: "#41230f" },
+  { id: "mint",     bg: "rgba(168, 235, 200, .92)", fg: "#10321f" },
+  { id: "sky",      bg: "rgba(163, 213, 255, .92)", fg: "#0e2a45" },
+  { id: "lilac",    bg: "rgba(206, 184, 255, .92)", fg: "#261640" },
+  { id: "graphite", bg: "rgba(44, 44, 50, .90)",    fg: "#e9e9ef" }
+];
+const colorOf = id => PALETTE.find(p => p.id === id) || PALETTE[0];
+
+const EMOJI = {
+  "Frequent": ["✅","⭐️","🔥","📌","⚡️","💡","🎯","📝"],
+  "Status":   ["🟢","🟡","🔴","🔵","⏳","🚧","✔️","❌"],
+  "Work":     ["💼","📊","🗂","📅","☎️","🖥","🔧","🧪"],
+  "Life":     ["🏠","🍎","🚗","✈️","🎂","☕️","🏋️","🌙"]
+};
+
+const SHORTCUTS = [
+  ["Notes", [
+    ["⌥⌘N", "New note anywhere"],
+    ["⌥⌘L", "New note as a todo list"],
+    ["⌥⌘W", "Close focused note"],
+    ["⌥⌘P", "Pin / unpin focused note"],
+    ["⌥⌘K", "Collapse / expand focused note"]
+  ]],
+  ["Appearance", [
+    ["⌥⌘1…6", "Set note color"],
+    ["⌥⌘E", "Emoji picker"],
+    ["⌥⌘,", "Less opaque"],
+    ["⌥⌘.", "More opaque"],
+    ["⌥⌘R", "Round / square corners"]
+  ]],
+  ["Windows", [
+    ["⌥⌘A", "Auto-arrange all notes"],
+    ["⌥⌘H", "Show / hide All Notes"],
+    ["⌥⌘M", "Minimize focused note"],
+    ["⌥⌘/", "This list"],
+    ["esc", "Dismiss menus"]
+  ]],
+  ["Data", [
+    ["⌥⌘S", "Force iCloud sync"],
+    ["⌥⌘X", "Export all notes"],
+    ["⌥⌘I", "Import archive"]
+  ]]
+];
+
+/* ---------------- state ---------------- */
+let state = null;
+let zTop = 100;
+let focusedId = null;
+let emojiMode = "insert"; // insert | bullet
+
+const uid = () => Math.random().toString(36).slice(2, 10);
+
+function seed() {
+  return {
+    folders: [
+      { id: "f1", name: "Work",     icon: "💼" },
+      { id: "f2", name: "Personal", icon: "🏠" },
+      { id: "f3", name: "Scratch",  icon: "✏️" }
+    ],
+    notes: [
+      {
+        id: uid(), title: "Sprint blockers", folder: "f1", color: "butter",
+        body: "## Blockers\n- [x] Cert renewal on the build agent\n- [ ] Graph throttling on bulk device query\n- [ ] Autopilot profile drift\n\n`Get-CimInstance` is not available on the PS 5.0 boxes.",
+        x: 60, y: 70, w: 300, h: 230, opacity: 1, pinned: false, collapsed: false, visible: true, z: 101
+      },
+      {
+        id: uid(), title: "Groceries", folder: "f2", color: "mint",
+        body: "🍎 apples\n🥛 oat milk\n🍞 sourdough\n☕️ beans, whole",
+        x: 400, y: 120, w: 240, h: 190, opacity: .92, pinned: false, collapsed: false, visible: true, z: 102
+      },
+      {
+        id: uid(), title: "Read later", folder: "f2", color: "lilac",
+        body: "> The best interface is the one you forget is there.\n\n- WidgetKit + AppIntents docs\n- TextKit 2 attribute runs\n- CloudKit schema migration",
+        x: 120, y: 340, w: 275, h: 185, opacity: 1, pinned: false, collapsed: false, visible: true, z: 103
+      },
+      {
+        id: uid(), title: "Always on top", folder: "f3", color: "graphite",
+        body: "# Pinned\nThis note stays above other windows and follows you across Spaces.\n\nTry the **opacity slider** below.",
+        x: 470, y: 380, w: 265, h: 195, opacity: .88, pinned: true, collapsed: false, visible: true, z: 900
+      }
+    ]
+  };
+}
+
+function load() {
+  try {
+    const raw = localStorage.getItem("tack.state");
+    if (raw) { state = JSON.parse(raw); return; }
+  } catch (e) { /* storage unavailable, fall through to seed */ }
+  state = seed();
+}
+function save() {
+  try { localStorage.setItem("tack.state", JSON.stringify(state)); }
+  catch (e) { /* non-fatal in a prototype */ }
+  flashSync();
+}
+
+/* ---------------- markdown ---------------- */
+function esc(s) {
+  return s.replace(/[&<>"]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
+}
+function inline(s) {
+  return esc(s)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[^*])\*([^*]+)\*/g, "$1<em>$2</em>")
+    .replace(/~~([^~]+)~~/g, "<del>$1</del>");
+}
+function renderMarkdown(src) {
+  const lines = src.split("\n");
+  let out = "", inList = false, inCode = false, codeBuf = [];
+  const closeList = () => { if (inList) { out += "</ul>"; inList = false; } };
+
+  lines.forEach((line, i) => {
+    if (line.trim().startsWith("```")) {
+      if (inCode) { out += "<pre>" + esc(codeBuf.join("\n")) + "</pre>"; codeBuf = []; inCode = false; }
+      else { closeList(); inCode = true; }
+      return;
+    }
+    if (inCode) { codeBuf.push(line); return; }
+
+    const task = line.match(/^\s*-\s\[( |x|X)\]\s?(.*)$/);
+    if (task) {
+      closeList();
+      const done = task[1].toLowerCase() === "x";
+      out += `<div class="task${done ? " done" : ""}" data-line="${i}"><span class="box"></span><span class="label">${inline(task[2])}</span></div>`;
+      return;
+    }
+    const emojiBullet = line.match(/^\s*([\p{Extended_Pictographic}\u{1F3FB}-\u{1F3FF}]+)\s+(.*)$/u);
+    if (emojiBullet) {
+      closeList();
+      out += `<div class="ebullet"><span>${esc(emojiBullet[1])}</span><span>${inline(emojiBullet[2])}</span></div>`;
+      return;
+    }
+    if (/^##\s/.test(line))  { closeList(); out += "<h2>" + inline(line.slice(3)) + "</h2>"; return; }
+    if (/^#\s/.test(line))   { closeList(); out += "<h1>" + inline(line.slice(2)) + "</h1>"; return; }
+    if (/^>\s?/.test(line))  { closeList(); out += "<blockquote>" + inline(line.replace(/^>\s?/, "")) + "</blockquote>"; return; }
+    if (/^\s*[-*]\s/.test(line)) {
+      if (!inList) { out += "<ul>"; inList = true; }
+      out += "<li>" + inline(line.replace(/^\s*[-*]\s/, "")) + "</li>";
+      return;
+    }
+    closeList();
+    if (line.trim() === "") { out += ""; return; }
+    out += "<p>" + inline(line) + "</p>";
+  });
+  closeList();
+  if (inCode && codeBuf.length) out += "<pre>" + esc(codeBuf.join("\n")) + "</pre>";
+  return out || '<p style="opacity:.4">Empty note</p>';
+}
+
+/* ---------------- note rendering ---------------- */
+const canvas = document.getElementById("canvas");
+
+function noteById(id) { return state.notes.find(n => n.id === id); }
+
+function renderNotes() {
+  canvas.innerHTML = "";
+  state.notes.filter(n => n.visible).forEach(n => canvas.appendChild(buildNote(n)));
+  renderWidgets();
+}
+
+function buildNote(n) {
+  const c = colorOf(n.color);
+  const el = document.createElement("div");
+  el.className = "note" + (n.pinned ? " pinned" : "") + (n.collapsed ? " collapsed" : "");
+  el.dataset.id = n.id;
+  el.style.cssText =
+    `left:${n.x}px;top:${n.y}px;width:${n.w}px;height:${n.collapsed ? "auto" : n.h + "px"};` +
+    `background:${c.bg};color:${c.fg};opacity:${n.opacity};z-index:${n.pinned ? 900 + n.z % 50 : n.z};`;
+
+  el.innerHTML = `
+    <div class="note-head">
+      <div class="note-title" contenteditable="true" spellcheck="false">${esc(n.title)}</div>
+      <button class="hbtn pin${n.pinned ? " on" : ""}" title="Pin on top (⌥⌘P)">📌</button>
+      <button class="hbtn collapse" title="Collapse (⌥⌘K)">${n.collapsed ? "▸" : "▾"}</button>
+      <button class="hbtn close" title="Close (⌥⌘W)">✕</button>
+    </div>
+    <div class="note-body md">${renderMarkdown(n.body)}</div>
+    <div class="note-foot">
+      <div class="swatches">
+        ${PALETTE.map(p => `<span class="sw" data-color="${p.id}" role="checkbox" aria-checked="${p.id === n.color}" style="background:${p.bg}"></span>`).join("")}
+      </div>
+      <div class="opacity-wrap" title="Opacity">
+        <span style="font-size:10px;opacity:.5">◐</span>
+        <input type="range" min="30" max="100" value="${Math.round(n.opacity * 100)}">
+      </div>
+      <button class="fbtn emoji" title="Emoji (⌥⌘E)">😀</button>
+      <button class="fbtn todo" title="Insert todo">☑︎</button>
+    </div>
+    <div class="resize"></div>`;
+
+  wireNote(el, n);
+  return el;
+}
+
+function wireNote(el, n) {
+  const head  = el.querySelector(".note-head");
+  const title = el.querySelector(".note-title");
+  const body  = el.querySelector(".note-body");
+
+  el.addEventListener("pointerdown", () => { focusedId = n.id; raise(n); }, true);
+
+  /* drag */
+  head.addEventListener("pointerdown", e => {
+    if (e.target.closest(".hbtn") || e.target.classList.contains("note-title")) return;
+    e.preventDefault();
+    const sx = e.clientX, sy = e.clientY, ox = n.x, oy = n.y;
+    el.classList.add("dragging");
+    head.setPointerCapture(e.pointerId);
+    const move = ev => {
+      n.x = Math.max(0, ox + ev.clientX - sx);
+      n.y = Math.max(0, oy + ev.clientY - sy);
+      el.style.left = n.x + "px"; el.style.top = n.y + "px";
+    };
+    const up = () => {
+      el.classList.remove("dragging");
+      head.removeEventListener("pointermove", move);
+      head.removeEventListener("pointerup", up);
+      save();
+    };
+    head.addEventListener("pointermove", move);
+    head.addEventListener("pointerup", up);
+  });
+
+  /* right-click header: review item #2 */
+  head.addEventListener("contextmenu", e => { e.preventDefault(); openNoteMenu(e.clientX, e.clientY, n); });
+
+  /* title editing */
+  title.addEventListener("blur", () => { n.title = title.textContent.trim() || "Untitled"; save(); renderAllNotesList(); renderWidgets(); });
+  title.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); title.blur(); } });
+
+  /* header buttons */
+  el.querySelector(".pin").onclick      = () => togglePin(n);
+  el.querySelector(".collapse").onclick = () => toggleCollapse(n);
+  el.querySelector(".close").onclick    = () => hideNote(n);
+
+  /* body: click to edit, blur to render */
+  body.addEventListener("click", e => {
+    const task = e.target.closest(".task");
+    if (task) { toggleTask(n, +task.dataset.line); return; }
+    if (body.querySelector("textarea")) return;
+    editBody(el, n);
+  });
+
+  /* footer */
+  el.querySelectorAll(".sw").forEach(sw => {
+    sw.onclick = () => { n.color = sw.dataset.color; save(); renderNotes(); };
+  });
+  const range = el.querySelector("input[type=range]");
+  range.oninput = () => { n.opacity = +range.value / 100; el.style.opacity = n.opacity; };
+  range.onchange = save;
+  el.querySelector(".emoji").onclick = e => { e.stopPropagation(); openEmoji(e.clientX, e.clientY, n); };
+  el.querySelector(".todo").onclick  = () => { n.body += (n.body.endsWith("\n") || !n.body ? "" : "\n") + "- [ ] "; save(); renderNotes(); };
+
+  /* resize */
+  const rz = el.querySelector(".resize");
+  rz.addEventListener("pointerdown", e => {
+    e.preventDefault(); e.stopPropagation();
+    const sx = e.clientX, sy = e.clientY, ow = n.w, oh = n.h;
+    rz.setPointerCapture(e.pointerId);
+    const move = ev => {
+      n.w = Math.max(190, ow + ev.clientX - sx);
+      n.h = Math.max(120, oh + ev.clientY - sy);
+      el.style.width = n.w + "px"; el.style.height = n.h + "px";
+    };
+    const up = () => { rz.removeEventListener("pointermove", move); rz.removeEventListener("pointerup", up); save(); };
+    rz.addEventListener("pointermove", move);
+    rz.addEventListener("pointerup", up);
+  });
+}
+
+function editBody(el, n) {
+  const body = el.querySelector(".note-body");
+  body.classList.remove("md");
+  body.innerHTML = "";
+  const ta = document.createElement("textarea");
+  ta.value = n.body;
+  ta.spellcheck = false;
+  body.appendChild(ta);
+  ta.focus();
+  ta.setSelectionRange(ta.value.length, ta.value.length);
+  ta.addEventListener("blur", () => {
+    n.body = ta.value;
+    save();
+    body.classList.add("md");
+    body.innerHTML = renderMarkdown(n.body);
+    renderAllNotesList(); renderWidgets();
+  });
+}
+
+function toggleTask(n, lineIdx) {
+  const lines = n.body.split("\n");
+  const m = lines[lineIdx] && lines[lineIdx].match(/^(\s*-\s\[)( |x|X)(\]\s?.*)$/);
+  if (!m) return;
+  lines[lineIdx] = m[1] + (m[2].toLowerCase() === "x" ? " " : "x") + m[3];
+  n.body = lines.join("\n");
+  save(); renderNotes();
+}
+
+/* ---------------- note actions ---------------- */
+function raise(n) { n.z = ++zTop; const el = elFor(n.id); if (el) el.style.zIndex = n.pinned ? 900 + n.z % 50 : n.z; }
+function elFor(id) { return canvas.querySelector(`.note[data-id="${id}"]`); }
+
+function togglePin(n)      { n.pinned = !n.pinned; save(); renderNotes(); toast(n.pinned ? "📌 Pinned on top" : "Unpinned"); }
+function toggleCollapse(n) { n.collapsed = !n.collapsed; save(); renderNotes(); }
+function hideNote(n)       { n.visible = false; save(); renderNotes(); renderAllNotesList(); toast("Hidden · still in All Notes"); }
+function showNote(n)       { n.visible = true; raise(n); save(); renderNotes(); renderAllNotesList(); }
+function deleteNote(n)     { state.notes = state.notes.filter(x => x.id !== n.id); save(); renderNotes(); renderAllNotesList(); toast("Deleted"); }
+
+function newNote(opts = {}) {
+  const n = {
+    id: uid(),
+    title: opts.title || "Untitled",
+    folder: opts.folder || (currentFolder !== "all" ? currentFolder : "f3"),
+    color: opts.color || PALETTE[Math.floor(Math.random() * 5)].id,
+    body: opts.body || "",
+    x: 90 + Math.random() * 260, y: 90 + Math.random() * 180,
+    w: 265, h: 195, opacity: 1, pinned: false, collapsed: false, visible: true, z: ++zTop
+  };
+  state.notes.push(n);
+  save(); renderNotes(); renderAllNotesList();
+  focusedId = n.id;
+  const el = elFor(n.id);
+  if (el) editBody(el, n);
+  return n;
+}
+
+function autoArrange() {
+  const pad = 18, colW = 265 + pad;
+  const cols = Math.max(1, Math.floor((canvas.clientWidth - 250) / colW));
+  state.notes.filter(n => n.visible).forEach((n, i) => {
+    n.x = pad + (i % cols) * colW;
+    n.y = pad + Math.floor(i / cols) * (205 + pad);
+    n.w = 265; n.h = 195;
+  });
+  save(); renderNotes(); toast("Auto-arranged");
+}
+
+/* ---------------- context menu ---------------- */
+const ctx = document.getElementById("ctx");
+function openNoteMenu(x, y, n) {
+  const items = [
+    { label: n.pinned ? "Unpin from top" : "Pin on top", key: "⌥⌘P", act: () => togglePin(n) },
+    { label: n.collapsed ? "Expand" : "Collapse",        key: "⌥⌘K", act: () => toggleCollapse(n) },
+    { label: "Minimize to All Notes",                    key: "⌥⌘M", act: () => hideNote(n) },
+    { sep: true },
+    { label: "Duplicate", act: () => newNote({ title: n.title + " copy", body: n.body, color: n.color, folder: n.folder }) },
+    { label: "Move to folder…", act: () => cycleFolder(n) },
+    { sep: true },
+    { label: "Close note", key: "⌥⌘W", act: () => hideNote(n) },
+    { label: "Delete note", act: () => deleteNote(n) }
+  ];
+  ctx.innerHTML = items.map(it => it.sep
+    ? '<div class="ctx-sep"></div>'
+    : `<div class="ctx-item" data-i="${items.indexOf(it)}">${it.label}${it.key ? `<span class="key">${it.key}</span>` : ""}</div>`
+  ).join("");
+  ctx.querySelectorAll(".ctx-item").forEach(el => {
+    el.onclick = () => { closeAllPopovers(); items[+el.dataset.i].act(); };
+  });
+  place(ctx, x, y);
+}
+
+function cycleFolder(n) {
+  const ids = state.folders.map(f => f.id);
+  n.folder = ids[(ids.indexOf(n.folder) + 1) % ids.length];
+  save(); renderAllNotesList();
+  toast("Moved to " + state.folders.find(f => f.id === n.folder).name);
+}
+
+function place(el, x, y) {
+  el.classList.remove("hidden");
+  const r = el.getBoundingClientRect();
+  el.style.left = Math.min(x, window.innerWidth  - r.width  - 10) + "px";
+  el.style.top  = Math.min(y, window.innerHeight - r.height - 10) + "px";
+}
+
+/* ---------------- emoji picker ---------------- */
+const emojiEl = document.getElementById("emoji");
+let emojiTarget = null;
+
+function openEmoji(x, y, n) {
+  emojiTarget = n;
+  emojiEl.innerHTML =
+    Object.entries(EMOJI).map(([cat, list]) => `
+      <div class="cat">${cat}</div>
+      <div class="grid">${list.map(e => `<button data-e="${e}">${e}</button>`).join("")}</div>`).join("") +
+    `<div class="mode">
+       <label><input type="radio" name="emode" value="insert" ${emojiMode === "insert" ? "checked" : ""}> Insert</label>
+       <label><input type="radio" name="emode" value="bullet" ${emojiMode === "bullet" ? "checked" : ""}> As bullet</label>
+     </div>`;
+  emojiEl.querySelectorAll("button[data-e]").forEach(b => {
+    b.onclick = () => {
+      const e = b.dataset.e;
+      if (emojiMode === "bullet") {
+        emojiTarget.body += (emojiTarget.body && !emojiTarget.body.endsWith("\n") ? "\n" : "") + e + " ";
+      } else {
+        emojiTarget.body += e;
+      }
+      save(); renderNotes(); closeAllPopovers();
+    };
+  });
+  emojiEl.querySelectorAll("input[name=emode]").forEach(r => {
+    r.onchange = () => { emojiMode = r.value; };
+  });
+  place(emojiEl, x, y);
+}
+
+/* ---------------- All Notes window ---------------- */
+const allnotes = document.getElementById("allnotes");
+let currentFolder = "all";
+
+function toggleAllNotes(force) {
+  const show = force !== undefined ? force : allnotes.classList.contains("hidden");
+  allnotes.classList.toggle("hidden", !show);
+  if (show) { renderFolders(); renderAllNotesList(); }
+}
+
+function renderFolders() {
+  const side = document.getElementById("an-side");
+  const count = fid => state.notes.filter(n => fid === "all" || n.folder === fid).length;
+  side.innerHTML =
+    `<div class="side-label">Library</div>` +
+    `<div class="folder-row${currentFolder === "all" ? " sel" : ""}" data-f="all">
+       <span>🗒</span><span>All notes</span><span class="count">${count("all")}</span></div>` +
+    `<div class="side-label">Folders</div>` +
+    state.folders.map(f => `
+      <div class="folder-row${currentFolder === f.id ? " sel" : ""}" data-f="${f.id}">
+        <span>${f.icon}</span><span>${esc(f.name)}</span><span class="count">${count(f.id)}</span>
+      </div>`).join("");
+  side.querySelectorAll(".folder-row").forEach(r => {
+    r.onclick = () => { currentFolder = r.dataset.f; renderFolders(); renderAllNotesList(); };
+  });
+}
+
+function renderAllNotesList() {
+  const list = document.getElementById("an-list");
+  if (!list) return;
+  const q = (document.getElementById("an-search").value || "").toLowerCase();
+  const rows = state.notes
+    .filter(n => currentFolder === "all" || n.folder === currentFolder)
+    .filter(n => !q || n.title.toLowerCase().includes(q) || n.body.toLowerCase().includes(q));
+
+  if (!rows.length) {
+    list.innerHTML = `<div style="padding:26px 12px;text-align:center;color:var(--text-dim);font-size:12.5px">
+      No notes here yet. Press ⌥⌘N to start one.</div>`;
+    return;
+  }
+  list.innerHTML = rows.map(n => `
+    <div class="note-row${n.visible ? "" : " hiddenNote"}" data-id="${n.id}">
+      <span class="chip" style="background:${colorOf(n.color).bg}"></span>
+      <span class="rt">
+        <b>${esc(n.title)}${n.pinned ? " 📌" : ""}</b>
+        <span>${esc(n.body.replace(/[#>*`\-\[\]]/g, " ").replace(/\s+/g, " ").trim().slice(0, 64) || "Empty")}</span>
+      </span>
+      <button class="eye" title="${n.visible ? "Hide from desktop" : "Show on desktop"}">${n.visible ? "👁" : "🚫"}</button>
+    </div>`).join("");
+
+  list.querySelectorAll(".note-row").forEach(row => {
+    const n = noteById(row.dataset.id);
+    row.querySelector(".eye").onclick = e => { e.stopPropagation(); n.visible ? hideNote(n) : showNote(n); };
+    row.onclick = () => { if (!n.visible) showNote(n); else { raise(n); elFor(n.id)?.animate(
+      [{ transform: "scale(1)" }, { transform: "scale(1.03)" }, { transform: "scale(1)" }], { duration: 220 }); } };
+  });
+}
+
+/* window dragging for All Notes */
+(function () {
+  const head = document.getElementById("an-head");
+  head.addEventListener("pointerdown", e => {
+    if (e.target.closest("button")) return;
+    const r = allnotes.getBoundingClientRect();
+    const sx = e.clientX - r.left, sy = e.clientY - r.top;
+    head.setPointerCapture(e.pointerId);
+    const move = ev => {
+      allnotes.style.left = Math.max(0, ev.clientX - sx) + "px";
+      allnotes.style.top  = Math.max(26, ev.clientY - sy) + "px";
+    };
+    const up = () => { head.removeEventListener("pointermove", move); head.removeEventListener("pointerup", up); };
+    head.addEventListener("pointermove", move);
+    head.addEventListener("pointerup", up);
+  });
+})();
+
+document.getElementById("an-close").onclick  = () => toggleAllNotes(false);
+document.getElementById("an-new").onclick    = () => newNote();
+document.getElementById("an-search").oninput = renderAllNotesList;
+document.getElementById("an-export").onclick = exportAll;
+document.getElementById("an-import").onclick = () => document.getElementById("file-input").click();
+
+/* ---------------- import / export ---------------- */
+function exportAll() {
+  const blob = new Blob([JSON.stringify({ app: "Tack", version: 1, exported: new Date().toISOString(), ...state }, null, 2)],
+    { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "tack-archive.json";
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast("Exported " + state.notes.length + " notes");
+}
+document.getElementById("file-input").onchange = ev => {
+  const file = ev.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      if (!Array.isArray(data.notes)) throw new Error("no notes array");
+      state.folders = data.folders || state.folders;
+      state.notes = data.notes;
+      save(); renderNotes(); renderFolders(); renderAllNotesList();
+      toast("Imported " + data.notes.length + " notes");
+    } catch (err) {
+      toast("That file is not a Tack archive");
+    }
+  };
+  reader.readAsText(file);
+  ev.target.value = "";
+};
+
+/* ---------------- widgets ---------------- */
+function renderWidgets() {
+  const tasks = [];
+  state.notes.forEach(n => {
+    n.body.split("\n").forEach((line, i) => {
+      const m = line.match(/^\s*-\s\[( |x|X)\]\s?(.*)$/);
+      if (m && tasks.length < 4) tasks.push({ noteId: n.id, line: i, done: m[1].toLowerCase() === "x", text: m[2] });
+    });
+  });
+  const wt = document.getElementById("w-todo-body");
+  wt.innerHTML = tasks.length
+    ? tasks.map((t, i) => `<div class="wtask${t.done ? " done" : ""}" data-i="${i}"><span class="box"></span><span>${esc(t.text)}</span></div>`).join("")
+    : `<div style="font-size:12px;color:var(--text-dim)">No open tasks. Add one with ⌥⌘L.</div>`;
+  wt.querySelectorAll(".wtask").forEach(el => {
+    el.onclick = () => { const t = tasks[+el.dataset.i]; toggleTask(noteById(t.noteId), t.line); };
+  });
+
+  const pinned = state.notes.find(n => n.pinned) || state.notes[0];
+  document.getElementById("w-note-body").innerHTML = pinned
+    ? `<strong>${esc(pinned.title)}</strong><br>${esc(pinned.body.replace(/[#>*`]/g, "").trim().slice(0, 110))}`
+    : "Nothing pinned";
+}
+
+/* ---------------- tray popover ---------------- */
+const trayPop = document.getElementById("tray-pop");
+document.getElementById("tray").onclick = e => {
+  e.stopPropagation();
+  if (!trayPop.classList.contains("hidden")) { closeAllPopovers(); return; }
+  const recent = state.notes.slice(-4).reverse();
+  trayPop.innerHTML =
+    `<div class="ctx-item" data-a="new">📝 New note<span class="key">⌥⌘N</span></div>
+     <div class="ctx-item" data-a="todo">☑︎ New todo list<span class="key">⌥⌘L</span></div>
+     <div class="ctx-item" data-a="all">🗂 All Notes<span class="key">⌥⌘H</span></div>
+     <div class="ctx-sep"></div>
+     <div style="font-size:10.5px;color:var(--text-dim);padding:3px 9px 5px">Recent</div>` +
+    recent.map(n => `<div class="ctx-item" data-show="${n.id}">
+      <span class="chip" style="width:8px;height:8px;border-radius:50%;background:${colorOf(n.color).bg};display:inline-block"></span>
+      ${esc(n.title)}</div>`).join("") +
+    `<div class="ctx-sep"></div>
+     <div class="ctx-item" data-a="arrange">🧲 Auto-arrange<span class="key">⌥⌘A</span></div>
+     <div class="ctx-item" data-a="corners">⬜️ Toggle corners<span class="key">⌥⌘R</span></div>`;
+  trayPop.querySelectorAll(".ctx-item").forEach(el => {
+    el.onclick = () => {
+      const a = el.dataset.a, sid = el.dataset.show;
+      closeAllPopovers();
+      if (sid) { const n = noteById(sid); showNote(n); raise(n); return; }
+      if (a === "new") newNote();
+      if (a === "todo") newNote({ title: "Todo", body: "- [ ] " });
+      if (a === "all") toggleAllNotes();
+      if (a === "arrange") autoArrange();
+      if (a === "corners") toggleCorners();
+    };
+  });
+  trayPop.classList.remove("hidden");
+  document.getElementById("tray").dataset.open = "1";
+};
+
+function toggleCorners() {
+  document.body.dataset.corners = document.body.dataset.corners === "round" ? "square" : "round";
+  toast(document.body.dataset.corners === "round" ? "Rounded corners" : "Square corners");
+}
+
+/* ---------------- shortcuts overlay ---------------- */
+document.getElementById("sc-grid").innerHTML = SHORTCUTS.map(([group, rows]) => `
+  <div><h5>${group}</h5>${rows.map(([k, d]) => `<div class="sc-row"><kbd>${k}</kbd><span>${d}</span></div>`).join("")}</div>`).join("");
+
+function toggleShortcuts(force) {
+  const el = document.getElementById("shortcuts");
+  const show = force !== undefined ? force : el.classList.contains("hidden");
+  el.classList.toggle("hidden", !show);
+}
+document.getElementById("shortcuts").onclick = e => { if (e.target.id === "shortcuts") toggleShortcuts(false); };
+
+/* ---------------- misc chrome ---------------- */
+function closeAllPopovers() {
+  ctx.classList.add("hidden");
+  emojiEl.classList.add("hidden");
+  trayPop.classList.add("hidden");
+  delete document.getElementById("tray").dataset.open;
+}
+document.addEventListener("pointerdown", e => {
+  if (!e.target.closest("#ctx, #emoji, #tray-pop, #tray")) closeAllPopovers();
+});
+document.addEventListener("contextmenu", e => {
+  if (!e.target.closest(".note-head")) { /* let the browser menu through elsewhere */ }
+});
+
+let toastTimer;
+function toast(msg) {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove("show"), 1500);
+}
+
+let syncTimer;
+function flashSync() {
+  const dot = document.getElementById("sync-dot"), txt = document.getElementById("sync-text");
+  dot.classList.add("syncing"); txt.textContent = "Syncing…";
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => { dot.classList.remove("syncing"); txt.textContent = "iCloud up to date"; }, 700);
+}
+
+/* ---------------- keyboard ---------------- */
+document.addEventListener("keydown", e => {
+  const mod = (e.metaKey || e.ctrlKey) && e.altKey;
+  if (e.key === "Escape") { closeAllPopovers(); toggleShortcuts(false); return; }
+  if (!mod) return;
+
+  const focused = noteById(focusedId) || state.notes.filter(n => n.visible).slice(-1)[0];
+  const k = e.key.toLowerCase();
+  const run = fn => { e.preventDefault(); fn(); };
+
+  if (k === "n") return run(() => newNote());
+  if (k === "l") return run(() => newNote({ title: "Todo", body: "- [ ] " }));
+  if (k === "a") return run(autoArrange);
+  if (k === "h") return run(() => toggleAllNotes());
+  if (k === "r") return run(toggleCorners);
+  if (k === "/") return run(() => toggleShortcuts());
+  if (k === "x") return run(exportAll);
+  if (k === "i") return run(() => document.getElementById("file-input").click());
+  if (k === "s") return run(() => { flashSync(); toast("☁️ Sync requested"); });
+  if (!focused) return;
+  if (k === "p") return run(() => togglePin(focused));
+  if (k === "k") return run(() => toggleCollapse(focused));
+  if (k === "w" || k === "m") return run(() => hideNote(focused));
+  if (k === "e") {
+    const el = elFor(focused.id);
+    const r = el ? el.getBoundingClientRect() : { left: 200, bottom: 200 };
+    return run(() => openEmoji(r.left, r.bottom));
+  }
+  if (k === ",") return run(() => { focused.opacity = Math.max(.3, focused.opacity - .1); save(); renderNotes(); });
+  if (k === ".") return run(() => { focused.opacity = Math.min(1, focused.opacity + .1); save(); renderNotes(); });
+  if (/^[1-6]$/.test(k)) return run(() => { focused.color = PALETTE[+k - 1].id; save(); renderNotes(); });
+});
+
+/* fix: emoji opened by keyboard has no target note */
+const _openEmoji = openEmoji;
+openEmoji = function (x, y, n) {
+  _openEmoji(x, y, n || noteById(focusedId) || state.notes.filter(v => v.visible).slice(-1)[0]);
+};
+
+/* ---------------- boot ---------------- */
+load();
+zTop = Math.max(100, ...state.notes.map(n => n.z || 100));
+renderNotes();
+renderFolders();
+renderAllNotesList();
+setTimeout(() => toast("Tack prototype · press ⌥⌘/ for shortcuts"), 500);
+</script>
+</body>
+</html>
