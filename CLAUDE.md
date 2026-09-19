@@ -112,16 +112,47 @@ process.arguments = ["-lc", command]
 ## Build and verify
 
 ```bash
-xcodebuild -scheme PinTack -configuration Debug build
+xcodebuild -scheme PinTack -configuration Debug SYMROOT="$PWD/build" build
 xcodebuild -scheme PinTack test
 open build/Debug/PinTack.app        # or run from Xcode
 ```
 
-Phase 1 runs **unsandboxed** and reads `~/Documents/PinTack/` directly.
+The app runs **unsandboxed** and reads `~/Documents/PinTack/` directly.
 Sandboxing needs a security-scoped bookmark flow that is deferred.
 
 **After any change touching windows, the vault, or the plugin API, build and
 launch before reporting back.** Describe what actually happened on screen.
+
+### Seeing what is on screen without Screen Recording permission
+
+An agent cannot screenshot another app. In **Debug builds** the app can render
+its own windows. Point it at a throwaway vault so it never touches real notes:
+
+```bash
+PINTACK_VAULT=/tmp/pt/vault PINTACK_SELFTEST_DIR=/tmp/pt/out PINTACK_SELFTEST_QUIT=1 \
+  build/Debug/PinTack.app/Contents/MacOS/PinTack
+```
+
+It writes `report.txt` (activation policy, Dock icon, status item, hotkey
+`OSStatus` per shortcut, a simulated `⌥⌘N`, and a type-through-the-bridge save
+round trip) plus PNGs of the Dock icon, menu-bar icon, every note, All Notes,
+Settings and the shortcut list. The code is `Support/SelfTest.swift`, compiled
+out of Release. Other env vars: `PINTACK_NO_HOTKEYS`, `PINTACK_NO_TOAST`.
+
+### The editor is vendored, not bundled
+
+`Editor/` is a plain folder copied into the app. CodeMirror 6 sits in
+`Editor/vendor/` as unmodified ES modules resolved by an import map, so there is
+**no bundler** (esbuild etc. would be a new dependency). Regenerate with
+`scripts/vendor-codemirror.sh`. Test the editor in a browser with
+`node scripts/dev-server.mjs` (it only rewrites the CSP scheme for HTTP).
+
+### Menu-bar icon caveat
+
+The pushpin is a real `NSStatusItem`. On a notched MacBook with a crowded menu
+bar, or with a menu-bar manager (Thaw, Bartender, Ice), new items are pushed out
+of sight. Check the manager's hidden section before assuming a bug. The Dock
+icon is the guaranteed entry point.
 
 ---
 
@@ -153,6 +184,24 @@ launch before reporting back.** Describe what actually happened on screen.
 Live Preview cannot be made to feel like Obsidian, the product thesis needs
 revisiting before more is built on top of it. Say so plainly if you hit that.
 
-Existing Phase 1 source in `PinTack/` was written without a Swift compiler and
-has never been built. Treat it as a detailed draft. Expect compile errors. Fixing
-them is the first task, not a sign the design is wrong.
+### Where things stand
+
+The owner overrode the strict phase order: the app was rebuilt in one pass
+covering Phases 1, 2 and 3 (vault, note windows, Live Preview editor, All Notes,
+Settings, hotkeys, import/export, FTS5 search). It builds, and the unit tests
+(`xcodebuild -scheme PinTack test`) cover frontmatter round-tripping, unknown-key
+preservation, atomic writes, import safety and search.
+
+**Not built yet (Phase 4 and 5):** the WidgetKit widget, the plugin system and
+Runner, Sparkle, signing/notarization, App Sandbox. Settings → Plugins is an
+honest placeholder. The pushpin is a vector stand-in for the PNG asset (SPEC §18).
+The app is a normal Dock app (no `LSUIElement`) plus a menu-bar item: an
+owner decision that replaced the original menu-bar-only design.
+
+Choices that differ from SPEC.md or the prototype, made deliberately:
+- Only New note, New todo, All Notes and Auto-arrange are **global** hotkeys.
+  The rest work while a PinTack window is key. Registering ⌥⌘W or ⌥⌘H
+  system-wide would steal them from every other app.
+- ⌥⌘M toggles Live Preview/Source (SPEC §10.2); the prototype used it for minimize.
+- Footer has three controls (SPEC §5.3), not the prototype's swatches and sliders.
+- The prototype's iCloud status is omitted: cloud sync is out of scope for v1.
