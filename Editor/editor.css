@@ -1,0 +1,136 @@
+/* PinTack editor styles. Colors come from CSS variables that the Swift side sets
+   through `settings.changed`, so note color/contrast is decided natively. */
+
+:root {
+  --fg: #3a2f10;
+  --fg-dim: rgba(58, 47, 16, .45);
+  --accent: #ff9f0a;
+  --surface: rgba(0, 0, 0, .14);       /* code chips, table headers */
+  --surface-strong: rgba(0, 0, 0, .2);
+  --rule: rgba(0, 0, 0, .22);
+  --highlight: rgba(255, 214, 0, .5);
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --size: 13px;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; background: transparent; overflow: hidden; }
+body {
+  font-family: var(--font);
+  font-size: var(--size);
+  color: var(--fg);
+  -webkit-font-smoothing: antialiased;
+  -webkit-user-select: text;
+}
+#editor { height: 100%; }
+.hidden { display: none !important; }
+
+.cm-editor { height: 100%; background: transparent; color: var(--fg); outline: none !important; }
+.cm-editor.cm-focused { outline: none !important; }
+/* `.cm-editor` prefix: CodeMirror's own base theme sets monospace with higher specificity. */
+.cm-editor .cm-scroller { font-family: var(--font); line-height: 1.5; overflow: auto; padding: 0; }
+.cm-editor .cm-content { padding: 8px 12px 10px; caret-color: var(--fg); font-family: var(--font); }
+.cm-line { padding: 0; }
+.cm-cursor, .cm-dropCursor { border-left: 1.5px solid var(--fg) !important; }
+.cm-selectionBackground, .cm-editor .cm-selectionBackground { background: color-mix(in srgb, var(--accent) 34%, transparent) !important; }
+.cm-editor.cm-focused .cm-selectionBackground { background: color-mix(in srgb, var(--accent) 42%, transparent) !important; }
+.cm-placeholder { color: var(--fg-dim); }
+
+/* thin scrollbars that suit a small card */
+.cm-scroller::-webkit-scrollbar { width: 8px; }
+.cm-scroller::-webkit-scrollbar-thumb { background: var(--rule); border-radius: 4px; border: 2px solid transparent; background-clip: content-box; }
+.cm-scroller::-webkit-scrollbar-track { background: transparent; }
+
+/* ---------- Live Preview ---------- */
+.cm-syntax { color: var(--fg-dim); }            /* raw markers, only on the cursor line */
+
+.cm-h { font-weight: 700; }
+.cm-h1 { font-size: 1.32em; line-height: 1.35; margin-bottom: 2px; }
+.cm-h2 { font-size: 1.16em; line-height: 1.4; }
+.cm-h3 { font-size: 1.06em; }
+.cm-h4, .cm-h5, .cm-h6 { font-size: 1em; }
+
+.cm-strong { font-weight: 700; }
+.cm-em { font-style: italic; }
+.cm-strike { text-decoration: line-through; opacity: .7; }
+.cm-inline-code {
+  font-family: var(--mono); font-size: .9em;
+  background: var(--surface); padding: 1px 4px; border-radius: 3px;
+}
+.cm-highlight { background: var(--highlight); border-radius: 2px; padding: 0 1px; }
+.cm-link, .cm-url { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; cursor: text; }
+.cm-tag { color: var(--accent); font-weight: 600; }
+
+.cm-quote { border-left: 3px solid var(--rule); padding-left: 10px !important; opacity: .82; }
+
+.cm-li { padding-left: 2px; }
+.cm-bullet { display: inline-block; width: 1.05em; text-align: center; color: var(--fg); font-weight: 700; }
+.cm-list-num { color: var(--fg); font-variant-numeric: tabular-nums; }
+.cm-ebullet { padding-left: 0; }
+
+.cm-task-box {
+  display: inline-grid; place-items: center; vertical-align: -2px;
+  width: 14px; height: 14px; margin-right: 1px;
+  border: 1.5px solid currentColor; border-radius: 4px; opacity: .55;
+  cursor: pointer; font-size: 10px; line-height: 1;
+}
+.cm-task-box:hover { opacity: .9; }
+.cm-task-box.done { opacity: 1; background: currentColor; }
+.cm-task-box.done::after { content: "✓"; color: #fff; mix-blend-mode: difference; }
+.cm-task-done { opacity: .45; text-decoration: line-through; }
+
+.cm-hr { display: block; height: 1px; margin: 9px 0; background: var(--rule); }
+.cm-hr-raw { color: var(--fg-dim); }
+
+/* fenced code */
+.cm-editor .cm-codeblock {
+  font-family: var(--mono); font-size: .9em;
+  background: var(--surface); padding: 0 9px !important;
+}
+.cm-codeblock-first { border-radius: 6px 6px 0 0; padding-top: 4px !important; }
+.cm-codeblock-last { border-radius: 0 0 6px 6px; padding-bottom: 4px !important; }
+.cm-codeblock-first.cm-codeblock-last { border-radius: 6px; }
+.cm-fence-hidden { line-height: 4px !important; height: 4px; overflow: hidden; padding-top: 0 !important; padding-bottom: 0 !important; }
+
+/* tables */
+.cm-table-wrap { overflow-x: auto; margin: 4px 0 6px; }
+.cm-table { border-collapse: collapse; font-size: .95em; min-width: 50%; }
+.cm-table th, .cm-table td { border: 1px solid var(--rule); padding: 3px 8px; text-align: left; }
+.cm-table th { background: var(--surface); font-weight: 650; }
+.cm-table-raw { font-family: var(--mono); font-size: .9em; }
+
+.cm-image { max-width: 100%; border-radius: 6px; display: block; margin: 4px 0; }
+.cm-image-missing { color: var(--fg-dim); font-style: italic; }
+.cm-image-raw { color: var(--fg-dim); }
+
+/* Source mode: plain monospace, syntax tinted */
+.cm-editor.cm-mode-source .cm-scroller, .cm-editor.cm-mode-source .cm-content { font-family: var(--mono); font-size: .92em; }
+
+/* ---------- autocomplete (slash commands) ---------- */
+.cm-tooltip {
+  background: rgba(40, 40, 44, .96) !important; color: #f2f2f7 !important;
+  border: .5px solid rgba(255, 255, 255, .14) !important; border-radius: 9px !important;
+  box-shadow: 0 14px 38px rgba(0, 0, 0, .5); overflow: hidden;
+  font-family: var(--font); font-size: 12.5px;
+}
+.cm-tooltip-autocomplete > ul { font-family: var(--font) !important; max-height: 15em; padding: 4px; }
+.cm-tooltip-autocomplete > ul > li { padding: 4px 9px !important; border-radius: 5px; display: flex; gap: 10px; align-items: baseline; }
+.cm-tooltip-autocomplete > ul > li[aria-selected] { background: var(--accent) !important; color: #1a1a1a !important; }
+.cm-completionLabel { font-weight: 600; }
+.cm-completionDetail { margin-left: auto !important; opacity: .6; font-style: normal !important; font-size: 11.5px; }
+.cm-completionMatchedText { text-decoration: none !important; }
+
+/* ---------- emoji picker (SPEC.md §6.2 /emoji, ⌥⌘E) ---------- */
+#emoji {
+  position: fixed; z-index: 50; width: 268px; padding: 8px;
+  background: rgba(40, 40, 44, .95); color: #f2f2f7;
+  border: .5px solid rgba(255, 255, 255, .14); border-radius: 11px;
+  box-shadow: 0 16px 42px rgba(0, 0, 0, .55);
+}
+#emoji .cat { font-size: 10.5px; color: rgba(242, 242, 247, .55); margin: 6px 3px 3px; }
+#emoji .grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 1px; }
+#emoji .grid button { border: 0; background: transparent; cursor: pointer; font-size: 17px; line-height: 1; padding: 4px; border-radius: 6px; }
+#emoji .grid button:hover { background: rgba(255, 255, 255, .18); }
+#emoji .mode { display: flex; gap: 12px; margin-top: 7px; padding-top: 7px; border-top: .5px solid rgba(255, 255, 255, .14); }
+#emoji .mode label { display: flex; align-items: center; gap: 4px; font-size: 11.5px; color: rgba(242, 242, 247, .7); cursor: pointer; }

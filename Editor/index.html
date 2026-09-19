@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!--
+  SPEC.md §4.4: the webview loads only local content. Nothing here can reach the
+  network: default-src is 'none', connect-src is 'none', and scripts/images/fonts
+  are limited to the app's own pintack-app: scheme. The one inline script (the
+  import map) is allowed by hash rather than by 'unsafe-inline'.
+  style-src needs 'unsafe-inline' because CodeMirror injects its stylesheet and
+  decorations use style attributes for colored text.
+-->
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src pintack-app: 'sha256-DmWHXphqkDZxjusaSb+ruhjiVR0WDufGfA/krGoaQBk='; style-src pintack-app: 'unsafe-inline'; img-src pintack-app: data:; font-src pintack-app:; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PinTack editor</title>
+<link rel="stylesheet" href="editor.css">
+<script type="importmap">{
+  "imports": {
+    "@codemirror/autocomplete": "./vendor/codemirror-autocomplete.js",
+    "@codemirror/commands": "./vendor/codemirror-commands.js",
+    "@codemirror/lang-css": "./vendor/codemirror-lang-css.js",
+    "@codemirror/lang-html": "./vendor/codemirror-lang-html.js",
+    "@codemirror/lang-javascript": "./vendor/codemirror-lang-javascript.js",
+    "@codemirror/lang-markdown": "./vendor/codemirror-lang-markdown.js",
+    "@codemirror/language": "./vendor/codemirror-language.js",
+    "@codemirror/lint": "./vendor/codemirror-lint.js",
+    "@codemirror/state": "./vendor/codemirror-state.js",
+    "@codemirror/view": "./vendor/codemirror-view.js",
+    "@lezer/common": "./vendor/lezer-common.js",
+    "@lezer/css": "./vendor/lezer-css.js",
+    "@lezer/highlight": "./vendor/lezer-highlight.js",
+    "@lezer/html": "./vendor/lezer-html.js",
+    "@lezer/javascript": "./vendor/lezer-javascript.js",
+    "@lezer/lr": "./vendor/lezer-lr.js",
+    "@lezer/markdown": "./vendor/lezer-markdown.js",
+    "@marijn/find-cluster-break": "./vendor/marijn-find-cluster-break.js",
+    "crelt": "./vendor/crelt.js",
+    "style-mod": "./vendor/style-mod.js",
+    "w3c-keyname": "./vendor/w3c-keyname.js"
+  }
+}</script>
+</head>
+<body>
+<div id="editor"></div>
+<div id="emoji" class="hidden"></div>
+<script type="module" src="editor.js"></script>
+</body>
+</html>
