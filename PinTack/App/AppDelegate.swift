@@ -24,7 +24,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // A regular app: Dock icon, menu bar, Cmd-Tab. The notes themselves are
         // non-activating panels, so typing in one still doesn't pull the app forward.
         NSApp.setActivationPolicy(.regular)
-        installAppIcon()
+        // The Dock icon comes from the bundle (AppIcon.icon) and nothing else. An earlier version also set
+        // NSApp.applicationIconImage at launch, which made the Dock show one icon and then swap to another.
 
         let vault = VaultStore.shared
         vault.bootstrap()
@@ -72,14 +73,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(item("New Note", .newNote))
         menu.addItem(item("All Notes", .toggleAllNotes))
         return menu
-    }
-
-    // MARK: - Icon
-
-    /// The Dock icon comes from the asset catalog. Setting it explicitly as well means
-    /// a Debug build run from DerivedData shows it even before LaunchServices caches it.
-    private func installAppIcon() {
-        if let image = NSImage(named: "AppIcon") { NSApp.applicationIconImage = image }
     }
 
     // MARK: - Shortcuts

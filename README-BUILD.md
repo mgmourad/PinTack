@@ -7,7 +7,7 @@ building the app does not use it.
 xcodebuild -scheme PinTack -configuration Debug SYMROOT="$PWD/build" build
 open build/Debug/PinTack.app
 
-xcodebuild -scheme PinTack test          # 55 unit tests
+xcodebuild -scheme PinTack SYMROOT="$PWD/build" test          # unit tests
 ```
 
 The app is ad-hoc signed (no Apple Developer account needed) and unsandboxed, and keeps

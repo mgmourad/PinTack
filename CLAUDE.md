@@ -113,7 +113,7 @@ process.arguments = ["-lc", command]
 
 ```bash
 xcodebuild -scheme PinTack -configuration Debug SYMROOT="$PWD/build" build
-xcodebuild -scheme PinTack test
+xcodebuild -scheme PinTack SYMROOT="$PWD/build" test     # SYMROOT keeps ONE copy of the app (see below)
 open build/Debug/PinTack.app        # or run from Xcode
 ```
 
@@ -146,6 +146,21 @@ out of Release. Other env vars: `PINTACK_NO_HOTKEYS`, `PINTACK_NO_TOAST`.
 **no bundler** (esbuild etc. would be a new dependency). Regenerate with
 `scripts/vendor-codemirror.sh`. Test the editor in a browser with
 `node scripts/dev-server.mjs` (it only rewrites the CSP scheme for HTTP).
+
+### App icon
+
+The icon is an **Icon Composer** document, `PinTack/AppIcon.icon` (Xcode compiles it into `Assets.car` and a
+fallback `.icns`). Do not go back to a plain `AppIcon.appiconset`: on current macOS every legacy icon is shrunk
+into a dark system plate. The plate cannot be made transparent (tested: even an alpha-0 fill renders opaque);
+in the user's Dark icon style the system forces it dark for every app. What we control is the plate colour in
+light style and how large the art is. Preview exactly what the system draws with
+`/Applications/Xcode.app/Contents/Applications/Icon Composer.app/Contents/Executables/ictool`.
+
+Never set `NSApp.applicationIconImage`: it made the Dock show one icon and then swap to another.
+
+**Always build and test into `build/`** (`SYMROOT="$PWD/build"`). A second copy in DerivedData makes
+LaunchServices list two apps (Spotlight shows PinTack twice) and can serve an old icon. After changing the
+icon: `lsregister -f -R -trusted build/Debug/PinTack.app`, then `killall Dock`.
 
 ### Menu-bar icon caveat
 
