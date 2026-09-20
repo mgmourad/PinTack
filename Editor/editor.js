@@ -14,6 +14,7 @@ import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { syntaxTree, ensureSyntaxTree, syntaxHighlighting, HighlightStyle } from "@codemirror/language";
 import { autocompletion, completionKeymap, startCompletion } from "@codemirror/autocomplete";
 import { tags as t } from "@lezer/highlight";
+import { codeLanguages, badgeFor } from "./languages.js";
 import { createRuntime } from "./plugin-runtime.js";
 
 /* ------------------------------------------------------------------ bridge */
@@ -235,7 +236,7 @@ function build(state) {
   const touched = (from, to) => focused && sel.some((r) => r.from <= to && r.to >= from);
 
   const mark = (f, t, cls, attrs) => { if (t > f) deco.push(Decoration.mark({ class: cls, attributes: attrs }).range(f, t)); };
-  const line = (pos, cls) => deco.push(Decoration.line({ class: cls }).range(pos));
+  const line = (pos, cls, attrs) => deco.push(Decoration.line({ class: cls, attributes: attrs }).range(pos));
   const hide = (f, t) => {
     if (t <= f) return;
     const d = Decoration.replace({}).range(f, t);
@@ -284,14 +285,24 @@ function build(state) {
           codeRanges.push([from, to]);
           return false;
         }
+        // The language badge (glyph + name) rides on the block's first line as data attributes;
+        // editor.css draws it in the corner. Only a block that names a language gets one.
+        const badge = lang ? badgeFor(lang) : null;
         for (let n = first.number; n <= last.number; n++) {
           const l = doc.line(n);
           let cls = "cm-codeblock";
-          if (n === first.number) cls += " cm-codeblock-first";
+          let attrs;
+          if (n === first.number) {
+            cls += " cm-codeblock-first";
+            if (badge) {
+              cls += " cm-codeblock-tagged";
+              attrs = { "data-lang": badge.name, "data-glyph": badge.glyph || "●", style: `--lang-color:${badge.color}` };
+            }
+          }
           if (n === last.number) cls += " cm-codeblock-last";
           const isFence = n === first.number || (n === last.number && n !== first.number && /^\s*(```|~~~)/.test(l.text));
           if (isFence && !editing) { cls += " cm-fence-hidden"; hide(l.from, l.to); }
-          line(l.from, cls);
+          line(l.from, cls, attrs);
         }
         codeRanges.push([from, to]);
         return false;
@@ -427,13 +438,45 @@ const sourceHighlight = HighlightStyle.define([
 ]);
 const sourceExt = [syntaxHighlighting(sourceHighlight), EditorView.editorAttributes.of({ class: "cm-mode-source" })];
 
+// Tokens INSIDE a fenced code block, once its language has loaded. Markdown itself never produces
+// these tags, so this style is safe in Live Preview too, where markdown is drawn by decorations.
+// Colours are CSS variables so they follow the note's own light/dark paper. SPEC.md §4.2.
+const codeHighlight = HighlightStyle.define([
+  { tag: [t.keyword, t.moduleKeyword, t.controlKeyword, t.operatorKeyword], color: "var(--code-keyword)" },
+  { tag: [t.string, t.special(t.string), t.regexp], color: "var(--code-string)" },
+  { tag: [t.comment, t.lineComment, t.blockComment, t.docComment], color: "var(--code-comment)", fontStyle: "italic" },
+  { tag: [t.number, t.bool, t.null, t.atom], color: "var(--code-number)" },
+  // Builtins and definitions carry most of the meaning in shell and PowerShell, where the legacy
+  // stream modes tag Get-Process and friends as standard/defined variable names rather than keywords.
+  { tag: [t.function(t.variableName), t.function(t.propertyName), t.macroName,
+          t.standard(t.variableName), t.definition(t.variableName), t.definition(t.propertyName)],
+    color: "var(--code-function)" },
+  { tag: [t.typeName, t.className, t.namespace, t.standard(t.typeName), t.definition(t.typeName)], color: "var(--code-type)" },
+  { tag: [t.propertyName, t.attributeName, t.labelName], color: "var(--code-property)" },
+  { tag: [t.variableName, t.special(t.variableName), t.character, t.literal, t.unit], color: "var(--code-variable)" },
+  { tag: [t.operator, t.derefOperator, t.compareOperator, t.arithmeticOperator,
+          t.logicOperator, t.bitwiseOperator, t.updateOperator, t.definitionOperator],
+    color: "var(--code-operator)" },
+  { tag: [t.punctuation, t.separator, t.bracket, t.squareBracket, t.paren, t.brace], color: "var(--code-punct)" },
+  { tag: [t.attributeValue], color: "var(--code-string)" },
+  { tag: [t.escape, t.special(t.string)], color: "var(--code-meta)" },
+  { tag: [t.tagName, t.angleBracket], color: "var(--code-tag)" },
+  { tag: [t.meta, t.processingInstruction], color: "var(--code-meta)" },
+  { tag: t.invalid, color: "var(--code-invalid)" },
+  { tag: [t.inserted], color: "var(--code-string)" },
+  { tag: [t.deleted], color: "var(--code-invalid)" },
+]);
+
 /* ---------------------------------------------------------- slash commands */
 
 const COLORS = [
   ["red", "#e5484d"], ["orange", "#e07b39"], ["green", "#2f9e5b"],
   ["blue", "#2f6fdd"], ["purple", "#8a4fd6"], ["pink", "#d6409f"], ["gray", "#6b6b73"],
 ];
-const LANGS = ["powershell", "bash", "python", "json", "swift", "js", "yaml", "sql"];
+// The languages offered in the slash menu. Any language in Editor/languages.js highlights when
+// typed after the fence; these are just the ones worth a one-keystroke shortcut.
+const LANGS = ["powershell", "bash", "python", "json", "yaml", "sql", "swift", "javascript",
+               "typescript", "html", "css", "xml", "go", "rust", "dockerfile", "ini", "diff"];
 
 function edit(view, from, to, text, cursorOffset, selectLen = 0) {
   const anchor = from + (cursorOffset ?? text.length);
@@ -766,7 +809,8 @@ const view = new EditorView({
       history(),
       drawSelection(),
       EditorView.lineWrapping,
-      markdown({ base: markdownLanguage }),
+      markdown({ base: markdownLanguage, codeLanguages }),
+      syntaxHighlighting(codeHighlight),
       modeCompartment.of(livePreviewExt),
       spellCompartment.of(EditorView.contentAttributes.of({ spellcheck: "false", autocorrect: "off", autocapitalize: "off" })),
       placeholder("Start typing…  ( / for commands )"),
@@ -835,6 +879,8 @@ function applySettings(s) {
   const root = document.documentElement.style;
   const map = { fg: "--fg", fgDim: "--fg-dim", fgHint: "--fg-hint", accent: "--accent", surface: "--surface", rule: "--rule", highlight: "--highlight", font: "--font", size: "--size" };
   for (const [k, cssVar] of Object.entries(map)) if (s[k] != null) root.setProperty(cssVar, k === "size" ? s[k] + "px" : s[k]);
+  // Which of the two code-token palettes suits this note's paper. editor.css keys off it.
+  if (s.paper != null) document.documentElement.dataset.paper = s.paper;
   noteState.settings = { ...noteState.settings, ...(s.bullet !== undefined ? { bullet: s.bullet } : {}) };
   if (s.spellcheck != null) {
     view.dispatch({ effects: spellCompartment.reconfigure(EditorView.contentAttributes.of({ spellcheck: String(s.spellcheck), autocorrect: "off", autocapitalize: "off" })) });

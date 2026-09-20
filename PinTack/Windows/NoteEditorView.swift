@@ -239,6 +239,8 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
             "fgDim": fg.css(alpha: 0.55),
             "fgHint": fg.css(alpha: 0.62),         // placeholders and the @Todo hint: readable on any note color
             "accent": accentForNote().css(),
+            // `dark` is dark TEXT, which means light paper. Code tokens need the opposite sense.
+            "paper": dark ? "light" : "dark",
             "surface": dark ? "rgba(0, 0, 0, 0.14)" : "rgba(255, 255, 255, 0.16)",
             "rule": dark ? "rgba(0, 0, 0, 0.22)" : "rgba(255, 255, 255, 0.28)",
             "highlight": dark ? "rgba(255, 214, 0, 0.5)" : "rgba(255, 214, 0, 0.32)",

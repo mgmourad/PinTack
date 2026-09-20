@@ -22,6 +22,17 @@ npm install --no-audit --no-fund --ignore-scripts --save-exact \
   @codemirror/commands@6.11.1 @codemirror/autocomplete@6.20.3 \
   @codemirror/lang-markdown@6.5.2 @lezer/highlight@1.2.3 >/dev/null
 
+# Every language CodeMirror ships, for fenced code blocks. These are NOT loaded with the editor:
+# editor.js imports each one only when a note actually contains a block in that language, so a
+# note with no code still parses one markdown module. See LANGUAGES in Editor/editor.js.
+npm install --no-audit --no-fund --ignore-scripts --save-exact \
+  @codemirror/lang-angular @codemirror/lang-cpp @codemirror/lang-css @codemirror/lang-go \
+  @codemirror/lang-html @codemirror/lang-java @codemirror/lang-javascript @codemirror/lang-json \
+  @codemirror/lang-less @codemirror/lang-liquid @codemirror/lang-php @codemirror/lang-python \
+  @codemirror/lang-rust @codemirror/lang-sass @codemirror/lang-sql @codemirror/lang-vue \
+  @codemirror/lang-wast @codemirror/lang-xml @codemirror/lang-yaml \
+  @codemirror/legacy-modes >/dev/null
+
 node - "$ROOT" <<'EOF'
 const fs = require("fs"), path = require("path"), crypto = require("crypto");
 const root = process.argv[2];
@@ -42,6 +53,22 @@ const imports = {};
 const licenses = [];
 for (const dir of packages("node_modules")) {
   const pkg = JSON.parse(fs.readFileSync(path.join(dir, "package.json")));
+
+  // @codemirror/legacy-modes has no single entry: it publishes one module per mode
+  // ("@codemirror/legacy-modes/mode/powershell"). Vendor the whole mode folder and map each one.
+  if (pkg.name === "@codemirror/legacy-modes") {
+    const outDir = path.join(vendor, "legacy-modes");
+    fs.mkdirSync(outDir, { recursive: true });
+    for (const f of fs.readdirSync(path.join(dir, "mode")).filter(f => f.endsWith(".js"))) {
+      fs.copyFileSync(path.join(dir, "mode", f), path.join(outDir, f));
+      imports[`${pkg.name}/mode/${f.replace(/\.js$/, "")}`] = "./vendor/legacy-modes/" + f;
+    }
+    const legacyLic = fs.readdirSync(dir).find(f => /^licen[cs]e/i.test(f));
+    licenses.push(`## ${pkg.name} ${pkg.version} (${pkg.license})\n\n` +
+      (legacyLic ? fs.readFileSync(path.join(dir, legacyLic), "utf8").trim() : "(no license file shipped)") + "\n");
+    continue;
+  }
+
   const ex = pkg.exports && (pkg.exports["."] || pkg.exports);
   const entry = (ex && ex.import) || pkg.module;
   if (!entry) throw new Error(pkg.name + " has no ESM entry");

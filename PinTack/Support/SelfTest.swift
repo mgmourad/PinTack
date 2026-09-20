@@ -91,7 +91,33 @@ enum SelfTest {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
             let onDisk = (try? String(contentsOf: target.note.fileURL, encoding: .utf8)) ?? ""
             log("bridge round trip (type → JS → Swift → atomic save): file contains edit = \(onDisk.contains("BRIDGE-TEST-OK")); inline #tag merged into frontmatter = \(onDisk.contains("selftest"))")
-            shortcutTest(out: out) { interactionTest(out: out) }
+            codeHighlightTest(panels: panels) { shortcutTest(out: out) { interactionTest(out: out) } }
+        }
+    }
+
+    /// The ```powershell block in `sampleBody`, highlighted inside the real web view. This is the only
+    /// place that proves the page's CSP lets editor.js import a language module at run time: over the
+    /// dev server the CSP is rewritten, so a browser check cannot tell us.
+    private static func codeHighlightTest(panels: [NotePanel], then next: @escaping () -> Void) {
+        guard panels.count > 1 else { next(); return }
+        let js = """
+        const sleep = ms => new Promise(r => setTimeout(r, ms));
+        for (let i = 0; i < 50 && !document.querySelector('.cm-codeblock span[class]'); i++) await sleep(100);
+        const badge = document.querySelector('.cm-codeblock-tagged');
+        const spans = [...document.querySelectorAll('.cm-codeblock span[class]')];
+        const colour = e => getComputedStyle(e).color;
+        return JSON.stringify({
+          badge: badge ? badge.dataset.glyph + ' ' + badge.dataset.lang : null,
+          tokens: spans.length,
+          distinctColours: new Set(spans.map(colour)).size,
+        });
+        """
+        panels[1].card.editor.callAsyncJavaScript(js, arguments: [:], in: nil, in: .page) { result in
+            switch result {
+            case .success(let value): log("code block highlighting in the app: \(value as? String ?? "nil")")
+            case .failure(let error): log("code block highlighting in the app: FAILED \(error)")
+            }
+            next()
         }
     }
 

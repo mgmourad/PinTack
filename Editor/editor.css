@@ -94,6 +94,40 @@ body {
 .cm-codeblock-first.cm-codeblock-last { border-radius: 6px; }
 .cm-fence-hidden { line-height: 4px !important; height: 4px; overflow: hidden; padding-top: 0 !important; padding-bottom: 0 !important; }
 
+/* Language badge: glyph + name in the block's top-right corner, tinted with the language's own
+   colour. It rides on the opening fence line, so with the fence hidden that line grows from the
+   4px spacer above into a short header strip with room for the badge. */
+.cm-codeblock-tagged { position: relative; }
+.cm-codeblock-tagged.cm-fence-hidden { line-height: 15px !important; height: 15px; overflow: visible; }
+.cm-codeblock-tagged::after {
+  content: attr(data-glyph) " " attr(data-lang);
+  position: absolute; top: 1px; right: 5px;
+  font-family: var(--font); font-size: 9.5px; font-weight: 600; line-height: 13px;
+  letter-spacing: .02em;
+  padding: 0 6px; border-radius: 999px;
+  color: var(--fg-dim);
+  background: color-mix(in srgb, var(--lang-color, #6b6b73) 20%, transparent);
+  border: 1px solid color-mix(in srgb, var(--lang-color, #6b6b73) 38%, transparent);
+  pointer-events: none; user-select: none; white-space: nowrap;
+}
+
+/* Tokens inside a fenced block, once its language has loaded (Editor/languages.js).
+   Two palettes, chosen by the paper the note uses; Swift sends `paper` with the other colours. */
+:root {
+  --code-keyword: #9333ea; --code-string: #15803d; --code-comment: var(--fg-dim);
+  --code-number: #b91c1c;  --code-function: #1d4ed8; --code-type: #0f766e;
+  --code-property: #7c2d12; --code-variable: var(--fg); --code-punct: var(--fg-dim);
+  --code-operator: #9333ea;
+  --code-tag: #be123c; --code-meta: #4338ca; --code-invalid: #dc2626;
+}
+:root[data-paper="dark"] {
+  --code-keyword: #ff7b72; --code-string: #a5d6ff; --code-comment: var(--fg-dim);
+  --code-number: #79c0ff;  --code-function: #d2a8ff; --code-type: #7ee787;
+  --code-property: #ffa657; --code-variable: var(--fg); --code-punct: var(--fg-dim);
+  --code-operator: #ff7b72;
+  --code-tag: #7ee787; --code-meta: #79c0ff; --code-invalid: #ffa198;
+}
+
 /* tables */
 .cm-table-wrap { overflow-x: auto; margin: 4px 0 6px; }
 .cm-table { border-collapse: collapse; font-size: .95em; min-width: 50%; }
