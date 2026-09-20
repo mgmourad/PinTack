@@ -464,7 +464,38 @@ enum SelfTest {
         }
     }
 
-    private static func renderWindows(out: URL) { runnerTest(out: out) { linkPreviewTest(out: out) { renderWindowsNow(out: out) } } }
+    /// The crop/resize sheet an image goes through on its way into a note.
+    private static func imageCropTest(out: URL, then next: @escaping () -> Void) {
+        let size = NSSize(width: 420, height: 260)
+        let image = NSImage(size: size)
+        image.lockFocus()
+        NSColor(calibratedRed: 0.13, green: 0.35, blue: 0.62, alpha: 1).setFill()
+        NSRect(origin: .zero, size: size).fill()
+        NSColor(calibratedRed: 0.98, green: 0.78, blue: 0.24, alpha: 1).setFill()
+        NSBezierPath(ovalIn: NSRect(x: 130, y: 50, width: 160, height: 160)).fill()
+        image.unlockFocus()
+
+        ImageCropPanel.present(image: image, over: nil) { data, _ in
+            log("image crop sheet: returned \(data?.count ?? 0) bytes")
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            guard let panel = NSApp.windows.first(where: { $0.title == "Insert Image" }) else {
+                log("image crop sheet: NOT SHOWN"); return next()
+            }
+            let rendered = ImageCropPanel.png(from: image, crop: NSRect(x: 120, y: 40, width: 180, height: 180),
+                                              size: NSSize(width: 90, height: 90))
+            log("image crop sheet: shown \(Int(panel.frame.width))x\(Int(panel.frame.height)) pt; "
+                + "a 180x180 crop resized to 90x90 produced \(rendered?.count ?? 0) bytes")
+            snapshot(window: panel, to: out.appendingPathComponent("image-crop.png")) {
+                panel.close()
+                next()
+            }
+        }
+    }
+
+    private static func renderWindows(out: URL) {
+        runnerTest(out: out) { linkPreviewTest(out: out) { imageCropTest(out: out) { renderWindowsNow(out: out) } } }
+    }
 
     private static func renderWindowsNow(out: URL) {
         // Put some realistic content in a note so the Live Preview render is visible.

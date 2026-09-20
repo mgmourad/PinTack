@@ -349,9 +349,24 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
 
     // MARK: Images (SPEC.md §7)
 
+    /// Pasted and dropped images go through the crop/resize sheet first. Nothing is written into
+    /// the vault until it is answered, so cancelling leaves no orphaned attachment behind.
     private func insertImage(data: Data, ext: String) {
-        guard let path = VaultStore.shared.writeAttachment(data, ext: ext) else { return }
-        send("image.inserted", ["path": path])
+        guard let image = NSImage(data: data) else {
+            if let path = VaultStore.shared.writeAttachment(data, ext: ext) { send("image.inserted", ["path": path]) }
+            return
+        }
+        ImageCropPanel.present(image: image, over: window) { [weak self] edited, editedExt in
+            guard let self else { return }
+            // "Use Original" re-encodes as PNG; keep the bytes we were given instead, so a pasted
+            // JPEG or GIF is not silently inflated or robbed of its animation.
+            let isUnchanged = edited.map { $0 == ImageCropPanel.png(from: image, crop: nil, size: nil) } ?? false
+            guard let payload = edited else { return }
+            let finalData = isUnchanged ? data : payload
+            let finalExt = isUnchanged ? ext : editedExt
+            guard let path = VaultStore.shared.writeAttachment(finalData, ext: finalExt) else { return }
+            self.send("image.inserted", ["path": path])
+        }
     }
 
     private func pickImage() {
@@ -360,10 +375,24 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
         panel.allowsMultipleSelection = false
         panel.begin { [weak self] response in
             guard response == .OK, let url = panel.url, let self else { return }
+            let alt = url.deletingPathExtension().lastPathComponent
+            // "Link in place" points at the user's own file, so it must not be cropped or rewritten.
             if AppSettings.shared.imagePaste == "link" {
-                self.send("image.inserted", ["path": url.path, "alt": url.deletingPathExtension().lastPathComponent])
-            } else if let path = VaultStore.shared.importAttachment(from: url) {
-                self.send("image.inserted", ["path": path, "alt": url.deletingPathExtension().lastPathComponent])
+                self.send("image.inserted", ["path": url.path, "alt": alt])
+                return
+            }
+            guard let image = NSImage(contentsOf: url) else {
+                if let path = VaultStore.shared.importAttachment(from: url) { self.send("image.inserted", ["path": path, "alt": alt]) }
+                return
+            }
+            ImageCropPanel.present(image: image, over: self.window) { edited, editedExt in
+                guard let edited else { return }
+                let untouched = edited == ImageCropPanel.png(from: image, crop: nil, size: nil)
+                if untouched, let path = VaultStore.shared.importAttachment(from: url) {
+                    self.send("image.inserted", ["path": path, "alt": alt])
+                } else if let path = VaultStore.shared.writeAttachment(edited, ext: editedExt) {
+                    self.send("image.inserted", ["path": path, "alt": alt])
+                }
             }
         }
     }

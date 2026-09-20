@@ -242,6 +242,9 @@ Owner decisions added after the rebuild (2026-09-19):
   note window. A fenced block that names a language also gets a glyph + name badge.
 - Tag pill colours come from a **djb2 hash of the tag text**, never `hashValue` (seeded per process,
   so colours would change every launch). Pills are washed out to always take dark text.
+- A pasted, dropped or picked image goes through the crop/resize sheet first, and nothing is
+  written into the vault until it is answered. Crop rects are in IMAGE PIXELS with a bottom-left
+  origin, never points: a 2x screenshot would otherwise lose half its resolution.
 - Link previews are off by default and fetched only in Swift. A dismissed preview is remembered in
   `.pintack/linkpreviews.json`, not in the note, so notes stay plain Markdown.
 
