@@ -67,7 +67,7 @@ final class WindowManager {
     }
 
     @discardableResult
-    func open(_ note: Note, focus: Bool = false) -> NotePanel {
+    func open(_ note: Note, focus: Bool = false, animated: Bool = false) -> NotePanel {
         if let existing = panels[note.id] {
             existing.orderFrontRegardless()
             if focus { existing.makeKeyAndOrderFront(nil); existing.card.focusEditor() }
@@ -78,6 +78,9 @@ final class WindowManager {
 
         let panel = NotePanel(note: note)
         panels[note.id] = panel
+        // Restoring a deskful of notes at launch animates nothing: a dozen cards fading in at once
+        // is a light show, not feedback.
+        if animated { Motion.appear(window: panel, content: panel.card, to: note.opacity) }
         panel.orderFrontRegardless()
         if focus {
             panel.makeKeyAndOrderFront(nil)
@@ -98,7 +101,7 @@ final class WindowManager {
         let defaults = settings.noteDefaults
         let frame = nextCardFrame(size: defaults.size)
         let note = VaultStore.shared.createNote(body: body, folder: folder, tags: tags, defaults: defaults, frame: frame)
-        open(note, focus: true)
+        open(note, focus: true, animated: true)
         return note
     }
 
@@ -131,8 +134,10 @@ final class WindowManager {
         // note's commands keep running whether or not they got the message.
         panel.card.editor.sendPluginEvent("note:close", ["noteId": noteID])
         PluginBridge.shared.cancelRuns(owner: panel.card.editor)
-        panel.orderOut(nil)
-        panel.close()
+        Motion.dismiss(window: panel) {
+            panel.orderOut(nil)
+            panel.close()
+        }
         if lastFocusedID == noteID { lastFocusedID = nil }
     }
 
@@ -146,8 +151,9 @@ final class WindowManager {
 
     /// Show a note that was hidden, or raise and pulse one that is already open. SPEC.md §8.
     func reveal(_ note: Note) {
+        let wasOpen = panels[note.id] != nil
         if !note.visible { note.visible = true; VaultStore.shared.save(note) }
-        let panel = open(note)
+        let panel = open(note, animated: !wasOpen)
         panel.orderFrontRegardless()
         panel.pulse()
         NotificationCenter.default.post(name: .vaultDidChange, object: nil)

@@ -243,6 +243,12 @@ Owner decisions added after the rebuild (2026-09-19):
   Devicon SVGs (MIT) in `Editor/icons`, vendored by `scripts/vendor-language-icons.sh`, and the
   badge has NO pill behind it (an owner decision, 2026-09-20); dark marks such as Rust and Markdown
   get a faint light halo on dark paper instead. A language with no logo gets a dot in its own colour.
+- `TagPillsView.hitTest` returns nil almost everywhere so the empty action bar still drags the note
+  — EXCEPT over the "+N" overflow pill, which takes its own click and shows the tags that did not
+  fit. Do not "simplify" that back to nil.
+- Animation lives in `Motion` (windows) and the movement block at the end of `editor.css`. Both
+  honour Reduce Motion. Only things that appear ONCE get animated: an image or code block is
+  rebuilt whenever the caret moves on or off its line, so animating those flickers on every click.
 - Tag pill colours come from a **djb2 hash of the tag text**, never `hashValue` (seeded per process,
   so colours would change every launch). Pills are washed out to always take dark text.
 - Pasting an image inserts it straight away. Cropping and resizing happen IN the note: click the

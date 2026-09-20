@@ -10,6 +10,11 @@ final class TagPillsView: NSView {
     var tags: [String] = [] { didSet { if tags != oldValue { needsDisplay = true } } }
     /// The note's automatic text colour, used for the "+N" overflow pill.
     var foreground: NSColor = .black { didSet { needsDisplay = true } }
+    /// Called when the "+N" pill is clicked, to show the ones that did not fit.
+    var onOverflowClick: ((NSRect) -> Void)?
+
+    /// Where the "+N" pill is, or .zero when every tag fitted. Set during drawing.
+    private(set) var overflowRect: NSRect = .zero
 
     private static let font = NSFont.systemFont(ofSize: 10, weight: .semibold)
     private static let padding: CGFloat = 6
@@ -17,9 +22,24 @@ final class TagPillsView: NSView {
 
     override var isFlipped: Bool { true }
 
-    /// Transparent to the mouse: the empty part of the action bar drags the note, and tags are
-    /// edited only from the tag icon beside them (an owner decision, 2026-09-19).
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    /// Transparent to the mouse so the empty part of the action bar still drags the note, and tags
+    /// are edited only from the tag icon (an owner decision, 2026-09-19) — with ONE exception: the
+    /// "+N" pill takes its own clicks, or there is no way to see the tags it is standing in for
+    /// short of making the note wider.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard !overflowRect.isEmpty, let parent = superview else { return nil }
+        return overflowRect.contains(convert(point, from: parent)) ? self : nil
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard !overflowRect.isEmpty else { return }
+        onOverflowClick?(convert(overflowRect, to: nil))
+    }
+
+    override func resetCursorRects() {
+        guard !overflowRect.isEmpty else { return }
+        addCursorRect(overflowRect, cursor: .pointingHand)
+    }
 
     /// A tag's colour, from a stable hash of its text. NOT `hashValue`: Swift seeds its hasher per
     /// process, so every launch would repaint the same tag a different colour.
@@ -44,6 +64,7 @@ final class TagPillsView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
+        overflowRect = .zero
         guard !tags.isEmpty else { return }
         let height = min(bounds.height, 15)
         let y = ((bounds.height - height) / 2).rounded()
@@ -59,8 +80,10 @@ final class TagPillsView: NSView {
             let needsRoom = index == tags.count - 1 ? pillWidth : pillWidth + TagPillsView.gap + overflowWidth
             if x + needsRoom > bounds.width {
                 if x + overflowWidth <= bounds.width {
-                    draw(overflow, at: NSRect(x: x, y: y, width: overflowWidth, height: height),
+                    overflowRect = NSRect(x: x, y: y, width: overflowWidth, height: height)
+                    draw(overflow, at: overflowRect,
                          background: foreground.withAlphaComponent(0.18), text: foreground.withAlphaComponent(0.85))
+                    window?.invalidateCursorRects(for: self)
                 }
                 return
             }

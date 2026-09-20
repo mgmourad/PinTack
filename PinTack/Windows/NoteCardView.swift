@@ -250,6 +250,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         configure(bellButton, symbol: "bell", tip: "Due date and reminders", action: #selector(showReminders))
         addSubview(bellButton)
         addSubview(taskProgress)
+        tagPills.onOverflowClick = { [weak self] _ in self?.showAllTags() }
         addSubview(tagPills)
 
         configure(freezeButton, symbol: "snowflake", tip: "Freeze (click-through)", action: #selector(toggleFreeze))
@@ -490,6 +491,25 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         bellButton.contentTintColor = note.due != nil ? Brand.accentNS : foreground.withAlphaComponent(0.55)
         bellButton.toolTip = note.due.map { "Due \($0.formatted(date: .abbreviated, time: .shortened))" }
             ?? "Due date and reminders"
+    }
+
+    /// The "+2" pill: shows every tag, for when the note is too narrow to lay them all out.
+    /// Widening the note still reveals them in place; this is the way that does not move anything.
+    @objc private func showAllTags() {
+        let view = VStack(alignment: .leading, spacing: 6) {
+            Text("Tags").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            ForEach(note.tags, id: \.self) { tag in
+                HStack(spacing: 6) {
+                    Circle().fill(Color(nsColor: TagPillsView.color(for: tag))).frame(width: 9, height: 9)
+                    Text("#" + tag).font(.system(size: 12))
+                }
+            }
+            Button("Edit tags…") { [weak self] in self?.showTags() }
+                .buttonStyle(.link).font(.caption).padding(.top, 2)
+        }
+        .padding(12)
+        .frame(minWidth: 130, alignment: .leading)
+        present(view, from: tagPills)
     }
 
     @objc private func showReminders() {
@@ -959,6 +979,7 @@ extension NoteCardView {
     func debugMenuItem(_ title: String, editing: Bool) -> NSMenuItem? { contextMenuItems(editing: editing).first { $0.title == title } }
     var debugTagsButtonFrame: NSRect { tagsButton.frame }
     var debugBellHidden: Bool { bellButton.isHidden }
+    var debugTagPills: TagPillsView { tagPills }
     func debugShowReminderPopover() { showReminders() }
     func debugDismissPopover() { popover?.close() }
     func debugCollapseActionBar() { if actionBarExpanded { toggleActionBar() } }

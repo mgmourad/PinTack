@@ -323,3 +323,37 @@ body {
 .cm-find-meta { color: rgba(242, 242, 247, .55); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cm-find-empty { color: rgba(242, 242, 247, .55); font-size: 12px; padding: 10px; text-align: center; }
 .cm-find-hint { color: rgba(242, 242, 247, .4); font-size: 10.5px; padding: 6px 10px; border-top: .5px solid rgba(255, 255, 255, .1); }
+
+/* ---------- movement ----------
+   Short and small on purpose: these say where something came from, they are not a show. Only
+   things that appear once get one — an image or a code block is rebuilt whenever the caret moves
+   on or off its line, and animating those would flicker on every click. */
+@keyframes pintack-rise {
+  from { opacity: 0; transform: translateY(-4px) scale(.985); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes pintack-fade { from { opacity: 0; } to { opacity: 1; } }
+
+/* The slash menu, the #tag menu and the @template menu all come through this one. */
+.cm-tooltip-autocomplete { animation: pintack-rise .13s ease-out; transform-origin: top center; }
+.cm-tooltip-autocomplete > ul > li { transition: background-color .08s ease-out; }
+
+/* /find */
+.cm-find { animation: pintack-fade .12s ease-out; }
+.cm-find-box { animation: pintack-rise .16s cubic-bezier(.2, .9, .3, 1); transform-origin: top center; }
+.cm-find-row { transition: background-color .08s ease-out; }
+
+/* A plugin's block (Runner and friends) and a rendered table settle in rather than snapping. */
+.cm-plugin-block, .cm-table-wrap { animation: pintack-fade .16s ease-out; }
+
+/* Controls that appear on hover or selection. */
+.cm-image-tool, .cm-link-close { transition: opacity .12s ease-out, background-color .12s ease-out; }
+.cm-image-handle { transition: transform .1s ease-out; }
+.cm-image-handle:hover { transform: scale(1.25); }
+.cm-task-box { transition: opacity .1s ease-out, background-color .12s ease-out; }
+.cm-link-card { transition: border-color .12s ease-out; }
+
+/* Anyone who has asked macOS to calm down gets none of it. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}

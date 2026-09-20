@@ -24,9 +24,13 @@ struct TaskProgressBar: View {
             if total <= TaskProgressStyle.maxSquares {
                 HStack(spacing: TaskProgressStyle.gap) {
                     ForEach(0..<total, id: \.self) { index in
+                        let isDone = index < done
                         RoundedRectangle(cornerRadius: 2)
-                            .fill(Color(nsColor: index < done ? TaskProgressStyle.done : TaskProgressStyle.todo))
+                            .fill(Color(nsColor: isDone ? TaskProgressStyle.done : TaskProgressStyle.todo))
                             .frame(width: TaskProgressStyle.square, height: TaskProgressStyle.square)
+                            // A finished square glows, the way a lit contribution square does.
+                            .shadow(color: Color(nsColor: TaskProgressStyle.done).opacity(isDone ? 0.85 : 0),
+                                    radius: isDone ? 3.5 : 0)
                     }
                 }
             } else {
@@ -35,6 +39,7 @@ struct TaskProgressBar: View {
                         RoundedRectangle(cornerRadius: 3).fill(Color(nsColor: TaskProgressStyle.todo))
                         RoundedRectangle(cornerRadius: 3).fill(Color(nsColor: TaskProgressStyle.done))
                             .frame(width: geo.size.width * (total == 0 ? 0 : Double(done) / Double(total)))
+                            .shadow(color: Color(nsColor: TaskProgressStyle.done).opacity(0.85), radius: 3.5)
                     }
                 }
                 .frame(height: TaskProgressStyle.square)
@@ -79,8 +84,17 @@ final class TaskProgressView: NSView {
         let filled = Int((Double(counts.done) / Double(counts.total) * Double(squares)).rounded(.down))
         for index in 0..<squares {
             let isDone = counts.total <= TaskProgressStyle.maxSquares ? index < counts.done : index < filled
+            let box = NSBezierPath(roundedRect: NSRect(x: x, y: y, width: height, height: height), xRadius: 2, yRadius: 2)
+            if isDone, let ctx = NSGraphicsContext.current?.cgContext {
+                // A finished square glows, the way a lit contribution square does.
+                ctx.saveGState()
+                ctx.setShadow(offset: .zero, blur: 4, color: TaskProgressStyle.done.withAlphaComponent(0.9).cgColor)
+                TaskProgressStyle.done.setFill()
+                box.fill()
+                ctx.restoreGState()
+            }
             (isDone ? TaskProgressStyle.done : TaskProgressStyle.todo).setFill()
-            NSBezierPath(roundedRect: NSRect(x: x, y: y, width: height, height: height), xRadius: 2, yRadius: 2).fill()
+            box.fill()
             x += height + TaskProgressStyle.gap
         }
 

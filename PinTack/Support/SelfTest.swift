@@ -764,6 +764,19 @@ enum SelfTest {
     /// The reminder bell: it appears on todo notes only, and its popover writes the date into the
     /// note. Notification delivery itself is the system's business and is not simulated here.
     private static func reminderTest(out: URL, then next: @escaping () -> Void) {
+        // A note with more tags than a narrow card can lay out, to exercise the "+N" pill.
+        let tagged = VaultStore.shared.createNote(
+            body: "@Todo Cert rotation checks\n\n- [x] export\n- [x] sign\n- [ ] deploy\n",
+            tags: ["todo", "priority", "intune", "azure", "q4"],
+            frame: WindowManager.shared.nextCardFrame(size: NSSize(width: 250, height: 200)))
+        VaultStore.shared.save(tagged)
+        let taggedPanel = WindowManager.shared.open(tagged, focus: false)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            let pills = taggedPanel.card.debugTagPills
+            log("tag overflow: tags = \(tagged.tags.count), \"+N\" pill shown = \(!pills.overflowRect.isEmpty), "
+                + "clickable = \(pills.hitTest(pills.convert(NSPoint(x: pills.overflowRect.midX, y: pills.overflowRect.midY), to: taggedPanel.card)) != nil)")
+        }
+
         // A template, so the templates tab and the @ menu have something in them.
         let template = VaultStore.shared.createNote(
             body: "# Change record\n\n| Step | Owner |\n| --- | --- |\n| Raise | me |\n",

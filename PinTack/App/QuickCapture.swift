@@ -64,7 +64,7 @@ final class QuickCapture: NSObject {
         VaultStore.shared.save(note)
 
         NSApp.activate(ignoringOtherApps: true)
-        let panel = WindowManager.shared.open(note, focus: true)
+        let panel = WindowManager.shared.open(note, focus: true, animated: true)
         panel.makeKeyAndOrderFront(nil)
         Toast.show(source.isEmpty ? "Captured" : "Captured from \(source)")
         return note

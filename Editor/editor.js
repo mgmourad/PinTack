@@ -958,6 +958,9 @@ function convertToTodo(view, triggerFrom, triggerTo) {
   view.dispatch({
     changes: [{ from: triggerFrom, to: triggerTo, insert: "" }, { from: 0, insert: "@Todo \n\n" }],
     selection: { anchor: 6 },        // right after "@Todo ", in front of the hint
+    // Converting from the bottom of a long note used to leave you staring at the bottom while the
+    // title you are meant to type sat off-screen at the top.
+    scrollIntoView: true,
   });
   post("note.action", { action: "tagTodo" });
 }
