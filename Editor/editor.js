@@ -885,6 +885,8 @@ const commands = [
   ["date", "Today's date", (v, _c, f, to) => edit(v, f, to, stamp("date")())],
   ["time", "Current time", (v, _c, f, to) => edit(v, f, to, stamp("time")())],
   ["tag", "Tag", (v, _c, f, to) => { edit(v, f, to, "#"); startCompletion(v); }],
+  // Native actions: the slash menu is just another way to reach what the note's own controls do.
+  ["freeze", "Freeze / thaw (click-through)", (v, _c, f, to) => { edit(v, f, to, ""); post("note.action", { action: "freeze" }); }],
   ["image", "Image from Finder…", (v, _c, f, to) => { edit(v, f, to, ""); post("image.pick"); }],
   ["emoji", "Emoji picker", (v, _c, f, to) => { edit(v, f, to, ""); openEmoji(v); }],
 ];

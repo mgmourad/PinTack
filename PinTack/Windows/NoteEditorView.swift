@@ -336,6 +336,12 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
         case "image.pick":
             pickImage()
 
+        // A slash command asking for something the note itself does (e.g. /freeze).
+        case "note.action":
+            if let raw = payload["action"] as? String, let action = ShortcutAction(rawValue: raw) {
+                WindowManager.shared.panel(for: note.id)?.card.perform(action)
+            }
+
         case "image.crop":
             cropImage(payload)
 

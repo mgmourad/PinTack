@@ -47,7 +47,7 @@ enum ActionRouter {
         case .exportAll:      ArchiveIO.exportAll()
         case .importArchive:  ArchiveIO.importArchive()
 
-        case .pin, .collapse, .close, .toggleMode, .emoji, .lessOpaque, .moreOpaque,
+        case .pin, .collapse, .close, .toggleMode, .emoji, .freeze, .lessOpaque, .moreOpaque,
              .color1, .color2, .color3, .color4, .color5, .color6:
             if let focused { focused.perform(action) } else { Toast.show("Click a note first") }
         }
@@ -56,7 +56,7 @@ enum ActionRouter {
     /// Actions that only make sense with a focused note need one; used to disable menu items.
     static func needsFocusedNote(_ action: ShortcutAction) -> Bool {
         switch action {
-        case .pin, .collapse, .close, .toggleMode, .emoji, .lessOpaque, .moreOpaque,
+        case .pin, .collapse, .close, .toggleMode, .emoji, .freeze, .lessOpaque, .moreOpaque,
              .color1, .color2, .color3, .color4, .color5, .color6: return true
         default: return false
         }

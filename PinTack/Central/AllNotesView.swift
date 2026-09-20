@@ -292,6 +292,17 @@ private struct NoteRow: View {
                     HStack(spacing: 4) {
                         Text(note.title).font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
                         if note.pinned { Image(systemName: "pin.fill").font(.caption2).foregroundStyle(.secondary) }
+                        // A frozen note takes no clicks of its own, so this is the backstop for
+                        // thawing one that has ended up somewhere awkward (off-screen, behind
+                        // something). See FreezeMode.
+                        if note.frozen {
+                            Button { thaw() } label: {
+                                Image(systemName: "snowflake").font(.caption2)
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(Color(nsColor: Brand.accentNS))
+                            .help("Frozen: clicks pass through it. Click to thaw.")
+                        }
                     }
                     Text(snippet).font(.system(size: 11.5)).foregroundStyle(.secondary).lineLimit(1)
                 }
@@ -339,6 +350,14 @@ private struct NoteRow: View {
         .buttonStyle(.plain)
         .foregroundStyle(.secondary)
         .help(help)
+    }
+
+    /// Thaws from the list, for a frozen note that cannot be clicked where it sits.
+    private func thaw() {
+        note.frozen = false
+        WindowManager.shared.panel(for: note.id)?.applyFrozen()
+        VaultStore.shared.save(note)
+        NotificationCenter.default.post(name: .vaultDidChange, object: nil)
     }
 
     private func beginRename() {

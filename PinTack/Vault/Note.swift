@@ -21,6 +21,9 @@ final class Note {
     var opacity: Double        // 0.3 ... 1.0
     var collapsed: Bool
     var visible: Bool
+    /// Freeze mode: the note ignores the mouse and sits on the desktop as a reference card.
+    /// Only the snowflake corner stays live, so it can always be thawed where you left it.
+    var frozen: Bool
 
     /// The EXPANDED card rect in screen coordinates. Never the window rect
     /// (SPEC.md §5.2), and never the collapsed height.
@@ -87,6 +90,7 @@ final class Note {
         self.opacity = 1.0
         self.collapsed = false
         self.visible = true
+        self.frozen = false
         self.cardFrame = cardFrame
         self.hasFrame = false
         self.body = body
@@ -194,6 +198,7 @@ final class Note {
             case "modified":  modified = Note.iso.date(from: value) ?? modified
             case "pinned":    pinned = (value == "true")
             case "collapsed": collapsed = (value == "true")
+            case "frozen":    frozen = (value == "true")
             case "visible":   visible = (value != "false")
             case "color":     if !value.isEmpty { colorHex = value }
             case "theme":     if !value.isEmpty { theme = value }
@@ -256,6 +261,7 @@ final class Note {
         out += "theme: \(theme)\n"
         out += "opacity: \(String(format: "%.2f", opacity))\n"
         out += "collapsed: \(collapsed)\n"
+        out += "frozen: \(frozen)\n"
         out += "visible: \(visible)\n"
         out += "frame:\n"
         out += "  x: \(Int(cardFrame.origin.x.rounded()))\n"
@@ -274,6 +280,7 @@ final class Note {
         created = other.created; modified = other.modified; tags = other.tags
         pinned = other.pinned; colorHex = other.colorHex; theme = other.theme
         opacity = other.opacity; collapsed = other.collapsed; visible = other.visible
+        frozen = other.frozen
         customTitle = other.customTitle
         cardFrame = other.cardFrame; hasFrame = other.hasFrame
         body = other.body; unknownBlocks = other.unknownBlocks; usesCRLF = other.usesCRLF

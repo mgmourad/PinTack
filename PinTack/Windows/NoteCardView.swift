@@ -19,6 +19,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     private let tagsButton = ToolButton()          // the tag ICON: the only thing that opens the tag editor
     private let tagPills = TagPillsView()                      // shows the tags; ignores the mouse so it drags
     private let grip = ResizeGripView()
+    private let freezeButton = ToolButton()      // snowflake, beside the grip
     let editor: NoteEditorView
 
     // The action bar: a `>` in the footer that opens formatting tools. SPEC.md §5.3 keeps the
@@ -246,6 +247,8 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         addSubview(tagsButton)
         addSubview(tagPills)
 
+        configure(freezeButton, symbol: "snowflake", tip: "Freeze (click-through)", action: #selector(toggleFreeze))
+        addSubview(freezeButton)
         grip.onDrag = { [weak self] in self?.resizeBegan() }
         grip.panel = panel
         addSubview(grip)
@@ -258,6 +261,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         refreshTagsButton()
         refreshModeGlyph()
         updateCollapsedState()
+        updateFrozenState()
     }
 
     private func configure(_ b: NSButton, symbol: String, tip: String, action: Selector) {
@@ -334,6 +338,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         appearanceButton.isHidden = c
         expandButton.isHidden = c
         grip.isHidden = c
+        freezeButton.isHidden = c
         modeButton.isHidden = c
         collapseButton.image = symbol(c ? "chevron.right" : "chevron.down")
         collapseButton.toolTip = c ? "Expand" : "Collapse"
@@ -379,6 +384,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         appearanceButton.frame = NSRect(x: c.minX + 8, y: y, width: 22, height: 20)
         expandButton.frame = NSRect(x: appearanceButton.frame.maxX + 2, y: y, width: 18, height: 20)
         grip.frame = NSRect(x: c.maxX - 20, y: c.minY + 4, width: 16, height: 16)
+        freezeButton.frame = NSRect(x: grip.frame.minX - 21, y: y, width: 20, height: 20)
 
         var x = expandButton.frame.maxX + 4
         if actionBarExpanded {
@@ -386,12 +392,12 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
                 tool.frame = NSRect(x: x, y: y, width: 22, height: 20)
                 x += 23
             }
-            let sliderWidth = grip.frame.minX - 8 - (x + 4)
+            let sliderWidth = freezeButton.frame.minX - 8 - (x + 4)
             opacitySlider.frame = NSRect(x: x + 4, y: c.minY + 7, width: max(0, sliderWidth), height: 16)
             opacitySlider.isHidden = sliderWidth < 36 || note.collapsed          // too narrow to use
         } else {
             tagsButton.frame = NSRect(x: x, y: y, width: 22, height: 20)
-            tagPills.frame = NSRect(x: tagsButton.frame.maxX + 2, y: y + 2, width: max(0, grip.frame.minX - tagsButton.frame.maxX - 10), height: 16)
+            tagPills.frame = NSRect(x: tagsButton.frame.maxX + 2, y: y + 2, width: max(0, freezeButton.frame.minX - tagsButton.frame.maxX - 8), height: 16)
         }
     }
 
@@ -432,6 +438,23 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         refreshPinGlyph()
         VaultStore.shared.save(note)
         Toast.show(note.pinned ? "📌 Pinned on top" : "Unpinned")
+    }
+
+    /// Freeze / thaw. While frozen the note lets the mouse through everywhere except the
+    /// snowflake corner, which FreezeMode keeps live so this button can always be reached.
+    @objc func toggleFreeze() {
+        note.frozen.toggle()
+        panel.applyFrozen()
+        VaultStore.shared.save(note)
+        NotificationCenter.default.post(name: .vaultDidChange, object: nil)
+        Toast.show(note.frozen ? "Frozen — clicks pass through" : "Thawed")
+    }
+
+    func updateFrozenState() {
+        freezeButton.image = symbol(note.frozen ? "snowflake.circle.fill" : "snowflake")
+        freezeButton.toolTip = note.frozen ? "Thaw (take clicks again)" : "Freeze (click-through)"
+        freezeButton.contentTintColor = note.frozen ? Brand.accentNS : foreground.withAlphaComponent(0.55)
+        needsDisplay = true
     }
 
     @objc func toggleCollapse() {
@@ -694,6 +717,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         // The menu bar's Note menu.
         items.append(action(note.pinned ? "Unpin from Top" : "Pin on Top", .pin))
         items.append(action(note.collapsed ? "Expand" : "Collapse", .collapse))
+        items.append(action(note.frozen ? "Thaw" : "Freeze (click-through)", .freeze))
         items.append(action(editor.mode == "live" ? "Switch to Source" : "Switch to Live Preview", .toggleMode))
         items.append(action("Emoji…", .emoji))
 
@@ -757,6 +781,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         switch action {
         case .pin:        togglePin()
         case .collapse:   toggleCollapse()
+        case .freeze:     toggleFreeze()
         case .close:      closeNote()
         case .toggleMode: toggleMode()
         case .emoji:      openEmoji()

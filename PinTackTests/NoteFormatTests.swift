@@ -211,6 +211,17 @@ final class NoteFormatTests: XCTestCase {
         XCTAssertEqual(n.title, "Draft")
     }
 
+    func testFreezeStateSurvivesASaveAndReload() {
+        let n = Note.parse("---\nid: A1\n---\nbody\n", fileURL: url)
+        XCTAssertFalse(n.frozen, "notes are not frozen by default")
+        n.frozen = true
+        let reloaded = Note.parse(n.serialized(), fileURL: url)
+        XCTAssertTrue(reloaded.frozen, "a frozen note must come back frozen, or it silently starts taking clicks again")
+
+        reloaded.frozen = false
+        XCTAssertFalse(Note.parse(reloaded.serialized(), fileURL: url).frozen)
+    }
+
     func testTitleWithQuotesAndColonsSurvivesARoundTrip() {
         let n = Note.parse("---\nid: A1\n---\nbody\n", fileURL: url)
         n.retitle(to: "He said \"hi\": a report")

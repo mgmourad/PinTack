@@ -83,7 +83,7 @@ struct KeyCombo: Codable, Equatable, Hashable {
 /// prototype shows (opacity, import, the shortcut list).
 enum ShortcutAction: String, CaseIterable, Codable {
     case newNote, newTodo, toggleAllNotes, autoArrange
-    case pin, collapse, close, toggleMode, emoji
+    case pin, collapse, close, toggleMode, emoji, freeze
     case color1, color2, color3, color4, color5, color6
     case toggleCorners, lessOpaque, moreOpaque
     case exportAll, importArchive, showShortcuts
@@ -96,6 +96,7 @@ enum ShortcutAction: String, CaseIterable, Codable {
         case .autoArrange: return "Auto-arrange notes"
         case .pin: return "Pin / unpin focused note"
         case .collapse: return "Collapse / expand focused note"
+        case .freeze: return "Freeze / thaw focused note"
         case .close: return "Close focused note"
         case .toggleMode: return "Toggle Live Preview / Source"
         case .emoji: return "Emoji picker"
@@ -116,7 +117,7 @@ enum ShortcutAction: String, CaseIterable, Codable {
 
     var group: String {
         switch self {
-        case .newNote, .newTodo, .close, .pin, .collapse, .toggleMode: return "Notes"
+        case .newNote, .newTodo, .close, .pin, .collapse, .toggleMode, .freeze: return "Notes"
         case .color1, .color2, .color3, .color4, .color5, .color6, .emoji, .lessOpaque, .moreOpaque, .toggleCorners: return "Appearance"
         case .toggleAllNotes, .autoArrange, .showShortcuts: return "Windows"
         case .exportAll, .importArchive: return "Data"
@@ -142,6 +143,7 @@ enum ShortcutAction: String, CaseIterable, Codable {
         case .autoArrange: return .alt(kVK_ANSI_A)
         case .pin: return .alt(kVK_ANSI_P)
         case .collapse: return .alt(kVK_ANSI_K)
+        case .freeze: return .alt(kVK_ANSI_F)
         case .close: return .alt(kVK_ANSI_W)
         case .toggleMode: return .alt(kVK_ANSI_M)
         case .emoji: return .alt(kVK_ANSI_E)

@@ -731,8 +731,38 @@ enum SelfTest {
         return String(json.dropFirst().dropLast())
     }
 
+    /// Freeze mode, and above all the way back OUT of it. A frozen note takes no clicks at all,
+    /// so if the live snowflake corner were wrong the note could never be thawed in place.
+    private static func freezeTest(then next: @escaping () -> Void) {
+        guard let panel = WindowManager.shared.openPanels.first else { return next() }
+        let note = panel.note
+        let wasFrozen = note.frozen
+
+        panel.card.perform(.freeze)
+        let card = NotePanel.cardRect(forWindow: panel.frame)
+        let corner = FreezeMode.liveCornerRect(of: panel)
+        log("freeze: note.frozen = \(note.frozen), panel ignores the mouse = \(panel.ignoresMouseEvents)")
+        log("freeze: thaw corner \(Int(corner.width))x\(Int(corner.height)) pt at the card's bottom-right; "
+            + "inside the card = \(card.contains(NSPoint(x: corner.midX, y: corner.midY)))")
+
+        // The pointer being over that corner must hand the mouse back, or there is no way out.
+        panel.ignoresMouseEvents = !corner.contains(NSPoint(x: corner.midX, y: corner.midY))
+        log("freeze: pointer over the corner → ignores the mouse = \(panel.ignoresMouseEvents) (must be false)")
+        panel.ignoresMouseEvents = !corner.contains(NSPoint(x: card.minX + 5, y: card.midY))
+        log("freeze: pointer over the middle → ignores the mouse = \(panel.ignoresMouseEvents) (must be true)")
+
+        let onDisk = { (try? String(contentsOf: note.fileURL, encoding: .utf8)) ?? "" }
+        SaveCoordinator.shared.flush(noteID: note.id)
+        log("freeze: written to the note file = \(onDisk().contains("frozen: true"))")
+
+        panel.card.perform(.freeze)
+        log("freeze: thawed again → frozen = \(note.frozen), ignores the mouse = \(panel.ignoresMouseEvents)")
+        if note.frozen != wasFrozen { panel.card.perform(.freeze) }
+        next()
+    }
+
     private static func renderWindows(out: URL) {
-        runnerTest(out: out) { linkPreviewTest(out: out) { imageEditTest(out: out) { renderWindowsNow(out: out) } } }
+        runnerTest(out: out) { linkPreviewTest(out: out) { imageEditTest(out: out) { freezeTest { renderWindowsNow(out: out) } } } }
     }
 
     private static func renderWindowsNow(out: URL) {

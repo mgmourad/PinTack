@@ -45,6 +45,7 @@ final class NotePanel: NSPanel {
 
         card = NoteCardView(note: note, panel: self)
         contentView = card
+        ignoresMouseEvents = note.frozen
         // Without this AppKit gives the header's title field first responder, which
         // opens every note with its title text selected.
         initialFirstResponder = card.editor
@@ -115,6 +116,14 @@ final class NotePanel: NSPanel {
     func applyCardFrame(_ rect: NSRect, animated: Bool = false) {
         note.cardFrame = rect
         setFrame(NotePanel.windowRect(forCard: visibleCardRect), display: true, animate: animated)
+    }
+
+    /// Freeze mode. The note stops taking the mouse entirely; FreezeMode re-enables it while the
+    /// pointer is over the snowflake corner, which is the only way back out.
+    func applyFrozen() {
+        ignoresMouseEvents = note.frozen
+        card?.updateFrozenState()
+        FreezeMode.update()
     }
 
     func applyPinned() {
