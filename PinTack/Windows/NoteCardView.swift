@@ -355,16 +355,74 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     }
 
     /// Tools show only while the bar is expanded; the tag list takes their place otherwise.
-    private func updateActionBar() {
+    ///
+    /// `animated` is only true when the user actually opened or closed the bar. Every other caller
+    /// (a layout pass, a refresh, a colour change) has to set the same state instantly, or the
+    /// tools would fade in again every time anything touched the note.
+    private func updateActionBar(animated: Bool = false) {
         let open = actionBarExpanded && !note.collapsed
-        [bulletButton, boldButton, italicButton, codeButton, opacitySlider].forEach { $0.isHidden = !open }
-        tagsButton.isHidden = open || note.collapsed
-        tagPills.isHidden = open || note.collapsed
-        bellButton.isHidden = open || note.collapsed || !note.isTodo
-        taskProgress.isHidden = bellButton.isHidden || note.taskCounts.total == 0
+        let tools: [NSView] = [bulletButton, boldButton, italicButton, codeButton, opacitySlider]
+        let tagSide: [NSView] = [tagsButton, tagPills, bellButton, taskProgress]
+
+        // What each side WOULD be, ignoring the animation.
+        let toolsHidden = !open
+        let hiddenFor: [NSView: Bool] = [
+            tagsButton: open || note.collapsed,
+            tagPills: open || note.collapsed,
+            bellButton: open || note.collapsed || !note.isTodo,
+            taskProgress: (open || note.collapsed || !note.isTodo) || note.taskCounts.total == 0,
+        ]
+
+        if animated && Motion.enabled {
+            // The side arriving slides in from where the chevron is and fades up; the side leaving
+            // fades out and drifts the other way, so the swap reads as one movement.
+            for view in tools { fade(view, toHidden: toolsHidden, slideFrom: -10) }
+            for view in tagSide { fade(view, toHidden: hiddenFor[view] ?? true, slideFrom: 10) }
+        } else {
+            for view in tools { view.isHidden = toolsHidden; view.alphaValue = 1 }
+            for view in tagSide { view.isHidden = hiddenFor[view] ?? true; view.alphaValue = 1 }
+        }
+
         expandButton.image = symbol(actionBarExpanded ? "chevron.left" : "chevron.right")
         expandButton.toolTip = actionBarExpanded ? "Hide formatting tools" : "Formatting tools"
         needsLayout = true
+    }
+
+    /// Fades one action-bar control in or out. Shown views are un-hidden first so the fade is
+    /// visible; hidden ones are only marked hidden once they have faded, or they vanish instantly.
+    private func fade(_ view: NSView, toHidden hidden: Bool, slideFrom offset: CGFloat) {
+        view.wantsLayer = true
+        if hidden {
+            guard !view.isHidden else { view.alphaValue = 1; return }
+            NSAnimationContext.runAnimationGroup({ context in
+                context.duration = 0.13
+                context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+                view.animator().alphaValue = 0
+            }, completionHandler: {
+                view.isHidden = true
+                view.alphaValue = 1          // ready for the next time it is shown
+            })
+        } else {
+            view.isHidden = false
+            view.alphaValue = 1
+            // Driven from the LAYER rather than view.animator(): a view that was hidden a moment
+            // ago has no presentation layer yet, and the AppKit animator quietly does nothing.
+            guard let layer = view.layer else { return }
+            let slide = CASpringAnimation(keyPath: "transform.translation.x")
+            slide.fromValue = offset
+            slide.toValue = 0
+            slide.mass = 1; slide.stiffness = 320; slide.damping = 20
+            slide.duration = slide.settlingDuration
+
+            let fadeUp = CABasicAnimation(keyPath: "opacity")
+            fadeUp.fromValue = 0
+            fadeUp.toValue = 1
+            fadeUp.duration = 0.22
+            fadeUp.timingFunction = CAMediaTimingFunction(name: .easeOut)
+
+            layer.add(slide, forKey: "pintack.actionbar.slide")
+            layer.add(fadeUp, forKey: "pintack.actionbar.fade")
+        }
     }
 
     func updateLayoutForPin() { needsLayout = true }
@@ -580,7 +638,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
 
     @objc private func toggleActionBar() {
         actionBarExpanded.toggle()
-        updateActionBar()
+        updateActionBar(animated: true)
         if actionBarExpanded { startCollapseTimer() } else { cancelCollapseTimer() }
     }
 
@@ -607,7 +665,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         collapseTimer = Timer.scheduledTimer(withTimeInterval: s.actionBarCollapseSeconds, repeats: false) { [weak self] _ in
             guard let self, self.actionBarExpanded else { return }
             self.actionBarExpanded = false
-            self.updateActionBar()
+            self.updateActionBar(animated: true)      // auto-collapse should ease away, not blink
         }
     }
 
@@ -983,6 +1041,19 @@ extension NoteCardView {
     func debugShowReminderPopover() { showReminders() }
     func debugDismissPopover() { popover?.close() }
     func debugCollapseActionBar() { if actionBarExpanded { toggleActionBar() } }
+    func debugToggleActionBar() { toggleActionBar() }
+    /// (isHidden, on-screen opacity) for a tool and a tag-side control, so the self-test can watch
+    /// them cross-fade. Reads the PRESENTATION layer: `alphaValue` is the model value, which jumps
+    /// to its destination the moment the animation is set up and so proves nothing.
+    var debugActionBarState: (toolHidden: Bool, toolAlpha: CGFloat, tagHidden: Bool, tagAlpha: CGFloat) {
+        func onScreen(_ view: NSView) -> CGFloat {
+            // -1 says "no presentation layer to read", so a missing animation cannot masquerade
+            // as a finished one.
+            guard let presented = view.layer?.presentation() else { return -1 }
+            return CGFloat(presented.opacity)
+        }
+        return (boldButton.isHidden, onScreen(boldButton), tagsButton.isHidden, onScreen(tagsButton))
+    }
     var debugFooterEmptyPoint: NSPoint { NSPoint(x: cardRect.midX + 20, y: cardRect.minY + 12) }
     func debugShowTags() { showTags() }
     func debugClosePopover() { popover?.close() }

@@ -960,8 +960,33 @@ enum SelfTest {
         }
     }
 
+    /// The action bar's tools should cross-fade with the tag side, not blink. Caught mid-flight:
+    /// the arriving control must already be visible but still partly transparent.
+    private static func actionBarTest(then next: @escaping () -> Void) {
+        guard let panel = WindowManager.shared.openPanels.first, let card = panel.card else { return next() }
+        card.debugCollapseActionBar()
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            let before = card.debugActionBarState
+            card.debugToggleActionBar()                     // open it
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) {
+                let during = card.debugActionBarState
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                    let after = card.debugActionBarState
+                    log("action bar closed: tools hidden = \(before.toolHidden), tags hidden = \(before.tagHidden)")
+                    log("action bar mid-open: tools hidden = \(during.toolHidden) alpha = \(String(format: "%.2f", during.toolAlpha)) "
+                        + "(must be visible and part-way), tags alpha = \(String(format: "%.2f", during.tagAlpha))")
+                    log("action bar settled: tools hidden = \(after.toolHidden) alpha = \(String(format: "%.2f", after.toolAlpha)), "
+                        + "tags hidden = \(after.tagHidden)")
+                    card.debugCollapseActionBar()
+                    next()
+                }
+            }
+        }
+    }
+
     private static func renderWindows(out: URL) {
-        runnerTest(out: out) { linkPreviewTest(out: out) { imageEditTest(out: out) { freezeTest { reminderTest(out: out) { findTest(out: out) { quickCaptureTest { templateTest { renderWindowsNow(out: out) } } } } } } } }
+        runnerTest(out: out) { linkPreviewTest(out: out) { imageEditTest(out: out) { freezeTest { reminderTest(out: out) { findTest(out: out) { quickCaptureTest { templateTest { actionBarTest { renderWindowsNow(out: out) } } } } } } } } }
     }
 
     private static func renderWindowsNow(out: URL) {

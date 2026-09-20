@@ -203,6 +203,13 @@ struct AllNotesView: View {
                 .padding(.horizontal, 6)
             }
             }
+
+            Divider()
+            HStack {
+                settingsButton
+                Spacer()
+            }
+            .padding(.horizontal, 6).padding(.bottom, 2)
         }
     }
 
@@ -260,7 +267,6 @@ struct AllNotesView: View {
 
             Divider()
             HStack(spacing: 8) {
-                settingsButton
                 Menu {
                     Button("Vault root (no folder)") { move(to: "") }
                     if !model.folders.isEmpty { Divider() }
@@ -282,10 +288,14 @@ struct AllNotesView: View {
         }
     }
 
-    /// Shortcut to Settings from the window everything else is managed in.
+    /// Shortcut to Settings, in the sidebar's own bottom-left corner so it sits under the folder
+    /// list rather than crowding the buttons that act on the notes.
     private var settingsButton: some View {
         Button { SettingsWindowController.shared.show() } label: {
-            Image(systemName: "gearshape").frame(width: 22, height: 22).contentShape(Rectangle())
+            Image(systemName: "gearshape")
+                .font(.system(size: 17, weight: .regular))
+                .frame(width: 34, height: 34)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .foregroundStyle(.secondary)
@@ -349,7 +359,6 @@ struct AllNotesView: View {
             }
             Divider()
             HStack(spacing: 8) {
-                settingsButton
                 Button("New todo") { WindowManager.shared.newTodo() }.fixedSize()
                 Spacer()
             }
@@ -388,7 +397,6 @@ struct AllNotesView: View {
 
             Divider()
             HStack(spacing: 8) {
-                settingsButton
                 Button("New note") {
                     let folder: String? = { if case .folder(let f) = model.selection { return f }; return nil }()
                     WindowManager.shared.newNote(folder: folder)
