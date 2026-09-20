@@ -84,6 +84,7 @@ final class ShortcutsOverlay {
         if let v = screen?.visibleFrame {
             p.setFrameOrigin(NSPoint(x: v.midX - size.width / 2, y: v.midY - size.height / 2))
         }
+        Motion.appear(window: p, content: bg, to: 1)
         p.makeKeyAndOrderFront(nil)
         panel = p
     }

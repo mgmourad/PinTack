@@ -38,10 +38,18 @@ body {
 .cm-editor.cm-focused .cm-selectionBackground { background: color-mix(in srgb, var(--accent) 42%, transparent) !important; }
 .cm-placeholder { color: var(--fg-hint) !important; }
 
-/* thin scrollbars that suit a small card */
+/* Thin scrollbars that suit a small card, and out of sight until they are wanted: a permanent bar
+   down the edge of a sticky note is a lot of furniture for something usually two lines long. The
+   gutter keeps its width so text never reflows when the bar appears; only the thumb fades in,
+   while scrolling or while the pointer is near the right edge (editor.js adds the class). */
 .cm-scroller::-webkit-scrollbar { width: 8px; }
-.cm-scroller::-webkit-scrollbar-thumb { background: var(--rule); border-radius: 4px; border: 2px solid transparent; background-clip: content-box; }
 .cm-scroller::-webkit-scrollbar-track { background: transparent; }
+.cm-scroller::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 4px; border: 2px solid transparent; background-clip: content-box;
+}
+.cm-scroller.cm-show-scrollbar::-webkit-scrollbar-thumb { background: var(--rule); background-clip: content-box; }
+.cm-scroller.cm-show-scrollbar:hover::-webkit-scrollbar-thumb { background: var(--fg-dim); background-clip: content-box; }
 
 /* ---------- Live Preview ---------- */
 .cm-syntax { color: var(--fg-dim); }            /* raw markers, only on the cursor line */

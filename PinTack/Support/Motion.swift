@@ -81,6 +81,36 @@ enum Motion {
         }
     }
 
+    /// Springs a popover in. NSPopover's own `animates` is deliberately off (it fades the popover
+    /// while it is still being sized), so this animates the finished window instead: the whole
+    /// thing, arrow and background included, grows from the control it belongs to.
+    static func popover(_ window: NSWindow?) {
+        guard enabled, let window, let content = window.contentView else { return }
+        content.wantsLayer = true
+        guard let layer = content.layer else { return }
+
+        // Grow from the top edge, which is where the arrow meets the button it came from.
+        let previousAnchor = layer.anchorPoint
+        layer.anchorPoint = CGPoint(x: 0.5, y: 1.0)
+        layer.position = CGPoint(x: layer.frame.midX, y: layer.frame.maxY)
+
+        let scale = arrivalSpring(keyPath: "transform.scale", from: 0.90, to: 1.0)
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 0
+        fade.toValue = 1
+        fade.duration = 0.14
+        fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        layer.add(scale, forKey: "pintack.popover.scale")
+        layer.add(fade, forKey: "pintack.popover.fade")
+
+        // Put the anchor back once it has settled, so nothing else that reads the layer is surprised.
+        DispatchQueue.main.asyncAfter(deadline: .now() + scale.duration) {
+            guard layer.anchorPoint != previousAnchor else { return }
+            layer.anchorPoint = previousAnchor
+            layer.position = CGPoint(x: layer.frame.midX, y: layer.frame.midY)
+        }
+    }
+
     /// Attention: a quick squash-and-settle on a layer, used when a note is pointed at.
     static func bounce(_ view: NSView?) {
         guard enabled, let layer = view?.layer else { return }

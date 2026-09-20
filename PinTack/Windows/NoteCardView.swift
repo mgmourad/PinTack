@@ -717,11 +717,15 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
 
         let p = NSPopover()
         p.behavior = .transient
+        // AppKit's own popover animation stays off: it fades a MIS-SIZED popover into place, which
+        // is what made the sizing bug above so ugly. Motion.popover springs the finished one in
+        // instead, matching the rest of the app.
         p.animates = false
         p.contentViewController = host
         p.contentSize = size
         // AppKit picks the side with room (below the note when it can), always touching the button.
         p.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .maxY)
+        Motion.popover(host.view.window)
         popover = p
     }
 

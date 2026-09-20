@@ -1217,6 +1217,43 @@ const linkAt = (view, pos) => {
   return null;
 };
 
+/* ------------------------------------------------------- scrollbar (§4.1)
+ * The bar is invisible until it is useful: while the view is actually scrolling, or while the
+ * pointer is near the right edge where you would reach for it. A permanent bar down the side of a
+ * sticky note is a lot of furniture for something usually two lines long.
+ *
+ * WebKit gives no "is scrolling" state and cannot style a pseudo-element from a parent's :hover in
+ * the way this needs, so the class is managed here. */
+const SCROLLBAR_EDGE = 26;        // how close to the right edge counts as reaching for it
+let scrollbarTimer = null;
+
+function showScrollbar(scroller, sticky) {
+  scroller.classList.add("cm-show-scrollbar");
+  clearTimeout(scrollbarTimer);
+  // Cleared to null, not just cancelled: a timeout id stays truthy after it has fired, and the
+  // pointer check below reads this as "still in the grace period after a scroll" — which left the
+  // bar up for good once anything had scrolled.
+  scrollbarTimer = null;
+  if (sticky) return;                       // the pointer is there: leave it up until it leaves
+  scrollbarTimer = setTimeout(() => {
+    scrollbarTimer = null;
+    scroller.classList.remove("cm-show-scrollbar");
+  }, 900);
+}
+
+function watchScrollbar(view) {
+  const scroller = view.scrollDOM;
+  scroller.addEventListener("scroll", () => showScrollbar(scroller, false), { passive: true });
+  scroller.addEventListener("mousemove", (e) => {
+    const near = scroller.getBoundingClientRect().right - e.clientX <= SCROLLBAR_EDGE;
+    if (near) showScrollbar(scroller, true);
+    else if (!scrollbarTimer) scroller.classList.remove("cm-show-scrollbar");
+  });
+  scroller.addEventListener("mouseleave", () => {
+    if (!scrollbarTimer) scroller.classList.remove("cm-show-scrollbar");
+  });
+}
+
 const view = new EditorView({
   parent: document.getElementById("editor"),
   state: EditorState.create({
@@ -1300,6 +1337,7 @@ const view = new EditorView({
 });
 
 viewRef = view;
+watchScrollbar(view);
 
 // A webview must never navigate away from the editor. SPEC.md §4.4.
 document.addEventListener("click", (e) => { if (e.target.closest("a[href]")) e.preventDefault(); }, true);
