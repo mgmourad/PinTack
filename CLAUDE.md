@@ -322,9 +322,13 @@ space and can be referenced fast. Obsidian already exists for the rest.
   mutation-checked (skipping approval, ignoring the token's page, accepting unsigned trust all fail them).
 
 Choices that differ from SPEC.md or the prototype, made deliberately:
-- Only New note, New todo, All Notes and Auto-arrange are **global** hotkeys.
-  The rest work while a PinTack window is key. Registering ⌥⌘W or ⌥⌘H
-  system-wide would steal them from every other app.
+- The **global** hotkeys are the ones that open or switch a window plus the three capture ones:
+  New note, New todo, New note from clipboard, All Notes, All Notes by tag, Todos, Templates,
+  Auto-arrange, Show all on desktop. Everything that acts on ONE note stays app-scoped — a
+  system-wide key that bins whatever note happens to be focused is not a thing to hand out.
+  Registering ⌥⌘W or ⌥⌘H system-wide would steal them from every other app.
+  The ⌥⇧ rank (⌥⇧2, ⌥⇧T, ⌥⇧=) is owner-chosen (2026-09-20); note that ⌥⇧ combinations normally
+  type dead keys, so a global one takes that character away from every app.
 - ⌥⌘M toggles Live Preview/Source (SPEC §10.2); the prototype used it for minimize.
 - Footer has three controls (SPEC §5.3), not the prototype's swatches and sliders.
 - The prototype's iCloud status is omitted: cloud sync is out of scope for v1.

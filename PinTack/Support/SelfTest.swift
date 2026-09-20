@@ -52,6 +52,27 @@ enum SelfTest {
             saveMenuBarMock(to: out.appendingPathComponent("menubar-icon.png"))
         } else { log("status item: MISSING") }
 
+        // Every action's menu entry, with the key AppKit will show beside it. A shortcut that is
+        // in the overlay but missing from the menus is half-wired.
+        if let main = NSApp.mainMenu {
+            var shown: [String] = []
+            for top in main.items {
+                for item in top.submenu?.items ?? [] where !item.keyEquivalent.isEmpty {
+                    guard let raw = item.representedObject as? String, ShortcutAction(rawValue: raw) != nil else { continue }
+                    var mods = ""
+                    if item.keyEquivalentModifierMask.contains(.control) { mods += "⌃" }
+                    if item.keyEquivalentModifierMask.contains(.option) { mods += "⌥" }
+                    if item.keyEquivalentModifierMask.contains(.shift) { mods += "⇧" }
+                    if item.keyEquivalentModifierMask.contains(.command) { mods += "⌘" }
+                    shown.append("\(top.title)>\(item.title) \(mods)\(item.keyEquivalent.uppercased())")
+                }
+            }
+            for wanted in [ShortcutAction.deleteNote, .allNotesByTag, .showTodos, .showTemplates, .showAllOnDesktop] {
+                let hit = shown.first { $0.hasSuffix(ShortcutStore.shared.combo(for: wanted).display) }
+                log("menu entry for \(wanted.rawValue): \(hit ?? "MISSING")")
+            }
+        }
+
         // Hotkeys: registration status per global action, then push a simulated press
         // through the same Carbon handler path and check that a note appears.
         for (action, status) in GlobalHotKeyCenter.shared.lastStatus.sorted(by: { $0.key.rawValue < $1.key.rawValue }) {

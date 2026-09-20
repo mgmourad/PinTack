@@ -910,6 +910,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         case .pin:        togglePin()
         case .collapse:   toggleCollapse()
         case .freeze:     toggleFreeze()
+        case .deleteNote: deleteNote()
         case .close:      closeNote()
         case .toggleMode: toggleMode()
         case .emoji:      openEmoji()

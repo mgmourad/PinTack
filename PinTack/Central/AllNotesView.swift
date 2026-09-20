@@ -16,6 +16,9 @@ final class AllNotesModel: ObservableObject {
         var id: String { rawValue }
     }
 
+    /// One model for the window, so a shortcut can switch its tab while it is already open.
+    static let shared = AllNotesModel()
+
     /// Which tab opens first. Resolved lazily on first use so it does not depend on when the
     /// self-test happens to run relative to the window being built.
     static var debugInitialMode: Mode = {
@@ -134,7 +137,7 @@ final class AllNotesModel: ObservableObject {
 
 struct AllNotesView: View {
 
-    @StateObject private var model = AllNotesModel()
+    @ObservedObject private var model = AllNotesModel.shared
     @ObservedObject private var settings = AppSettings.shared
 
     var body: some View {
@@ -154,16 +157,17 @@ struct AllNotesView: View {
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 8) {
             // Glyphs rather than words: three labelled tabs crowded the sidebar.
+            // Each segment carries its own tip: one .help() on the Picker described all four at
+            // once, which told you nothing about the icon under the pointer.
             Picker("", selection: $model.mode) {
-                Image(systemName: "folder").tag(AllNotesModel.Mode.folders)
-                Image(systemName: "number").tag(AllNotesModel.Mode.tags)
-                Text("@").tag(AllNotesModel.Mode.todo)
-                Image(systemName: "cube.box").tag(AllNotesModel.Mode.templates)
+                Image(systemName: "folder").help("Folders").tag(AllNotesModel.Mode.folders)
+                Image(systemName: "number").help("Tags").tag(AllNotesModel.Mode.tags)
+                Text("@").help("Todos").tag(AllNotesModel.Mode.todo)
+                Image(systemName: "cube.box").help("Templates").tag(AllNotesModel.Mode.templates)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
             .padding(.horizontal, 10).padding(.top, 10)
-            .help("Folders, tags, todos, or templates")
 
             if model.mode == .todo { todoControls }
             if model.mode == .templates { templateControls }
@@ -767,5 +771,16 @@ final class AllNotesWindowController {
 
     func toggle() {
         if isVisible && window?.isKeyWindow == true { window?.close() } else { show() }
+    }
+
+    /// Opens the window on a particular tab, or switches an open one to it. A second press of the
+    /// same shortcut closes it, so the key that showed your todos also puts them away.
+    func show(mode: AllNotesModel.Mode) {
+        if isVisible, window?.isKeyWindow == true, AllNotesModel.shared.mode == mode {
+            window?.close()
+            return
+        }
+        AllNotesModel.shared.mode = mode
+        show()
     }
 }

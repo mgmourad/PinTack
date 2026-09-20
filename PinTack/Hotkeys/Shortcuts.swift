@@ -10,6 +10,10 @@ struct KeyCombo: Codable, Equatable, Hashable {
     static let optCmd = UInt32(cmdKey | optionKey)
 
     static func alt(_ key: Int) -> KeyCombo { KeyCombo(keyCode: UInt32(key), modifiers: optCmd) }
+    /// ⌥⇧ combinations, for the second rank of window shortcuts.
+    static func optShift(_ key: Int) -> KeyCombo {
+        KeyCombo(keyCode: UInt32(key), modifiers: UInt32(optionKey | shiftKey))
+    }
 
     /// Modifiers of an AppKit event, in Carbon terms.
     static func carbonModifiers(_ flags: NSEvent.ModifierFlags) -> UInt32 {
@@ -83,6 +87,7 @@ struct KeyCombo: Codable, Equatable, Hashable {
 /// prototype shows (opacity, import, the shortcut list).
 enum ShortcutAction: String, CaseIterable, Codable {
     case newNote, newTodo, toggleAllNotes, autoArrange, quickCapture
+    case allNotesByTag, showTemplates, showTodos, showAllOnDesktop, deleteNote
     case pin, collapse, close, toggleMode, emoji, freeze
     case color1, color2, color3, color4, color5, color6
     case toggleCorners, lessOpaque, moreOpaque
@@ -95,6 +100,11 @@ enum ShortcutAction: String, CaseIterable, Codable {
         case .toggleAllNotes: return "Show / hide All Notes"
         case .autoArrange: return "Auto-arrange notes"
         case .quickCapture: return "New note from the clipboard"
+        case .allNotesByTag: return "All Notes, by tag"
+        case .showTemplates: return "All Notes, templates"
+        case .showTodos: return "All Notes, todos"
+        case .showAllOnDesktop: return "Show every note on the desktop"
+        case .deleteNote: return "Delete focused note" 
         case .pin: return "Pin / unpin focused note"
         case .collapse: return "Collapse / expand focused note"
         case .freeze: return "Freeze / thaw focused note"
@@ -121,6 +131,8 @@ enum ShortcutAction: String, CaseIterable, Codable {
         case .newNote, .newTodo, .close, .pin, .collapse, .toggleMode, .freeze: return "Notes"
         case .color1, .color2, .color3, .color4, .color5, .color6, .emoji, .lessOpaque, .moreOpaque, .toggleCorners: return "Appearance"
         case .toggleAllNotes, .autoArrange, .showShortcuts: return "Windows"
+        case .allNotesByTag, .showTemplates, .showTodos, .showAllOnDesktop: return "Windows"
+        case .deleteNote: return "Notes" 
         case .quickCapture: return "Notes"
         case .exportAll, .importArchive: return "Data"
         }
@@ -132,7 +144,8 @@ enum ShortcutAction: String, CaseIterable, Codable {
     /// other application, which is a worse trade than the spec's table implies.
     var isGlobal: Bool {
         switch self {
-        case .newNote, .newTodo, .toggleAllNotes, .autoArrange, .quickCapture: return true
+        case .newNote, .newTodo, .toggleAllNotes, .autoArrange, .quickCapture,
+             .allNotesByTag, .showTemplates, .showTodos, .showAllOnDesktop: return true
         default: return false
         }
     }
@@ -144,6 +157,11 @@ enum ShortcutAction: String, CaseIterable, Codable {
         case .toggleAllNotes: return .alt(kVK_ANSI_H)
         case .autoArrange: return .alt(kVK_ANSI_A)
         case .quickCapture: return .alt(kVK_ANSI_C)
+        case .allNotesByTag: return .alt(kVK_ANSI_T)
+        case .deleteNote: return .alt(kVK_ANSI_D)
+        case .showTemplates: return .optShift(kVK_ANSI_2)
+        case .showTodos: return .optShift(kVK_ANSI_T)
+        case .showAllOnDesktop: return .optShift(kVK_ANSI_Equal)
         case .pin: return .alt(kVK_ANSI_P)
         case .collapse: return .alt(kVK_ANSI_K)
         case .freeze: return .alt(kVK_ANSI_F)

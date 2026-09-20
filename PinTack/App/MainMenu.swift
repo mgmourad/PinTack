@@ -80,13 +80,18 @@ enum MainMenuBuilder {
             action(m, "Less Opaque", .lessOpaque)
             action(m, "More Opaque", .moreOpaque)
             action(m, "Round / Square Corners", .toggleCorners)
+            m.addItem(.separator())
+            action(m, "Delete Note", .deleteNote)
         }
 
         submenu("Window") { m in
             action(m, "All Notes", .toggleAllNotes)
+            action(m, "All Notes by Tag", .allNotesByTag)
+            action(m, "Todos", .showTodos)
+            action(m, "Templates", .showTemplates)
+            m.addItem(.separator())
             action(m, "Auto-Arrange Notes", .autoArrange)
-            let show = m.addItem(withTitle: "Show All Notes on Desktop", action: #selector(AppDelegate.showAllNotesOnDesktop(_:)), keyEquivalent: "")
-            show.target = target
+            action(m, "Show All Notes on Desktop", .showAllOnDesktop)
             m.addItem(.separator())
             m.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
             m.addItem(withTitle: "Bring All to Front", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: "")
@@ -105,6 +110,8 @@ enum MainMenuBuilder {
     static func apply(_ combo: KeyCombo, to item: NSMenuItem) {
         let name = KeyCombo.keyName(combo.keyCode)
         guard name.count == 1 else { return }
+        // Lowercased with an explicit .shift in the mask: setting an uppercase keyEquivalent makes
+        // AppKit add shift itself and the two ways of saying it fight.
         item.keyEquivalent = name.lowercased()
         var mask: NSEvent.ModifierFlags = []
         if combo.modifiers & UInt32(cmdKey) != 0 { mask.insert(.command) }

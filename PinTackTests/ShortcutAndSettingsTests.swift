@@ -17,6 +17,26 @@ final class ShortcutAndSettingsTests: VaultTestCase {
         XCTAssertEqual(ShortcutAction.pin.defaultCombo.display, "⌥⌘P")
         XCTAssertEqual(ShortcutAction.toggleMode.defaultCombo.display, "⌥⌘M")
         XCTAssertEqual(ShortcutAction.color6.defaultCombo.display, "⌥⌘6")
+
+        // The second rank uses ⌥⇧ rather than ⌥⌘, so the display has to render shift too.
+        XCTAssertEqual(ShortcutAction.deleteNote.defaultCombo.display, "⌥⌘D")
+        XCTAssertEqual(ShortcutAction.allNotesByTag.defaultCombo.display, "⌥⌘T")
+        XCTAssertEqual(ShortcutAction.showTemplates.defaultCombo.display, "⌥⇧2")
+        XCTAssertEqual(ShortcutAction.showTodos.defaultCombo.display, "⌥⇧T")
+        XCTAssertEqual(ShortcutAction.showAllOnDesktop.defaultCombo.display, "⌥⇧=")
+    }
+
+    /// Two actions sharing a combination means one of them silently never fires.
+    func testNoTwoActionsShareADefaultCombination() {
+        var seen: [KeyCombo: ShortcutAction] = [:]
+        for action in ShortcutAction.allCases {
+            let combo = action.defaultCombo
+            if let clash = seen[combo] {
+                XCTFail("\(action) and \(clash) both default to \(combo.display)")
+            }
+            seen[combo] = action
+        }
+        XCTAssertEqual(seen.count, ShortcutAction.allCases.count)
     }
 
     func testOnlyTheAppWideActionsAreGlobal() {
@@ -24,10 +44,12 @@ final class ShortcutAndSettingsTests: VaultTestCase {
         // the global list stays short on purpose. Quick capture belongs on it: catching something
         // from another app is worthless if PinTack has to be in front first.
         XCTAssertEqual(Set(ShortcutAction.allCases.filter(\.isGlobal)),
-                       [.newNote, .newTodo, .toggleAllNotes, .autoArrange, .quickCapture])
+                       [.newNote, .newTodo, .toggleAllNotes, .autoArrange, .quickCapture,
+                        .allNotesByTag, .showTemplates, .showTodos, .showAllOnDesktop])
 
-        // Everything that acts on one note must NOT be global.
-        for action in [ShortcutAction.close, .pin, .collapse, .freeze, .toggleMode, .emoji] {
+        // Everything that acts on one note must NOT be global. Deleting especially: a system-wide
+        // key that bins whatever note happens to be focused is not a thing to hand out.
+        for action in [ShortcutAction.close, .pin, .collapse, .freeze, .toggleMode, .emoji, .deleteNote] {
             XCTAssertFalse(action.isGlobal, "\(action) would be stolen from every other app")
         }
     }

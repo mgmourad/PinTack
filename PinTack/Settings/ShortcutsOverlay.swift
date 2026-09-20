@@ -8,7 +8,7 @@ struct ShortcutsOverlayView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Keyboard shortcuts").font(.system(size: 17, weight: .semibold))
-            Text("Notes, Appearance and Windows shortcuts act on the focused note. New note, New todo, All Notes and Auto-arrange also work from any app.")
+            Text("Appearance shortcuts and most Notes ones act on the focused note. Everything under Windows, plus New note, New todo and New note from the clipboard, works from any app.")
                 .font(.system(size: 12)).foregroundStyle(.secondary).padding(.bottom, 14)
 
             let groups = ["Notes", "Appearance", "Windows", "Data"]
