@@ -134,7 +134,7 @@ final class WindowManager {
         // note's commands keep running whether or not they got the message.
         panel.card.editor.sendPluginEvent("note:close", ["noteId": noteID])
         PluginBridge.shared.cancelRuns(owner: panel.card.editor)
-        Motion.dismiss(window: panel) {
+        Motion.dismiss(window: panel, content: panel.card) {
             panel.orderOut(nil)
             panel.close()
         }

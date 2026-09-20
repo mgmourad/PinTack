@@ -102,14 +102,7 @@ final class NotePanel: NSPanel {
         // NOT setFrame(_:display:animate:): that one spins a NESTED RUN LOOP until the animation
         // ends, stalling the main thread for ~270 ms mid-keystroke and letting the rest of the
         // press dispatch land outside any time-based de-dupe (see ActionRouter.perform).
-        if animated {
-            NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.16
-                animator().setFrame(target, display: true)
-            }
-        } else {
-            setFrame(target, display: true)
-        }
+        if animated { Motion.springFrame(self, to: target) } else { setFrame(target, display: true) }
         card?.updateCollapsedState()
     }
 
@@ -132,18 +125,8 @@ final class NotePanel: NSPanel {
         card?.updateLayoutForPin()
     }
 
-    /// Brief scale pulse, used when the All Notes window points at a note. SPEC.md §8.
-    func pulse() {
-        let original = frame
-        let grown = original.insetBy(dx: -6, dy: -6)
-        NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = 0.11
-            animator().setFrame(grown, display: true)
-        }, completionHandler: { [weak self] in
-            NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.11
-                self?.animator().setFrame(original, display: true)
-            }
-        })
-    }
+    /// Brief attention bounce, used when the All Notes window points at a note. SPEC.md §8.
+    /// A layer spring rather than two chained frame animations: the window's frame is the note's
+    /// persisted geometry, and an interrupted frame animation could leave it a few points out.
+    func pulse() { Motion.bounce(card) }
 }

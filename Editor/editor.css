@@ -325,33 +325,55 @@ body {
 .cm-find-hint { color: rgba(242, 242, 247, .4); font-size: 10.5px; padding: 6px 10px; border-top: .5px solid rgba(255, 255, 255, .1); }
 
 /* ---------- movement ----------
-   Short and small on purpose: these say where something came from, they are not a show. Only
-   things that appear once get one — an image or a code block is rebuilt whenever the caret moves
-   on or off its line, and animating those would flicker on every click. */
+   Springs, not fades. The overshoot in these curves is the whole point: it is what makes a menu
+   feel like it landed rather than appeared. Only things that appear ONCE get one — an image or a
+   code block is rebuilt whenever the caret moves on or off its line, and animating those would
+   flicker on every click. */
+
+/* A back-out curve: overshoots the target slightly, then settles. The CSS equivalent of a spring. */
+:root { --spring: cubic-bezier(.34, 1.56, .48, 1); --spring-soft: cubic-bezier(.22, 1.25, .36, 1); }
+
 @keyframes pintack-rise {
-  from { opacity: 0; transform: translateY(-4px) scale(.985); }
+  from { opacity: 0; transform: translateY(-14px) scale(.88); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes pintack-pop {
+  from { opacity: 0; transform: translateY(12px) scale(.86); }
   to   { opacity: 1; transform: none; }
 }
 @keyframes pintack-fade { from { opacity: 0; } to { opacity: 1; } }
 
 /* The slash menu, the #tag menu and the @template menu all come through this one. */
-.cm-tooltip-autocomplete { animation: pintack-rise .13s ease-out; transform-origin: top center; }
-.cm-tooltip-autocomplete > ul > li { transition: background-color .08s ease-out; }
+.cm-tooltip-autocomplete { animation: pintack-rise .3s var(--spring); transform-origin: top center; }
+.cm-tooltip-autocomplete > ul > li { transition: background-color .12s ease-out, transform .12s var(--spring-soft); }
+.cm-tooltip-autocomplete > ul > li[aria-selected] { transform: translateX(2px); }
 
-/* /find */
-.cm-find { animation: pintack-fade .12s ease-out; }
-.cm-find-box { animation: pintack-rise .16s cubic-bezier(.2, .9, .3, 1); transform-origin: top center; }
-.cm-find-row { transition: background-color .08s ease-out; }
+/* /find drops in from slightly above and settles. */
+.cm-find { animation: pintack-fade .14s ease-out; }
+.cm-find-box { animation: pintack-rise .36s var(--spring); transform-origin: top center; }
+.cm-find-row { transition: background-color .1s ease-out, transform .12s var(--spring-soft); }
+.cm-find-row.cm-find-active { transform: translateX(3px); }
 
 /* A plugin's block (Runner and friends) and a rendered table settle in rather than snapping. */
-.cm-plugin-block, .cm-table-wrap { animation: pintack-fade .16s ease-out; }
+.cm-plugin-block, .cm-table-wrap { animation: pintack-pop .28s var(--spring); }
+
+/* A link preview card grows in the first time it resolves. */
+.cm-link-card { animation: pintack-pop .3s var(--spring); transition: border-color .15s ease-out, transform .15s var(--spring-soft); }
+.cm-link-card:hover { transform: translateY(-1px); }
 
 /* Controls that appear on hover or selection. */
-.cm-image-tool, .cm-link-close { transition: opacity .12s ease-out, background-color .12s ease-out; }
-.cm-image-handle { transition: transform .1s ease-out; }
-.cm-image-handle:hover { transform: scale(1.25); }
-.cm-task-box { transition: opacity .1s ease-out, background-color .12s ease-out; }
-.cm-link-card { transition: border-color .12s ease-out; }
+.cm-image-tool { transition: opacity .15s ease-out, background-color .15s ease-out, transform .15s var(--spring); }
+.cm-image-tool:hover { transform: scale(1.12); }
+.cm-link-close { transition: opacity .15s ease-out, transform .15s var(--spring); }
+.cm-image-handle { transition: transform .16s var(--spring); }
+.cm-image-handle:hover { transform: scale(1.45); }
+.cm-task-box { transition: opacity .12s ease-out, background-color .15s ease-out, transform .18s var(--spring); }
+.cm-task-box:active { transform: scale(.82); }
+.cm-task-box.done { animation: pintack-tick .3s var(--spring); }
+@keyframes pintack-tick {
+  0%   { transform: scale(.7); }
+  100% { transform: scale(1); }
+}
 
 /* Anyone who has asked macOS to calm down gets none of it. */
 @media (prefers-reduced-motion: reduce) {

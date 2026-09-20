@@ -43,6 +43,15 @@ enum Toast {
         }
         panel.alphaValue = 0
         panel.orderFrontRegardless()
+        // Rises the last few points into place rather than just fading up.
+        if Motion.enabled, let layer = content.layer {
+            let rise = CASpringAnimation(keyPath: "transform.translation.y")
+            rise.fromValue = -16
+            rise.toValue = 0
+            rise.mass = 1; rise.stiffness = 240; rise.damping = 19
+            rise.duration = rise.settlingDuration
+            layer.add(rise, forKey: "pintack.toast")
+        }
         NSAnimationContext.runAnimationGroup { $0.duration = 0.15; panel.animator().alphaValue = 1 }
         self.panel = panel
 
