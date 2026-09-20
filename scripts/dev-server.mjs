@@ -18,7 +18,11 @@ const wrap = (code) =>
   "(function(){var PinTack=window.__pintackBoot&&window.__pintackBoot();if(!PinTack){return;}" +
   "var module={exports:{}};var exports=module.exports;try{\n" + code +
   "\n}catch(e){PinTack.__fail(e);return;}PinTack.__done(module.exports);})();";
-const types = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".png": "image/png" };
+// A missing type matters: a browser will not paint an SVG background unless it is served as
+// image/svg+xml. The app's own scheme handler (EditorSchemeHandler) has the same table.
+const types = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css",
+                ".png": "image/png", ".svg": "image/svg+xml", ".jpg": "image/jpeg",
+                ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp" };
 
 http.createServer((req, res) => {
   const url = new URL(req.url, "http://x");

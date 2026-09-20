@@ -106,8 +106,23 @@ enum SelfTest {
         const badge = document.querySelector('.cm-codeblock-tagged');
         const spans = [...document.querySelectorAll('.cm-codeblock span[class]')];
         const colour = e => getComputedStyle(e).color;
+        // Whether the language LOGO actually painted, which is the part the page's CSP could refuse.
+        let logo = null;
+        if (badge) {
+          const img = getComputedStyle(badge, '::after').backgroundImage;
+          const url = img.startsWith('url("') ? img.slice(5, img.indexOf('")')) : null;
+          if (url) {
+            logo = await new Promise((done) => {
+              const probe = new Image();
+              probe.onload = () => done(url.split('/').pop() + ' ' + probe.naturalWidth + 'x' + probe.naturalHeight);
+              probe.onerror = () => done('REFUSED ' + url);
+              probe.src = url;
+            });
+          }
+        }
         return JSON.stringify({
-          badge: badge ? badge.dataset.glyph + ' ' + badge.dataset.lang : null,
+          badge: badge ? badge.dataset.lang : null,
+          logo,
           tokens: spans.length,
           distinctColours: new Set(spans.map(colour)).size,
         });
@@ -518,7 +533,7 @@ enum SelfTest {
             // Reproduce the reported bug: a DARK outline color used to tint Settings' labels and buttons
             // the same dark red on a dark window, making them unreadable.
             AppSettings.shared.outlineColorHex = "#5A1F1A"
-            SettingsView.initialPane = .plugins
+            SettingsView.initialPane = ProcessInfo.processInfo.environment["PINTACK_SETTINGS_PANE"].flatMap(SettingsView.Pane.init(rawValue:)) ?? .plugins
             AllNotesWindowController.shared.show()
             SettingsWindowController.shared.show()
             ShortcutsOverlay.shared.show()

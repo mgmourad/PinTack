@@ -387,8 +387,11 @@ function build(state) {
           if (n === first.number) {
             cls += " cm-codeblock-first";
             if (badge) {
-              cls += " cm-codeblock-tagged";
-              attrs = { "data-lang": badge.name, "data-glyph": badge.glyph || "●", style: `--lang-color:${badge.color}` };
+              cls += " cm-codeblock-tagged " + (badge.icon ? "cm-lang-icon" : "cm-lang-dot");
+              attrs = { "data-lang": badge.name, style: `--lang-color:${badge.color}` };
+              // The logo rides in as a CSS background so the badge can stay a ::after pseudo-element.
+              // It is a file in the app bundle: the CSP's img-src allows pintack-app:, nothing remote.
+              if (badge.icon) attrs.style += `;--lang-icon:url("icons/${badge.icon}.svg")`;
             }
           }
           if (n === last.number) cls += " cm-codeblock-last";
@@ -957,6 +960,12 @@ const view = new EditorView({
       }),
       EditorView.updateListener.of((u) => {
         if (!u.docChanged || suppress) return;
+        // A ✕'d preview is forgotten as soon as its link leaves the note, so deleting the URL and
+        // pasting it again shows the card again. Swift prunes its own copy the same way.
+        if (dismissedLinks.size) {
+          const text = u.state.doc.toString();
+          for (const url of [...dismissedLinks]) if (!text.includes(url)) dismissedLinks.delete(url);
+        }
         clearTimeout(debounce);
         debounce = setTimeout(() => post("content.changed", { body: u.state.doc.toString() }), 120);
       }),
@@ -983,7 +992,7 @@ function setBody(body, keepSelection) {
 
 function applySettings(s) {
   const root = document.documentElement.style;
-  const map = { fg: "--fg", fgDim: "--fg-dim", fgHint: "--fg-hint", accent: "--accent", surface: "--surface", rule: "--rule", highlight: "--highlight", font: "--font", size: "--size" };
+  const map = { fg: "--fg", fgDim: "--fg-dim", fgHint: "--fg-hint", accent: "--accent", surface: "--surface", rule: "--rule", highlight: "--highlight", font: "--font", size: "--size", inlineCode: "--inline-code-bg" };
   for (const [k, cssVar] of Object.entries(map)) if (s[k] != null) root.setProperty(cssVar, k === "size" ? s[k] + "px" : s[k]);
   // Which of the two code-token palettes suits this note's paper. editor.css keys off it.
   if (s.paper != null) document.documentElement.dataset.paper = s.paper;

@@ -239,14 +239,18 @@ Owner decisions added after the rebuild (2026-09-19):
   `title:` follows its first line; once renamed, the two are independent both ways.
 - Every language CodeMirror ships is vendored, but `Editor/languages.js` loads a parser only when a
   note actually contains a block in that language. Do not import them eagerly: that is ~3.5 MB per
-  note window. A fenced block that names a language also gets a glyph + name badge.
+  note window. A fenced block that names a language also gets a logo + name badge: the logos are
+  Devicon SVGs (MIT) in `Editor/icons`, vendored by `scripts/vendor-language-icons.sh`, and the
+  badge keeps a light backing so dark marks (Rust, Markdown) stay visible on a dark note. A
+  language with no logo gets a dot in its own colour.
 - Tag pill colours come from a **djb2 hash of the tag text**, never `hashValue` (seeded per process,
   so colours would change every launch). Pills are washed out to always take dark text.
 - A pasted, dropped or picked image goes through the crop/resize sheet first, and nothing is
   written into the vault until it is answered. Crop rects are in IMAGE PIXELS with a bottom-left
   origin, never points: a 2x screenshot would otherwise lose half its resolution.
 - Link previews are off by default and fetched only in Swift. A dismissed preview is remembered in
-  `.pintack/linkpreviews.json`, not in the note, so notes stay plain Markdown.
+  `.pintack/linkpreviews.json`, not in the note, so notes stay plain Markdown, and it is forgotten
+  once the link leaves the note: the ✕ hides the card that is there, not that address for ever.
 
 ### Plugins (docs/PLUGINS.md is the author's guide)
 

@@ -57,7 +57,8 @@ body {
 .cm-strike { text-decoration: line-through; opacity: .7; }
 .cm-inline-code {
   font-family: var(--mono); font-size: .9em;
-  background: var(--surface); padding: 1px 4px; border-radius: 3px;
+  /* Settings → Editor sets the colour and opacity; --surface is the automatic fallback. */
+  background: var(--inline-code-bg, var(--surface)); padding: 1px 4px; border-radius: 3px;
 }
 .cm-highlight { background: var(--highlight); border-radius: 2px; padding: 0 1px; }
 .cm-link, .cm-url { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; cursor: text; }
@@ -100,15 +101,31 @@ body {
 .cm-codeblock-tagged { position: relative; }
 .cm-codeblock-tagged.cm-fence-hidden { line-height: 15px !important; height: 15px; overflow: visible; }
 .cm-codeblock-tagged::after {
-  content: attr(data-glyph) " " attr(data-lang);
-  position: absolute; top: 1px; right: 5px;
-  font-family: var(--font); font-size: 9.5px; font-weight: 600; line-height: 13px;
+  content: attr(data-lang);
+  position: absolute; top: 0; right: 5px;
+  font-family: var(--font); font-size: 9.5px; font-weight: 600; line-height: 14px;
   letter-spacing: .02em;
-  padding: 0 6px; border-radius: 999px;
+  border-radius: 999px;
   color: var(--fg-dim);
-  background: color-mix(in srgb, var(--lang-color, #6b6b73) 20%, transparent);
   border: 1px solid color-mix(in srgb, var(--lang-color, #6b6b73) 38%, transparent);
   pointer-events: none; user-select: none; white-space: nowrap;
+}
+/* The logo sits in the badge as a background layer, over the colour wash. A real logo needs a
+   light backing or a dark mark (Rust, Markdown, Crystal) disappears on a dark note. */
+.cm-lang-icon::after {
+  padding: 0 7px 0 18px;
+  background:
+    var(--lang-icon) no-repeat 4px center / 10px 10px,
+    rgba(255, 255, 255, .82);
+  color: #2a2a30;
+  border-color: rgba(0, 0, 0, .18);
+}
+/* No logo for this language: a dot in its own colour instead. */
+.cm-lang-dot::after {
+  padding: 0 7px 0 15px;
+  background:
+    radial-gradient(circle at 7px 50%, var(--lang-color, #6b6b73) 0 3px, transparent 3.5px),
+    color-mix(in srgb, var(--lang-color, #6b6b73) 20%, transparent);
 }
 
 /* Tokens inside a fenced block, once its language has loaded (Editor/languages.js).

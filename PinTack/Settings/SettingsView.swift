@@ -328,6 +328,7 @@ private struct ShortcutsPane: View {
 
 private struct EditorPane: View {
     @ObservedObject var s = AppSettings.shared
+    @State private var inlineCode = Color(nsColor: NSColor(hex: AppSettings.shared.inlineCodeColorHex) ?? .black)
 
     var body: some View {
         Form {
@@ -350,6 +351,29 @@ private struct EditorPane: View {
             }
             Text("Right-click the bullet button in a note's action bar to choose an emoji bullet.")
                 .font(.caption).foregroundStyle(.secondary)
+
+            Section("Inline code") {
+                ColorPicker("Background", selection: $inlineCode, supportsOpacity: false)
+                    .onChange(of: inlineCode) { _, new in s.inlineCodeColorHex = NSColor(new).hexString }
+                LabeledContent("Opacity") {
+                    HStack {
+                        Slider(value: $s.inlineCodeOpacity, in: 0...1).frame(width: 160)
+                        Text("\(Int((s.inlineCodeOpacity * 100).rounded()))%")
+                            .monospacedDigit().frame(width: 44, alignment: .trailing)
+                    }
+                }
+                HStack {
+                    Text(s.inlineCodeColorHex.isEmpty
+                         ? "Automatic: dark on light notes, light on dark ones."
+                         : "Used on every note, whatever its color.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Automatic") { s.inlineCodeColorHex = "" }
+                        .disabled(s.inlineCodeColorHex.isEmpty)
+                }
+                Text("The background behind `code` written between single backticks.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
 
             Section {
                 Toggle("Link previews", isOn: $s.linkPreviews)
@@ -466,16 +490,32 @@ private struct OrphanSheet: View {
 // MARK: - About
 
 private struct AboutPane: View {
+    /// Height of the pane heading above this view ("About": 22pt bold plus its padding). Taking it
+    /// off the bottom centres the block in the WINDOW rather than in the space under the heading,
+    /// which is what the eye reads as centred.
+    private static let headingHeight: CGFloat = 72
+
     var body: some View {
-        VStack(spacing: 10) {
-            if let icon = NSApp.applicationIconImage { Image(nsImage: icon).resizable().frame(width: 72, height: 72) }
-            Text("PinTack").font(.title.bold())
-            Text("Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1.0")")
-                .foregroundStyle(.secondary)
-            Text("Sticky notes backed by plain Markdown files.").foregroundStyle(.secondary)
-            Text("Open source under the GPL-3.0-or-later license.").font(.caption).foregroundStyle(.secondary)
+        VStack(spacing: 12) {
+            if let icon = NSApp.applicationIconImage {
+                Image(nsImage: icon)
+                    .resizable().interpolation(.high)
+                    .frame(width: 96, height: 96)
+            }
+            VStack(spacing: 5) {
+                Text("PinTack").font(.system(size: 26, weight: .bold))
+                Text("Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1.0")")
+                    .font(.system(size: 12.5)).foregroundStyle(.secondary)
+            }
+            VStack(spacing: 4) {
+                Text("Sticky notes backed by plain Markdown files.")
+                Text("Open source under the GPL-3.0-or-later license.").font(.caption)
+            }
+            .foregroundStyle(.secondary)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .multilineTextAlignment(.center)
+        .padding(.bottom, AboutPane.headingHeight)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 }
 

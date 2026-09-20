@@ -91,4 +91,38 @@ final class LinkPreviewSafetyTests: XCTestCase {
         store.restore(noteID: "NOTE-A", url: url)
         XCTAssertFalse(store.isDismissed(noteID: "NOTE-A", url: url))
     }
+
+    /// The ✕ hides the card for the link sitting in the note, not for that address for ever.
+    /// Deleting the URL and pasting it again must preview it again.
+    func testDismissalIsForgottenOnceTheLinkLeavesTheNote() {
+        let store = LinkPreviewStore.shared
+        let url = "https://example.com/prune-test"
+        let note = "NOTE-PRUNE"
+        store.restore(noteID: note, url: url)
+
+        store.dismiss(noteID: note, url: url)
+        XCTAssertTrue(store.isDismissed(noteID: note, url: url))
+
+        // Still there while the link is still written in the note.
+        store.pruneDismissals(noteID: note, body: "# Notes\n\n\(url)\n")
+        XCTAssertTrue(store.isDismissed(noteID: note, url: url), "the ✕ holds while the link is still there")
+
+        // The user deletes the line; the dismissal goes with it.
+        store.pruneDismissals(noteID: note, body: "# Notes\n\nnothing here now\n")
+        XCTAssertFalse(store.isDismissed(noteID: note, url: url), "pasting the link again must preview it again")
+    }
+
+    func testPruningOneNoteLeavesAnotherNotesDismissalAlone() {
+        let store = LinkPreviewStore.shared
+        let url = "https://example.com/prune-isolation"
+        store.restore(noteID: "NOTE-X", url: url)
+        store.restore(noteID: "NOTE-Y", url: url)
+        store.dismiss(noteID: "NOTE-X", url: url)
+        store.dismiss(noteID: "NOTE-Y", url: url)
+
+        store.pruneDismissals(noteID: "NOTE-X", body: "the link is gone from this note")
+        XCTAssertFalse(store.isDismissed(noteID: "NOTE-X", url: url))
+        XCTAssertTrue(store.isDismissed(noteID: "NOTE-Y", url: url), "another note's ✕ must not be undone")
+        store.restore(noteID: "NOTE-Y", url: url)
+    }
 }

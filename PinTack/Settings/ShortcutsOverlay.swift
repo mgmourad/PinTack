@@ -19,9 +19,12 @@ struct ShortcutsOverlayView: View {
                         Text(group.uppercased()).font(.system(size: 10.5, weight: .bold)).foregroundStyle(Color(nsColor: Brand.accentNS))
                         ForEach(ShortcutAction.allCases.filter { $0.group == group }, id: \.self) { a in
                             HStack(alignment: .firstTextBaseline, spacing: 9) {
+                                // ⌥⌘N set solid runs together at this size. Tracking separates the
+                                // glyphs; the trailing gap it leaves is taken off the right padding.
                                 Text(ShortcutStore.shared.combo(for: a).display)
-                                    .font(.system(size: 11, design: .monospaced))
-                                    .padding(.horizontal, 6).padding(.vertical, 2)
+                                    .font(.system(size: 11.5, design: .monospaced))
+                                    .tracking(3)
+                                    .padding(.leading, 7).padding(.trailing, 4).padding(.vertical, 2.5)
                                     .background(RoundedRectangle(cornerRadius: 5).fill(.white.opacity(0.1)))
                                 Text(a.title).font(.system(size: 12.5))
                             }

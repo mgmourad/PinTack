@@ -247,6 +247,9 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
             "accent": accentForNote().css(),
             // `dark` is dark TEXT, which means light paper. Code tokens need the opposite sense.
             "paper": dark ? "light" : "dark",
+            // Inline code's own background. Automatic keeps the old behaviour (a wash of black on
+            // light paper, white on dark); a chosen colour is used as-is on every note.
+            "inlineCode": (NSColor(hex: s.inlineCodeColorHex) ?? (dark ? .black : .white)).css(alpha: s.inlineCodeOpacity),
             "surface": dark ? "rgba(0, 0, 0, 0.14)" : "rgba(255, 255, 255, 0.16)",
             "rule": dark ? "rgba(0, 0, 0, 0.22)" : "rgba(255, 255, 255, 0.28)",
             "highlight": dark ? "rgba(255, 214, 0, 0.5)" : "rgba(255, 214, 0, 0.32)",
@@ -285,6 +288,8 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
         case "content.changed":
             guard let body = payload["body"] as? String, body != note.body else { return }
             note.body = body
+            // A ✕'d preview is forgotten once its link is gone, so pasting the link again previews it.
+            LinkPreviewStore.shared.pruneDismissals(noteID: note.id, body: body)
             SaveCoordinator.shared.scheduleSave(note)
             NotificationCenter.default.post(name: .noteBodyDidChange, object: note)
             if note.title != lastTitle {

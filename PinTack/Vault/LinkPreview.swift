@@ -88,6 +88,20 @@ final class LinkPreviewStore {
         save()
     }
 
+    /// Forgets dismissals for links the note no longer contains.
+    ///
+    /// The ✕ hides the card for the link that is sitting there, not for that address for ever.
+    /// Without this, deleting the URL and pasting it again left it stubbornly plain, because the
+    /// dismissal outlived the text it was about.
+    func pruneDismissals(noteID: String, body: String) {
+        guard !dismissed.isEmpty else { return }
+        let prefix = noteID + "\n"
+        let stale = dismissed.filter { $0.hasPrefix(prefix) && !body.contains($0.dropFirst(prefix.count)) }
+        guard !stale.isEmpty else { return }
+        dismissed.subtract(stale)
+        save()
+    }
+
     // MARK: Lookup
 
     /// The payload the editor draws, or nil when nothing is known yet.
