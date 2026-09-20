@@ -149,6 +149,30 @@ final class WindowManager {
         NotificationCenter.default.post(name: .vaultDidChange, object: nil)
     }
 
+    /// Clears the desktop: every open note is hidden, exactly as "Minimize to All Notes" does one.
+    /// The notes are untouched — only `visible` changes — so the same key brings them all back.
+    func hideAll() {
+        for panel in openPanels {
+            let note = panel.note
+            if note.visible { note.visible = false; VaultStore.shared.save(note) }
+            close(noteID: note.id)
+        }
+        NotificationCenter.default.post(name: .vaultDidChange, object: nil)
+    }
+
+    /// One key for both directions (an owner decision, 2026-09-20): if anything is on the desktop,
+    /// clear it; otherwise put it all back.
+    func toggleAllOnDesktop() {
+        if openPanels.isEmpty {
+            showAll()
+            Toast.show("Showing every note")
+        } else {
+            let count = openPanels.count
+            hideAll()
+            Toast.show("Hid \(count) note\(count == 1 ? "" : "s") · still in All Notes")
+        }
+    }
+
     /// Show a note that was hidden, or raise and pulse one that is already open. SPEC.md §8.
     func reveal(_ note: Note) {
         let wasOpen = panels[note.id] != nil

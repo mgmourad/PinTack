@@ -46,7 +46,7 @@ enum ActionRouter {
         case .allNotesByTag:  AllNotesWindowController.shared.show(mode: .tags)
         case .showTemplates:  AllNotesWindowController.shared.show(mode: .templates)
         case .showTodos:      AllNotesWindowController.shared.show(mode: .todo)
-        case .showAllOnDesktop: windows.showAll()
+        case .showAllOnDesktop: windows.toggleAllOnDesktop()
         case .showShortcuts:  ShortcutsOverlay.shared.toggle()
         case .toggleCorners:  windows.toggleCorners()
         case .exportAll:      ArchiveIO.exportAll()

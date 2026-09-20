@@ -91,7 +91,7 @@ enum MainMenuBuilder {
             action(m, "Templates", .showTemplates)
             m.addItem(.separator())
             action(m, "Auto-Arrange Notes", .autoArrange)
-            action(m, "Show All Notes on Desktop", .showAllOnDesktop)
+            action(m, "Show/Hide Opened Notes", .showAllOnDesktop)
             m.addItem(.separator())
             m.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
             m.addItem(withTitle: "Bring All to Front", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: "")

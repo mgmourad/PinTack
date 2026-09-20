@@ -292,6 +292,10 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
             "fgDim": fg.css(alpha: 0.55),
             "fgHint": fg.css(alpha: 0.62),         // placeholders and the @Todo hint: readable on any note color
             "accent": accentForNote().css(),
+            // Menus and overlays float on their own dark panel, not on the note's paper, so they
+            // must NOT use accentForNote(): its low-contrast fallback is near-black, which painted
+            // the selected row of the slash menu black-on-black. Same rule as Settings chrome.
+            "chromeAccent": Brand.accentNS.css(),
             // `dark` is dark TEXT, which means light paper. Code tokens need the opposite sense.
             "paper": dark ? "light" : "dark",
             // Inline code's own background. Automatic keeps the old behaviour (a wash of black on

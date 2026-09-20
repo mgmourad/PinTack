@@ -103,7 +103,7 @@ enum ShortcutAction: String, CaseIterable, Codable {
         case .allNotesByTag: return "All Notes, by tag"
         case .showTemplates: return "All Notes, templates"
         case .showTodos: return "All Notes, todos"
-        case .showAllOnDesktop: return "Show every note on the desktop"
+        case .showAllOnDesktop: return "Show / hide opened notes"
         case .deleteNote: return "Delete focused note" 
         case .pin: return "Pin / unpin focused note"
         case .collapse: return "Collapse / expand focused note"

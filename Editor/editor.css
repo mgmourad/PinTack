@@ -6,6 +6,8 @@
   --fg-dim: rgba(58, 47, 16, .55);
   --fg-hint: rgba(58, 47, 16, .6);      /* placeholders and hints: must stay readable on any note color */
   --accent: #ff9f0a;
+  /* Menus and overlays: fixed, never note-relative. See NoteEditorView.settingsPayload. */
+  --chrome-accent: #ff9f0a;
   --surface: rgba(0, 0, 0, .14);       /* code chips, table headers */
   --surface-strong: rgba(0, 0, 0, .2);
   --rule: rgba(0, 0, 0, .22);
@@ -257,7 +259,7 @@ body {
 }
 .cm-tooltip-autocomplete > ul { font-family: var(--font) !important; max-height: 15em; padding: 4px; }
 .cm-tooltip-autocomplete > ul > li { padding: 4px 9px !important; border-radius: 5px; display: flex; gap: 10px; align-items: baseline; }
-.cm-tooltip-autocomplete > ul > li[aria-selected] { background: var(--accent) !important; color: #1a1a1a !important; }
+.cm-tooltip-autocomplete > ul > li[aria-selected] { background: var(--chrome-accent) !important; color: #1a1a1a !important; }
 .cm-completionLabel { font-weight: 600; }
 .cm-completionDetail { margin-left: auto !important; opacity: .6; font-style: normal !important; font-size: 11.5px; }
 .cm-completionMatchedText { text-decoration: none !important; }
@@ -325,7 +327,7 @@ body {
 .cm-find-input::placeholder { color: rgba(242, 242, 247, .45); }
 .cm-find-results { max-height: 232px; overflow-y: auto; padding: 4px; }
 .cm-find-row { padding: 6px 9px; border-radius: 6px; cursor: default; }
-.cm-find-active { background: var(--accent); }
+.cm-find-active { background: var(--chrome-accent); }
 .cm-find-title { color: #f2f2f7; font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cm-find-active .cm-find-title, .cm-find-active .cm-find-meta { color: #1a1a1a; }
 .cm-find-meta { color: rgba(242, 242, 247, .55); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

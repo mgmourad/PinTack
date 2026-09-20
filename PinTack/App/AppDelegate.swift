@@ -145,7 +145,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func showSettings(_ sender: Any?) { SettingsWindowController.shared.show() }
-    @objc func showAllNotesOnDesktop(_ sender: Any?) { WindowManager.shared.showAll() }
+    @objc func showAllNotesOnDesktop(_ sender: Any?) { WindowManager.shared.toggleAllOnDesktop() }
     @objc func openVaultInFinder(_ sender: Any?) { NSWorkspace.shared.open(VaultStore.shared.vaultURL) }
 
     @objc func revealNote(_ sender: NSMenuItem) {

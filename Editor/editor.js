@@ -968,7 +968,9 @@ function convertToTodo(view, triggerFrom, triggerTo) {
 /** Template names offered after an @. */
 function templateSource(ctx) {
   const m = ctx.matchBefore(/@[\w.-]*/);
-  if (!m || (m.text.length < 2 && !ctx.explicit)) return null;
+  // A bare "@" opens the list, the way a bare "/" opens the commands. Requiring a letter first
+  // meant nobody could discover what templates existed.
+  if (!m) return null;
   if (m.from > 0 && !/[\s(]/.test(ctx.state.sliceDoc(m.from - 1, m.from))) return null;
   // Line 1's @Todo marker is the note's own title, not a template recall.
   if (ctx.state.doc.lineAt(m.from).number === 1 && /^@Todo(\s|$)/.test(ctx.state.doc.line(1).text)) return null;
@@ -1356,7 +1358,7 @@ function setBody(body, keepSelection) {
 
 function applySettings(s) {
   const root = document.documentElement.style;
-  const map = { fg: "--fg", fgDim: "--fg-dim", fgHint: "--fg-hint", accent: "--accent", surface: "--surface", rule: "--rule", highlight: "--highlight", font: "--font", size: "--size", inlineCode: "--inline-code-bg" };
+  const map = { fg: "--fg", fgDim: "--fg-dim", fgHint: "--fg-hint", accent: "--accent", chromeAccent: "--chrome-accent", surface: "--surface", rule: "--rule", highlight: "--highlight", font: "--font", size: "--size", inlineCode: "--inline-code-bg" };
   for (const [k, cssVar] of Object.entries(map)) if (s[k] != null) root.setProperty(cssVar, k === "size" ? s[k] + "px" : s[k]);
   // Which of the two code-token palettes suits this note's paper. editor.css keys off it.
   if (s.paper != null) document.documentElement.dataset.paper = s.paper;

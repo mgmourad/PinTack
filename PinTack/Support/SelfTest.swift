@@ -1070,8 +1070,93 @@ enum SelfTest {
         }
     }
 
+    /// Three things reported from a real tester's Mac (2026-09-20).
+    private static func testerBugsTest(then next: @escaping () -> Void) {
+        // 1. Show / hide opened notes is a TOGGLE.
+        let windows = WindowManager.shared
+        let openBefore = windows.openPanels.count
+        check("notes are on the desktop to start with", openBefore > 0, "\(openBefore) open")
+        windows.toggleAllOnDesktop()
+        let afterHide = windows.openPanels.count
+        windows.toggleAllOnDesktop()
+        let afterShow = windows.openPanels.count
+        check("the show/hide key clears the desktop, then puts it back",
+              afterHide == 0 && afterShow > 0, "\(openBefore) → \(afterHide) → \(afterShow)")
+        check("the action is named for what it does", ShortcutAction.showAllOnDesktop.title.lowercased().contains("hide"),
+              ShortcutAction.showAllOnDesktop.title)
+
+        // The toggle just closed and reopened every panel, so their pages are loading again. Calling
+        // into one now would find an empty document and prove nothing.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) { testerBugsEditorChecks(then: next) }
+    }
+
+    private static func testerBugsEditorChecks(then next: @escaping () -> Void) {
+        guard let panel = WindowManager.shared.openPanels.first, let card = panel.card else { return next() }
+
+        // Reproduce the condition the bug was reported under: an outline colour with little
+        // contrast against the note's paper makes accentForNote() fall back to near-black. If the
+        // menu still used that colour, its selected row would be black text on a black background.
+        let previousOutline = AppSettings.shared.outlineColorHex
+        AppSettings.shared.outlineColorHex = "#F7E7A8"          // pale, barely different from the paper
+        card.editor.pushSettings()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            testerBugsMenuCheck(card: card, restoring: previousOutline, then: next)
+        }
+    }
+
+    private static func testerBugsMenuCheck(card: NoteCardView, restoring previousOutline: String,
+                                            then next: @escaping () -> Void) {
+        // 2. The slash menu's selected row must be readable, and 3. a bare @ must list templates.
+        //    The menu floats on its own dark panel, so it must NOT use the note-relative accent:
+        //    that colour falls back to near-black and painted the row black-on-black.
+        let js = """
+        const sleep = ms => new Promise(r => setTimeout(r, ms));
+        const view = window.__pintack._view;
+        const type = (text) => { for (const ch of text) { const s = view.state.selection.main;
+          view.dispatch({ changes: { from: s.from, to: s.to, insert: ch }, selection: { anchor: s.from + 1 }, userEvent: "input.type" }); } };
+        const out = {};
+        view.focus();
+        view.dispatch({ selection: { anchor: view.state.doc.length } });
+
+        type("\\n/");
+        await sleep(450);
+        const menu = document.querySelector('.cm-tooltip-autocomplete');
+        const row = menu && menu.querySelector('li[aria-selected]');
+        if (row) {
+          const cs = getComputedStyle(row);
+          out.rowBackground = cs.backgroundColor;
+          out.rowColour = cs.color;
+          // Contrast, crudely: a readable row cannot have text and background at the same lightness.
+          const lum = (c) => { const m = c.match(/[\\d.]+/g) || [0,0,0];
+            return (0.2126*m[0] + 0.7152*m[1] + 0.0722*m[2]) / 255; };
+          out.contrast = Math.abs(lum(cs.backgroundColor) - lum(cs.color)).toFixed(2);
+        }
+        view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: "x\\n" }, selection: { anchor: 2 } });
+        await sleep(250);
+
+        // A bare "@" must list every template, the way a bare "/" lists every command.
+        type("@");
+        await sleep(450);
+        const atMenu = document.querySelector('.cm-tooltip-autocomplete');
+        out.atMenuRows = atMenu ? [...atMenu.querySelectorAll('li')].map(l => l.textContent) : [];
+        return JSON.stringify(out);
+        """
+        card.editor.callAsyncJavaScript(js, arguments: [:], in: nil, in: .page) { result in
+            let j = (try? result.get()) as? String
+            let contrast = Double(text(j, "contrast")) ?? 0
+            check("the slash menu's selected row is readable, not black on black",
+                  contrast > 0.25,
+                  "bg \(text(j, "rowBackground")) on text \(text(j, "rowColour")), contrast \(text(j, "contrast"))")
+            let rows = (field(j, "atMenuRows") as? [String]) ?? []
+            check("a bare @ lists the templates, like a bare / lists the commands",
+                  !rows.isEmpty, "\(rows)")
+            AppSettings.shared.outlineColorHex = previousOutline
+            next()
+        }
+    }
+
     private static func renderWindows(out: URL) {
-        runnerTest(out: out) { linkPreviewTest(out: out) { imageEditTest(out: out) { freezeTest { reminderTest(out: out) { findTest(out: out) { quickCaptureTest { templateTest { actionBarTest { renderWindowsNow(out: out) } } } } } } } } }
+        runnerTest(out: out) { linkPreviewTest(out: out) { imageEditTest(out: out) { freezeTest { reminderTest(out: out) { findTest(out: out) { quickCaptureTest { templateTest { actionBarTest { testerBugsTest { renderWindowsNow(out: out) } } } } } } } } } }
     }
 
     private static func renderWindowsNow(out: URL) {

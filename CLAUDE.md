@@ -301,6 +301,14 @@ Owner decisions added after the rebuild (2026-09-19):
   because the name has to be parsed back out of `@name` in a note's text.
 - All Notes has four glyph tabs: folder, #, @ (todos), cube (templates). Todo rows strip the
   `@Todo` marker from the title, since every row there is a todo.
+- The slash / tag / template menus and the `/find` overlay float on their OWN dark panel, so they
+  use `--chrome-accent` (fixed, from `Brand.accentNS`), never `--accent`. `--accent` is
+  `accentForNote()`, whose low-contrast fallback is near-black — which painted the selected menu
+  row black-on-black on a tester's Mac. Same rule as Settings chrome, same bug twice now.
+- A bare `@` lists every template, the way a bare `/` lists every command. Requiring a letter first
+  meant nobody could discover what templates existed.
+- `⌥⇧=` is Show/Hide Opened Notes: a TOGGLE (owner decision, 2026-09-20). Its rawValue is still
+  `showAllOnDesktop` because stored overrides in `hotkeys.json` are keyed by it.
 - `/find` is quick open. Opening a note from it deliberately does NOT move focus: the key window and
   the caret stay where the search started.
 - Link previews are off by default and fetched only in Swift. A dismissed preview is remembered in
