@@ -19,9 +19,17 @@ final class ShortcutAndSettingsTests: VaultTestCase {
         XCTAssertEqual(ShortcutAction.color6.defaultCombo.display, "⌥⌘6")
     }
 
-    func testOnlyTheFourAppWideActionsAreGlobal() {
-        // ⌥⌘W / ⌥⌘H style combos registered system-wide would steal them from every other app.
-        XCTAssertEqual(Set(ShortcutAction.allCases.filter(\.isGlobal)), [.newNote, .newTodo, .toggleAllNotes, .autoArrange])
+    func testOnlyTheAppWideActionsAreGlobal() {
+        // ⌥⌘W / ⌥⌘H style combos registered system-wide would steal them from every other app, so
+        // the global list stays short on purpose. Quick capture belongs on it: catching something
+        // from another app is worthless if PinTack has to be in front first.
+        XCTAssertEqual(Set(ShortcutAction.allCases.filter(\.isGlobal)),
+                       [.newNote, .newTodo, .toggleAllNotes, .autoArrange, .quickCapture])
+
+        // Everything that acts on one note must NOT be global.
+        for action in [ShortcutAction.close, .pin, .collapse, .freeze, .toggleMode, .emoji] {
+            XCTAssertFalse(action.isGlobal, "\(action) would be stolen from every other app")
+        }
     }
 
     func testRebindingPersistsAndConflictsAreDetected() throws {

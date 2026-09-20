@@ -27,6 +27,9 @@ final class Note {
 
     /// When this todo is due, and how it should nag. Todo notes only (SPEC.md §6). Kept in the
     /// frontmatter so a reminder travels with the note through sync, not in app state.
+    /// The app a quick-captured note came from, for when it is obvious now and not in a month.
+    var source: String
+
     var due: Date?
     var remindOnTime: Bool
     /// "" is off; otherwise a count and a unit, e.g. "30m", "2h", "1d".
@@ -189,6 +192,7 @@ final class Note {
         self.collapsed = false
         self.visible = true
         self.frozen = false
+        self.source = ""
         self.due = nil
         self.remindOnTime = false
         self.remindAhead = ""
@@ -300,6 +304,7 @@ final class Note {
             case "pinned":    pinned = (value == "true")
             case "collapsed": collapsed = (value == "true")
             case "frozen":    frozen = (value == "true")
+            case "source":    source = value
             case "due":       due = value.isEmpty ? nil : Note.iso.date(from: value)
             case "remindOnTime": remindOnTime = (value == "true")
             case "remindAhead":  remindAhead = Note.normalizedAhead(value)
@@ -366,6 +371,7 @@ final class Note {
         out += "opacity: \(String(format: "%.2f", opacity))\n"
         out += "collapsed: \(collapsed)\n"
         out += "frozen: \(frozen)\n"
+        if !source.isEmpty { out += "source: \"\(source.replacingOccurrences(of: "\"", with: ""))\"\n" }
         if let due {
             out += "due: \(Note.iso.string(from: due))\n"
             out += "remindOnTime: \(remindOnTime)\n"
@@ -391,6 +397,7 @@ final class Note {
         opacity = other.opacity; collapsed = other.collapsed; visible = other.visible
         frozen = other.frozen
         due = other.due; remindOnTime = other.remindOnTime; remindAhead = other.remindAhead
+        source = other.source
         customTitle = other.customTitle
         cardFrame = other.cardFrame; hasFrame = other.hasFrame
         body = other.body; unknownBlocks = other.unknownBlocks; usesCRLF = other.usesCRLF

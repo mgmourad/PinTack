@@ -42,6 +42,7 @@ enum ActionRouter {
         case .newTodo:        windows.newTodo()
         case .toggleAllNotes: AllNotesWindowController.shared.toggle()
         case .autoArrange:    windows.autoArrange()
+        case .quickCapture:   QuickCapture.shared.captureFromClipboard()
         case .showShortcuts:  ShortcutsOverlay.shared.toggle()
         case .toggleCorners:  windows.toggleCorners()
         case .exportAll:      ArchiveIO.exportAll()

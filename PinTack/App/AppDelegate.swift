@@ -34,6 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         LinkPreviewStore.shared.load(from: vault.metaURL)
         // Re-arm due reminders: anything still in the future goes back on the schedule, and
         // anything that no longer exists is cleared out.
+        QuickCapture.shared.install()
         Reminders.shared.start()
         Reminders.shared.rescheduleAll(vault.notes)
         // Plugins must be known BEFORE the first note window loads, because each page asks for its plugins.

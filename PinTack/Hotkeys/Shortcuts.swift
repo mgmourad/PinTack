@@ -82,7 +82,7 @@ struct KeyCombo: Codable, Equatable, Hashable {
 /// Every bindable action. Defaults are SPEC.md §10.2, plus the extras the
 /// prototype shows (opacity, import, the shortcut list).
 enum ShortcutAction: String, CaseIterable, Codable {
-    case newNote, newTodo, toggleAllNotes, autoArrange
+    case newNote, newTodo, toggleAllNotes, autoArrange, quickCapture
     case pin, collapse, close, toggleMode, emoji, freeze
     case color1, color2, color3, color4, color5, color6
     case toggleCorners, lessOpaque, moreOpaque
@@ -94,6 +94,7 @@ enum ShortcutAction: String, CaseIterable, Codable {
         case .newTodo: return "New todo note"
         case .toggleAllNotes: return "Show / hide All Notes"
         case .autoArrange: return "Auto-arrange notes"
+        case .quickCapture: return "New note from the clipboard"
         case .pin: return "Pin / unpin focused note"
         case .collapse: return "Collapse / expand focused note"
         case .freeze: return "Freeze / thaw focused note"
@@ -120,6 +121,7 @@ enum ShortcutAction: String, CaseIterable, Codable {
         case .newNote, .newTodo, .close, .pin, .collapse, .toggleMode, .freeze: return "Notes"
         case .color1, .color2, .color3, .color4, .color5, .color6, .emoji, .lessOpaque, .moreOpaque, .toggleCorners: return "Appearance"
         case .toggleAllNotes, .autoArrange, .showShortcuts: return "Windows"
+        case .quickCapture: return "Notes"
         case .exportAll, .importArchive: return "Data"
         }
     }
@@ -130,7 +132,7 @@ enum ShortcutAction: String, CaseIterable, Codable {
     /// other application, which is a worse trade than the spec's table implies.
     var isGlobal: Bool {
         switch self {
-        case .newNote, .newTodo, .toggleAllNotes, .autoArrange: return true
+        case .newNote, .newTodo, .toggleAllNotes, .autoArrange, .quickCapture: return true
         default: return false
         }
     }
@@ -141,6 +143,7 @@ enum ShortcutAction: String, CaseIterable, Codable {
         case .newTodo: return .alt(kVK_ANSI_L)
         case .toggleAllNotes: return .alt(kVK_ANSI_H)
         case .autoArrange: return .alt(kVK_ANSI_A)
+        case .quickCapture: return .alt(kVK_ANSI_C)
         case .pin: return .alt(kVK_ANSI_P)
         case .collapse: return .alt(kVK_ANSI_K)
         case .freeze: return .alt(kVK_ANSI_F)

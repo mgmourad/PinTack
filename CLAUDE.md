@@ -259,6 +259,21 @@ Owner decisions added after the rebuild (2026-09-19):
   reads `from` in the image's POINT space. The conversion between them is not optional: without it a
   crop of any Retina image came out black. Test the CONTENT of a 2x crop, not just its dimensions —
   that gap is what let the bug through the first time.
+- Freeze mode (⌥⌘F, `/freeze`, the snowflake, the right-click menu) makes a note ignore the mouse.
+  The snowflake CORNER stays live via pointer polling (`FreezeMode`), because a window that ignores
+  the mouse cannot be clicked to un-ignore itself. Never switch that to a global mouse monitor: that
+  API family asks for Accessibility permission.
+- Todo notes (tagged `todo` or starting `@Todo`) get a reminder bell and progress squares in the
+  action bar, and their own `@` tab in All Notes. `due:`/`remindOnTime:`/`remindAhead:` live in the
+  frontmatter so a reminder travels with the note. Notification permission is asked the first time
+  a reminder is SET, never at launch. A note is "done" only when it has tasks and all are ticked.
+- Quick capture: the Services entry ("New PinTack Note") gets the selection from any app with NO
+  Accessibility permission, because the user chose the menu item. ⌥⌘C captures the clipboard. Never
+  implement this by synthesising ⌘C into another app — that needs Accessibility, and this app must
+  not ask for it. NSServices is why the app uses a real `PinTack/Info.plist` instead of
+  GENERATE_INFOPLIST_FILE: `INFOPLIST_KEY_*` cannot express an array of dictionaries.
+- `/find` is quick open. Opening a note from it deliberately does NOT move focus: the key window and
+  the caret stay where the search started.
 - Link previews are off by default and fetched only in Swift. A dismissed preview is remembered in
   `.pintack/linkpreviews.json`, not in the note, so notes stay plain Markdown, and it is forgotten
   once the link leaves the note: the ✕ hides the card that is there, not that address for ever.

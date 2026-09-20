@@ -864,8 +864,32 @@ enum SelfTest {
         }
     }
 
+    /// Quick capture: the Services entry has to be declared and registered, and the capture itself
+    /// has to produce a real note with the text intact.
+    private static func quickCaptureTest(then next: @escaping () -> Void) {
+        let services = Bundle.main.infoDictionary?["NSServices"] as? [[String: Any]] ?? []
+        let entry = services.first
+        log("quick capture: NSServices declared = \(services.count), "
+            + "menu item = \((entry?["NSMenuItem"] as? [String: String])?["default"] ?? "MISSING"), "
+            + "message = \(entry?["NSMessage"] as? String ?? "MISSING")")
+        log("quick capture: services provider registered = \(NSApp.servicesProvider != nil), "
+            + "responds to captureSelection = \((NSApp.servicesProvider as? NSObject)?.responds(to: Selector(("captureSelection:userData:error:"))) ?? false)")
+
+        let before = VaultStore.shared.notes.count
+        let note = QuickCapture.shared.capture("Rollout plan\nring 1 on Monday\nring 2 on Friday", from: "Safari")
+        SaveCoordinator.shared.flush(noteID: note.id)
+        let onDisk = (try? String(contentsOf: note.fileURL, encoding: .utf8)) ?? ""
+        log("quick capture: notes \(before) -> \(VaultStore.shared.notes.count), title = \(note.title.debugDescription), "
+            + "source written = \(onDisk.contains("source: \"Safari\"")), text kept = \(onDisk.contains("ring 2 on Friday"))")
+
+        // ⌥⌘C has to reach it from any app, so it must be one of the global hotkeys.
+        log("quick capture: \(ShortcutStore.shared.combo(for: .quickCapture).display) is global = \(ShortcutAction.quickCapture.isGlobal), "
+            + "registered OSStatus = \(GlobalHotKeyCenter.shared.lastStatus[.quickCapture].map(String.init) ?? "not registered")")
+        next()
+    }
+
     private static func renderWindows(out: URL) {
-        runnerTest(out: out) { linkPreviewTest(out: out) { imageEditTest(out: out) { freezeTest { reminderTest(out: out) { findTest(out: out) { renderWindowsNow(out: out) } } } } } }
+        runnerTest(out: out) { linkPreviewTest(out: out) { imageEditTest(out: out) { freezeTest { reminderTest(out: out) { findTest(out: out) { quickCaptureTest { renderWindowsNow(out: out) } } } } } } }
     }
 
     private static func renderWindowsNow(out: URL) {
