@@ -17,7 +17,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     private let closeButton = ToolButton()
     private let appearanceButton = ToolButton()
     private let tagsButton = ToolButton()          // the tag ICON: the only thing that opens the tag editor
-    private let tagsLabel = NSTextField(labelWithString: "")   // shows the tags; ignores the mouse so it drags
+    private let tagPills = TagPillsView()                      // shows the tags; ignores the mouse so it drags
     private let grip = ResizeGripView()
     let editor: NoteEditorView
 
@@ -244,10 +244,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
 
         configure(tagsButton, symbol: "tag", tip: "Edit tags", action: #selector(showTags))
         addSubview(tagsButton)
-        tagsLabel.font = .systemFont(ofSize: 11)
-        tagsLabel.lineBreakMode = .byTruncatingTail
-        tagsLabel.isSelectable = false
-        addSubview(tagsLabel)
+        addSubview(tagPills)
 
         grip.onDrag = { [weak self] in self?.resizeBegan() }
         grip.panel = panel
@@ -319,8 +316,8 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         tagsButton.image = NSImage(systemSymbolName: note.tags.isEmpty ? "tag" : "tag.fill", accessibilityDescription: "Tags")?
             .withSymbolConfiguration(.init(pointSize: 11, weight: .semibold))
         tagsButton.contentTintColor = color
-        tagsLabel.stringValue = note.tags.joined(separator: ", ")
-        tagsLabel.textColor = foreground.withAlphaComponent(0.7)
+        tagPills.tags = note.tags
+        tagPills.foreground = foreground
     }
 
     private func refreshModeGlyph() {
@@ -350,7 +347,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         let open = actionBarExpanded && !note.collapsed
         [bulletButton, boldButton, italicButton, codeButton, opacitySlider].forEach { $0.isHidden = !open }
         tagsButton.isHidden = open || note.collapsed
-        tagsLabel.isHidden = open || note.collapsed
+        tagPills.isHidden = open || note.collapsed
         expandButton.image = symbol(actionBarExpanded ? "chevron.left" : "chevron.right")
         expandButton.toolTip = actionBarExpanded ? "Hide formatting tools" : "Formatting tools"
         needsLayout = true
@@ -394,7 +391,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
             opacitySlider.isHidden = sliderWidth < 36 || note.collapsed          // too narrow to use
         } else {
             tagsButton.frame = NSRect(x: x, y: y, width: 22, height: 20)
-            tagsLabel.frame = NSRect(x: tagsButton.frame.maxX + 2, y: y + 2, width: max(0, grip.frame.minX - tagsButton.frame.maxX - 10), height: 16)
+            tagPills.frame = NSRect(x: tagsButton.frame.maxX + 2, y: y + 2, width: max(0, grip.frame.minX - tagsButton.frame.maxX - 10), height: 16)
         }
     }
 

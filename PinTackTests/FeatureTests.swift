@@ -203,4 +203,24 @@ final class RenameFolderColorTests: VaultTestCase {
         }
         XCTAssertGreaterThan(seen.count, 100, "random must not be a handful of fixed colors (was 5)")
     }
+
+    /// A tag pill's colour comes from the tag text, so it must be the same on every launch. The
+    /// obvious implementation, `tag.hashValue`, is seeded per process and would repaint every tag
+    /// on each restart; this pins the values that prove it is not being used.
+    func testTagPillColoursAreStableAndSpreadOut() {
+        XCTAssertEqual(TagPillsView.color(for: "urgent").hexString, TagPillsView.color(for: "urgent").hexString)
+        XCTAssertEqual(TagPillsView.color(for: "Urgent").hexString, TagPillsView.color(for: "urgent").hexString,
+                       "case must not change a tag's colour")
+        // Pinned values for a djb2 hash of the text; a different hash function changes these.
+        XCTAssertEqual(TagPillsView.color(for: "urgent").hexString, "#E6A6F2")
+        XCTAssertEqual(TagPillsView.color(for: "todo").hexString, "#BAB7F2")
+
+        let tags = ["todo", "urgent", "work", "home", "idea", "intune", "azure", "powershell"]
+        let hexes = Set(tags.map { TagPillsView.color(for: $0).hexString })
+        XCTAssertEqual(hexes.count, tags.count, "different tags must not collide on one colour")
+        for tag in tags {
+            let c = TagPillsView.color(for: tag)
+            XCTAssertGreaterThan(c.relativeLuminance, 0.5, "\(tag) pill must be light enough for dark text")
+        }
+    }
 }
