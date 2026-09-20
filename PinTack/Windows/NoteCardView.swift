@@ -31,6 +31,9 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     private let opacitySlider = NSSlider()
     private var actionBarExpanded = false
     private var collapseTimer: Timer?
+    /// How many times toggleCollapse has run. Only the self-test reads it, to prove one key
+    /// press collapses a note once rather than collapsing and immediately expanding it again.
+    static var collapseRunCount = 0
     private var footerTracking: NSTrackingArea?
 
     private var popover: NSPopover?
@@ -435,6 +438,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     }
 
     @objc func toggleCollapse() {
+        NoteCardView.collapseRunCount += 1          // read by the self-test's double-fire check
         note.collapsed.toggle()
         panel.applyCollapsed(animated: true)
         VaultStore.shared.save(note)

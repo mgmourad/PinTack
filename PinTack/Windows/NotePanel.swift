@@ -97,7 +97,18 @@ final class NotePanel: NSPanel {
     }
 
     func applyCollapsed(animated: Bool) {
-        setFrame(NotePanel.windowRect(forCard: visibleCardRect), display: true, animate: animated)
+        let target = NotePanel.windowRect(forCard: visibleCardRect)
+        // NOT setFrame(_:display:animate:): that one spins a NESTED RUN LOOP until the animation
+        // ends, stalling the main thread for ~270 ms mid-keystroke and letting the rest of the
+        // press dispatch land outside any time-based de-dupe (see ActionRouter.perform).
+        if animated {
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.16
+                animator().setFrame(target, display: true)
+            }
+        } else {
+            setFrame(target, display: true)
+        }
         card?.updateCollapsedState()
     }
 

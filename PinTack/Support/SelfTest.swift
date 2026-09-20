@@ -265,6 +265,23 @@ enum SelfTest {
         ActionRouter.dedupeInterval = 0
         press(.pin)
 
+        // A REAL key press, posted to the event queue so AppKit dispatches it down EVERY path it
+        // has (the local monitor and the main menu's key equivalent). The checks above call
+        // handleShortcut directly, which exercises one path only and hides double-fires.
+        ActionRouter.dedupeInterval = 0.25
+        ActionRouter.resetDedupeMemory()
+        NoteCardView.collapseRunCount = 0
+        let realBefore = n.collapsed
+        if let e = key(ShortcutStore.shared.combo(for: .collapse), in: p) { NSApp.postEvent(e, atStart: false) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            log("REAL ⌥⌘K press (every dispatch path): collapsed \(realBefore) -> \(n.collapsed), toggleCollapse ran \(NoteCardView.collapseRunCount)x (must be 1)")
+            if n.collapsed != realBefore { p.card.toggleCollapse() }
+            ActionRouter.dedupeInterval = 0
+            shortcutTailTest(p: p, n: n, then: next)
+        }
+    }
+
+    private static func shortcutTailTest(p: NotePanel, n: Note, then next: @escaping () -> Void) {
         // Hold ⌥⌘N: Carbon path (simulated) fired in quick succession must make ONE note.
         let notesBefore = VaultStore.shared.notes.count
         for _ in 0..<5 { GlobalHotKeyCenter.shared.simulatePress(of: .newNote) }
