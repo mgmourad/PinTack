@@ -1,7 +1,8 @@
 # PinTack — Technical Specification
 
-**Version:** 0.1 (pre-implementation draft)
-**Status:** Design complete, no code written
+**Version:** 0.1.0
+**Status:** Built and running. Phases 1–4 complete; Phase 5 (signing, notarization, Sparkle) and the
+WidgetKit widget are not built — see §11 and §15.
 **Target platform:** macOS 14 (Sonoma) and later
 **License:** GPL-3.0-or-later
 **Bundle identifier:** `io.cymentix.pintack`
@@ -10,529 +11,431 @@
 
 ## 0. How to read this document
 
-This document is written so that a macOS developer who has never spoken to the project owner can pick it up and start building. Every decision that has already been made is stated as a decision, with the reasoning attached. Every decision that is still open is collected in Section 17.
+This describes PinTack **as it actually is**, not as it was once planned. Where behaviour was
+chosen deliberately over an obvious alternative, the reason is attached, because the reason is the
+part that stops someone "fixing" it later.
 
-The project owner is not a Swift developer. He is a Windows endpoint automation engineer who paid for a commercial sticky-notes app, documented a list of missing features, received no response from its developer, and decided to build the open-source replacement instead. He is funding the Apple Developer membership and owns product direction. He is explicitly looking for a technical maintainer to own the codebase.
+Section numbers are load-bearing: source comments cite them (`SPEC.md §5.2` and so on). Renumbering
+a section orphans those citations, so add subsections rather than shuffling.
+
+Anything **not built** is marked so explicitly. A specification that describes unbuilt behaviour in
+the present tense is worse than no specification at all — that is the state this document was
+rescued from.
+
+The project owner is not a Swift developer; he is a Windows endpoint automation engineer and owns
+product direction. `CLAUDE.md` records how to work with him and the decisions he has made.
 
 ---
 
 ## 1. What PinTack is
 
-A macOS sticky-notes application where notes are floating desktop windows and the underlying storage is a folder of plain Markdown files.
+A macOS sticky-notes application where notes are floating desktop windows and the storage is a
+folder of plain Markdown files.
 
 The one-line pitch: **Obsidian's editing model, applied to sticky notes.**
 
-Three things define it against everything else in the category:
+### 1.1 What it is not
 
-1. **Live Preview markdown.** Formatting renders as you type, with raw syntax revealed only on the line holding the cursor. This is the primary quality bar for v1. If Live Preview feels janky, the product has failed regardless of what else ships.
-2. **An interactive desktop widget.** Tick a checkbox on a WidgetKit widget without opening the app. No competitor in this category has one.
-3. **A real plugin system.** JavaScript plugins with a documented API, shipping with one reference plugin (Runner) that proves the API is load-bearing rather than decorative.
+An owner decision (2026-09-20), and the sharpest line in the project. PinTack keeps the important
+things concentrated, in little space, reachable fast. It is **not** a knowledge base. Turned down
+by name:
 
-### 1.1 Why it exists
+- **`[[wikilinks]]` and backlinks.** Notes referencing each other makes it Obsidian.
+- **Note version history.** Defeats the point of a sticky note.
+- **Sync conflict resolution.** Personal, not collaborative.
 
-The incumbent (`Stickies — Sticky notes app`, App Store id 1572061218) is a well-executed, actively maintained, 4.2-star app sitting around #58 in Productivity. It is also roughly 377 MB, which strongly indicates an Electron or similarly heavy runtime. That single fact explains why its most-requested features have never shipped:
+Do not propose these again without new reasoning.
 
-- WidgetKit widgets are effectively impossible from Electron without a separate native target
-- CloudKit sync is native-only
-- True `NSWindow` level manipulation, non-activating panels, and window-level opacity are awkward through Electron's window abstraction
+### 1.2 Hard constraints
 
-PinTack going native is therefore not a stylistic preference. It is the thing that makes the requested feature set possible at all. Expected bundle size is 10–25 MB.
-
-### 1.2 Non-goals for v1
-
-Explicitly out of scope, listed so nobody builds them by accident:
-
-- Cloud sync of any kind (the vault format makes third-party sync work without code)
-- Any platform other than macOS
-- Note linking, backlinks, or a graph view
-- A plugin marketplace or in-app plugin browser
-- Collaboration or multi-user features
-- Encryption
-- Mac App Store distribution (impossible while Runner exists — see §15.1)
+1. **No cloud sync in v1.** The vault is plain Markdown; syncing it is the user's job.
+2. **No dependencies without asking.** CodeMirror 6 and Sparkle are pre-approved. Devicon (MIT) was
+   approved for language logos.
+3. **No network access from the app**, except Sparkle update checks and **link previews** (§7.3),
+   which are off by default and fetched in Swift, never in the page.
+4. **Unknown frontmatter keys must survive a write** (§3.3). Plugins own them.
+5. **Vault writes must be atomic**, and a failed write must be visible (§4.5).
+6. **No autorun in Runner** (§13.4). No flag changes this.
+7. **Target macOS 14.0.** Newer APIs need a runtime availability check.
+8. **GPL-3.0.** Do not vendor incompatible code.
 
 ---
 
 ## 2. Architecture overview
 
+A single native macOS app. One process. No helper, no daemon, no server.
+
+| Layer | Where | What |
+|---|---|---|
+| Shell | `PinTack/App/` | App delegate, menus, status item, key monitor, quick capture |
+| Vault | `PinTack/Vault/` | Note parsing/writing, search index, file watcher, link previews, import/export |
+| Windows | `PinTack/Windows/` | Note panels, card chrome, editor host, popovers, freeze mode, image editing |
+| Central | `PinTack/Central/` | All Notes window, todo/template tabs, progress views |
+| Settings | `PinTack/Settings/` | Seven-pane settings, shortcut recorder, shortcut overlay |
+| Plugins | `PinTack/Plugins/` | Manifest, manager, bridge, trust store, process runner |
+| Editor | `Editor/` | The Live Preview editor: HTML, CSS, JS, vendored CodeMirror |
+
+### 2.1 The editor is a web view, vendored not bundled
+
+Each note hosts a `WKWebView` running CodeMirror 6. `Editor/` is a plain folder copied into the
+app; CodeMirror sits in `Editor/vendor/` as unmodified ES modules resolved by an **import map**, so
+there is **no bundler** — esbuild or rollup would be a new dependency. Regenerate with
+`scripts/vendor-codemirror.sh`.
+
+The page is served over a custom `pintack-app:` scheme by `EditorSchemeHandler`, which refuses any
+path resolving outside the editor bundle, the vault's `attachments/`, or a whitelisted absolute
+image. The CSP forbids remote loading outright:
+
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  Swift / AppKit shell                                        │
-│                                                              │
-│  ┌────────────────┐  ┌──────────────┐  ┌─────────────────┐  │
-│  │ NotePanel      │  │ MenuBarExtra │  │ Central window  │  │
-│  │ (NSPanel × n)  │  │              │  │ (folders/tags)  │  │
-│  └───────┬────────┘  └──────────────┘  └─────────────────┘  │
-│          │                                                   │
-│  ┌───────▼─────────────────────────────┐  ┌──────────────┐  │
-│  │ WKWebView  →  CodeMirror 6          │  │ Settings     │  │
-│  │ (Live Preview editor + plugin host) │  │              │  │
-│  └───────┬─────────────────────────────┘  └──────────────┘  │
-│          │  JS bridge (WKScriptMessageHandler)               │
-│  ┌───────▼──────────────────────────────────────────────┐   │
-│  │ VaultStore — file I/O, FSEvents watcher, search index │   │
-│  └───────┬───────────────────────────────────────────────┘  │
-└──────────┼──────────────────────────────────────────────────┘
-           │  App Group container (read-only for widget)
-┌──────────▼──────────────────────────────────────────────────┐
-│  WidgetKit extension + AppIntents                            │
-└──────────────────────────────────────────────────────────────┘
-           │
-┌──────────▼──────────────────────────────────────────────────┐
-│  ~/Documents/PinTack/  — the vault (plain files on disk)     │
-└──────────────────────────────────────────────────────────────┘
+default-src 'none'; script-src pintack-app: '<hash>'; style-src pintack-app: 'unsafe-inline';
+img-src pintack-app: data:; font-src pintack-app:; connect-src 'none'; base-uri 'none'; form-action 'none'
 ```
 
-### 2.1 The WKWebView decision
-
-**This is not Electron.** Electron bundles an entire Chromium build, which is why the incumbent is 377 MB. `WKWebView` uses the WebKit already present in macOS. Nothing is bundled.
-
-The editor runs inside a `WKWebView` because CodeMirror 6 is the only realistic path to Obsidian-grade Live Preview. CM6's decoration and view-plugin API is precisely the mechanism Obsidian uses for the same effect. Reimplementing that in TextKit 2 is possible but represents many months of specialist work.
-
-The webview additionally provides the plugin execution context for free, which resolves three problems at once:
-
-- JS plugins sandbox cleanly; Swift plugins would mean loading arbitrary dylibs, breaking App Sandbox and complicating notarization
-- Custom CSS themes (a stated plugin goal) require a CSS-rendered surface to exist
-- The contributor pool for JavaScript is orders of magnitude larger than for macOS-specific Swift
-
-**One webview per note, or one shared?** Recommendation: one `WKWebView` per open note, sharing a single `WKProcessPool` and `WKUserContentController` so plugin scripts load once. Measure memory with 30+ notes open early in Phase 2; if it is unacceptable, fall back to a pooled-webview model where only focused and recently-focused notes hold a live editor and the rest render a static snapshot.
+**One web view per open note.** Fine at ten; unmeasured at thirty. A known scaling question.
 
 ---
 
 ## 3. The vault
 
-### 3.1 Principle
-
-**The folder is the database.** There is no proprietary store. Every note is a real `.md` file the user can open in any editor. This single decision resolves several requirements at once:
-
-| Requirement | How the vault resolves it |
-|---|---|
-| Export | The files *are* the export. Zip the folder. |
-| Sync | Put the vault in iCloud Drive / Dropbox / Syncthing. No sync engine needed. |
-| Image paste | Write a file to `attachments/`, insert a standard Markdown image reference. |
-| Plugin data access | Plugins read and write files; no API round-trip required. |
-| Data longevity | If the project dies, every user still opens their notes in any text editor. |
-
-That last point is not sentimental. For a project whose origin story is "the incumbent abandoned my feature requests," shipping a format that traps users would be incoherent.
-
-**Cost:** no SQL. Search requires an in-memory index built at launch and maintained by an FSEvents watcher. This is bounded, well-understood work. See §3.6.
-
-### 3.2 Layout
+A folder of Markdown files, by default `~/Documents/PinTack/`. Subfolders are folders. Two names
+are reserved: `attachments/` and `plugins/`. App state lives in `.pintack/`.
 
 ```
 ~/Documents/PinTack/
-├── .pintack/
-│   ├── index.sqlite            # derived; safe to delete, rebuilt on launch
-│   ├── settings.json           # app settings
-│   ├── trust.json              # Runner command approvals (see §13.4)
-│   └── hotkeys.json            # user keybindings
-├── attachments/
-│   ├── 2026-09-19-142233.png
-│   └── 2026-09-19-150114.png
-├── plugins/
-│   └── runner/
-│       ├── manifest.json
-│       ├── main.js
-│       └── styles.css
-├── Work/                       # a folder is a directory
-│   ├── 2026-09-19-sprint-blockers.md
-│   └── 2026-09-20-oncall-handoff.md
-├── Personal/
-│   └── 2026-09-18-groceries.md
-└── 2026-09-19-quick-note.md    # root-level note, no folder
+├── 2026-09-20-sprint-blockers.md
+├── Work/2026/…
+├── attachments/          (images; reserved)
+├── plugins/              (JavaScript plugins; reserved)
+└── .pintack/
+    ├── settings.json     hotkeys.json   index.sqlite
+    ├── trust.json        approved commands, HMAC-signed
+    └── linkpreviews.json cached previews and dismissals
 ```
 
-Design notes:
+### 3.1 A note is a file
 
-- **Folders are directories.** One note lives in exactly one folder. Nesting is permitted; the central window renders the tree.
-- **`.pintack/` is derived or app-local state only.** Deleting it must lose no user content. Anything in there that cannot be regenerated is a bug.
-- **`attachments/` is flat** with timestamp-based names. A per-note subfolder scheme was considered and rejected: it breaks when notes are renamed or moved, and it makes orphan detection harder.
+One note, one `.md` file, YAML frontmatter then body. The body is never altered by a load/save
+round trip. CRLF line endings survive (the vault may be edited from Windows).
 
-### 3.3 Note file format
+### 3.2 Folders
 
-```markdown
+Directories. Nesting allowed. `VaultStore.folders()` skips the reserved names.
+
+### 3.3 Frontmatter
+
+```yaml
 ---
-id: 01J9X2K3M4N5P6Q7R8S9T0V1W2
-created: 2026-09-19T10:22:38Z
-modified: 2026-09-19T11:04:12Z
+id: 01JB2K3MNP4QRS5TUV6WXY        # ULID-ish, sortable, assigned once
+created: 2026-09-20T09:14:02Z
+modified: 2026-09-20T11:02:44Z
+title: "Q4 rollout"               # only when renamed; see §4.4
 tags: [work, urgent]
-pinned: true
+pinned: false
 color: "#FFE38A"
-theme: auto
-opacity: 0.92
+theme: auto                       # auto | light | dark — palette mode, never a text colour
+opacity: 1.00
 collapsed: false
 visible: true
-frame:
-  x: 320
-  y: 180
-  w: 280
-  h: 210
+frozen: false                     # §5.6
+source: "Safari"                  # quick capture only, §8.3
+template: change-record           # templates only, §6.2
+due: 2026-09-25T09:00:00Z         # todo notes only, §6.3
+remindOnTime: true
+remindAhead: 30m
 ---
-
-# Sprint blockers
-
-- [x] Cert renewal on the build agent
-- [ ] Graph throttling on bulk device query
-- [ ] Autopilot profile drift
-
-![](attachments/2026-09-19-142233.png)
 ```
 
-**Frontmatter schema:**
+**Unknown keys are preserved verbatim**, including nested maps and block lists. Plugins own them;
+dropping one is user data loss. This is the single most heavily tested behaviour in the codebase.
 
-| Key | Type | Default | Notes |
-|---|---|---|---|
-| `id` | ULID string | generated | Canonical stable identity. ULID rather than UUID: lexicographically sortable and carries a creation timestamp. |
-| `created` | ISO-8601 UTC | file ctime | |
-| `modified` | ISO-8601 UTC | file mtime | Written on save; used for conflict detection against external edits. |
-| `tags` | array of strings | `[]` | Canonical tag store. See §3.5. |
-| `pinned` | bool | `false` | Drives `NSWindow.level`. |
-| `color` | hex string | app default | Any hex. Presets are a UI convenience, not a constraint. |
-| `theme` | `auto`/`light`/`dark` | `auto` | Per-note **palette mode**: which set of preset swatches the Appearance popover offers (standard, deeper, or paler). Text color is never a user choice: it always flips light/dark from the color's luminance. *(Changed from "text treatment override" by the owner, 2026-09-19.)* |
-| `opacity` | float 0.3–1.0 | `1.0` | Maps to `NSWindow.alphaValue`. Floor of 0.3 prevents an invisible, unrecoverable note. |
-| `collapsed` | bool | `false` | |
-| `visible` | bool | `true` | `false` means the note exists but has no open window. |
-| `frame` | object | auto-placed | **Card rect, not window rect.** See §5.2. |
+### 3.4 File names
 
-**Unknown frontmatter keys must be preserved verbatim on write.** Plugins will add their own keys. Dropping them is data loss.
-
-**Parser requirement:** YAML frontmatter is delimited by `---` on the first line and the next `---` on its own line. A file with no frontmatter is still a valid note; missing keys take defaults and are written on first save.
-
-### 3.4 Filenames
-
-Format: `YYYY-MM-DD-slugified-title.md`
-
-- Generated **once at creation** from the first heading or first line of body text, or `untitled` if empty
-- **Never auto-renamed afterward.** Retitling a note does not move the file. This avoids breaking anything referencing the path and avoids surprising the user's sync client with churn.
-- Slug rules: lowercase, ASCII alphanumerics and hyphens, all other characters collapsed to hyphens, repeated hyphens collapsed, trimmed, truncated to 60 characters
-- Collisions get a `-2`, `-3` suffix
-- Rationale: Obsidian-style title-as-filename makes a vault browsable in Finder but breaks on duplicate titles and on `/` and `:`. Pure UUID filenames are stable but render the vault unreadable, which undercuts the entire plaintext premise. The date prefix plus a frozen slug gets both.
-
-The `id` in frontmatter, not the filename, is the canonical identity. Everything internal references `id`.
+`YYYY-MM-DD-slug.md`, the slug from the note's first line at creation: lowercase ASCII
+alphanumerics and hyphens, max 60. **Generated once and never auto-renamed** — renaming a note does
+not rename its file, so external links and sync histories stay intact.
 
 ### 3.5 Tags
 
-Tags are stored in **two** places and this is deliberate:
+`tags:` in the frontmatter, plus inline `#tags` in the body, merged on save. Autocompleted from the
+vault's existing tags. In a note's action bar they are coloured pills (§5.3).
 
-- **Frontmatter `tags:` array** — canonical, authoritative
-- **Inline `#tag` in body text** — indexed, and on save any inline tag not already present is merged into the frontmatter array
+### 3.6 Search
 
-This matches how people actually write. Someone typing `#urgent` mid-sentence expects it to become a tag; someone managing tags in a properties panel expects the array. Both work.
-
-Tag rules: case-insensitive for matching, stored as typed. Nested tags via `/` (e.g. `work/northwind`) are indexed as both the full path and each ancestor.
-
-### 3.6 Search index
-
-- SQLite FTS5 at `.pintack/index.sqlite`
-- Built on first launch by walking the vault; progress shown if it takes more than ~500 ms
-- Maintained incrementally by an `FSEvents` stream on the vault root
-- Schema: `notes(id, path, title, body, tags, folder, modified)` plus an FTS5 virtual table over `title` and `body`
-- **The index is disposable.** If it is missing, corrupt, or from an older schema version, delete and rebuild. Never block startup on it and never treat it as a source of truth.
+SQLite FTS5, `.pintack/index.sqlite`, rebuilt on load and kept current on save. Backs the All Notes
+search field. `/find` (§6.4) does its own fuzzy matching over titles in the page.
 
 ### 3.7 External edits
 
-The vault is user-visible, so files will change underneath the app. Required behavior:
-
-- FSEvents watcher detects the change
-- If the note has no unsaved in-app edits, reload it silently and re-render
-- If it does, compare `modified` in frontmatter against the on-disk value and present a non-destructive conflict resolution (keep mine / keep theirs / open both). **Never silently overwrite.**
-- Debounce watcher events by ~200 ms; sync clients write in bursts
+A file watcher reloads notes changed on disk. Each note records a hash of the last text this
+process wrote, so the app can tell its own writes from someone else's. Sync conflicts are **not**
+resolved (§1.1).
 
 ---
 
 ## 4. Editor: Live Preview
 
-The highest-risk and highest-value component. Budget accordingly.
+### 4.1 The model
 
-### 4.1 Behavior
+Formatting renders as you type; raw syntax is revealed only on the line holding the cursor. One
+`StateField` turns the markdown syntax tree into decorations — hide the markers, style the content,
+swap a few constructs for widgets. A `StateField` rather than a `ViewPlugin` because block-level
+replacements (tables) are only legal from a field.
 
-Three modes, but only two are user-facing:
+⌥⌘M toggles Live Preview and Source.
 
-| Mode | Behavior | Toggle |
-|---|---|---|
-| **Live Preview** (default) | Formatting renders inline. Raw syntax is revealed only on the line containing the cursor. | Title bar pencil/book |
-| **Source** | Raw markdown everywhere. Escape hatch for fighting the renderer. | Title bar pencil/book |
-| Reading | Fully rendered, non-editable. | Not exposed in v1. |
+The scrollbar is invisible until it is useful: while scrolling, or while the pointer is near the
+right edge. The gutter keeps its width so text never reflows.
 
-The title bar glyph is a pencil in Source mode and a book in Live Preview mode, indicating *what you will switch to*.
+### 4.2 Markdown supported
 
-### 4.2 Implementation
+Headings, bold, italic, strikethrough, `inline code`, highlight (`==text==`), links, images,
+blockquotes, bullet/numbered/task lists, tables, horizontal rules, fenced code.
 
-CodeMirror 6 with:
+**Fenced code blocks** are syntax highlighted. Every language CodeMirror ships is vendored
+(~3.5 MB), but **none of it is imported up front**: `Editor/languages.js` gives each language a
+loader, and the markdown parser calls it the first time a note actually contains that language.
+A block naming a language also gets a badge with the language's logo and name — Devicon SVGs (MIT)
+in `Editor/icons`, vendored by `scripts/vendor-language-icons.sh`. There is deliberately **no pill**
+behind the badge; on dark paper a dark mark gets a faint light halo instead.
 
-- `@codemirror/lang-markdown` for parsing
-- A custom `ViewPlugin` producing `Decoration` sets that replace or hide syntax tokens outside the cursor's line
-- `atomicRanges` so arrow-key navigation steps over hidden syntax cleanly rather than into invisible characters
-- Widget decorations for block-level elements: images, code blocks, tables, and plugin-contributed blocks such as Runner
+Token colours are two palettes chosen by whether the note's paper is light or dark.
 
-Elements that must render in Live Preview for v1:
+### 4.3 Beyond Markdown
 
-headings, bold, italic, strikethrough, inline code, fenced code with syntax highlighting, blockquote, bullet and numbered lists, task checkboxes (clickable), horizontal rule, links, images, tables, `==highlight==`, and inline HTML `<span style="color:…">` for text color.
+- Coloured text as `<span style="color:…">`, tags always hidden in the editor; Tab leaves the span.
+  Slash commands are the colour names (`/red`), no prefix.
+- Emoji bullets: with one chosen, typing `- ` produces it.
+- `@Todo` on line 1 marks a todo note (§6.3).
 
-### 4.3 Text color caveat
+### 4.4 The bridge, and the title
 
-Markdown has no syntax for colored text. Highlight uses `==text==`, which Obsidian supports and which degrades to visible marks elsewhere. Arbitrary color requires inline HTML:
+Swift ↔ page messages over `WKScriptMessageHandler`. Swift decides everything privileged: what may
+open, what may be written, what may touch the network.
 
-```html
-<span style="color:#e07b39">text</span>
-```
+**Title and first line are separate once renamed.** A note with no `title:` key simply *is* its
+first line and follows every edit to it. Renaming the header writes `title:` into the frontmatter
+and **never rewrites the body**; from then on the two are independent in both directions. Renaming
+back to what the first line says clears the override.
 
-This is valid Markdown and renders in most viewers, but it is the one place where notes stop being pure portable plaintext. Accepted trade.
-
-### 4.4 The Swift ↔ JS bridge
-
-JS to Swift, via `WKScriptMessageHandler` on a single handler named `pintack`:
-
-```js
-window.webkit.messageHandlers.pintack.postMessage({
-  type: "content.changed",
-  noteId: "01J9X…",
-  payload: { body: "…" }
-})
-```
-
-Message types (v1):
-
-| Type | Direction | Purpose |
-|---|---|---|
-| `content.changed` | JS → Swift | Debounced body update; triggers save |
-| `title.changed` | JS → Swift | First heading changed |
-| `image.paste` | JS → Swift | Pasted image data; Swift writes the file and returns the path |
-| `image.pick` | JS → Swift | Slash command requested Finder picker |
-| `link.open` | JS → Swift | External URL clicked |
-| `command.invoke` | JS → Swift | Plugin command dispatch (e.g. Runner execute) |
-| `plugin.host` | both | Namespaced plugin messaging (see §12.4) |
-| `note.load` | Swift → JS | Initial or reloaded content |
-| `settings.changed` | Swift → JS | Theme, font, accent color updates |
-| `command.result` | Swift → JS | Async result of a `command.invoke` |
-
-Swift to JS via `evaluateJavaScript` calling into a `window.__pintack.receive(msg)` entry point.
-
-**Security:** the webview loads only local content. `WKWebViewConfiguration` must disallow navigation to remote URLs; all external links route through `link.open` and open in the default browser. No remote script may ever be loaded, including by plugins.
+**Pasting rich text** converts the pasteboard's HTML flavour to Markdown (`Editor/html-to-markdown.js`)
+rather than flattening it: headings, emphasis, links, nested and task lists, tables, quotes, fenced
+code with the source's language. ⇧⌘V pastes plain. The HTML is parsed into a **detached** document
+that never enters the page, so nothing in it runs. A remote `<img>` becomes a link, not a Markdown
+image, because the CSP would refuse to load it.
 
 ### 4.5 Saving
 
-- Debounce 800 ms after the last keystroke, plus an immediate save on window blur, note close, and app termination
-- Atomic write: write to a temp file in the same directory, then `FileManager.replaceItem`. A partial write must never be able to corrupt a note.
-- Update `modified` in frontmatter on every save
+Debounced autosave, immediate flush on blur. Writes are **atomic**: temp file in the same
+directory, then `replaceItem`, so a partial write cannot corrupt a note.
+
+Atomic writes cannot prevent a full disk or a locked folder. A failed write is **reported to the
+user** (throttled) and the note's id recorded in `VaultStore.saveFailures` — a silent failure is
+the one remaining way this app could lose work.
 
 ---
 
 ## 5. Note windows
 
-### 5.1 Panel configuration
+### 5.1 The panel
 
-Each visible note is one `NSPanel` subclass:
+Borderless, resizable, **non-activating** `NSPanel`. Typing in a note does not pull the app forward.
+`canBecomeKey` is true or a borderless panel could take no text input at all.
+`collectionBehavior` includes `.canJoinAllSpaces`, so notes follow you between Spaces.
 
-```swift
-styleMask: [.borderless, .resizable, .nonactivatingPanel]
-isFloatingPanel = true
-level = pinned ? .floating : .normal
-collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-hidesOnDeactivate = false
-isMovableByWindowBackground = true
-backgroundColor = .clear
-isOpaque = false
-hasShadow = false        // see §5.2
-```
+### 5.2 The transparent margin — read before touching geometry
 
-`canBecomeKey` must be overridden to return `true`, otherwise a borderless non-activating panel cannot accept text input.
+**The `NSWindow` is 24pt larger than the visible card on every side.** macOS clips content to
+window bounds, so the overhanging pushpin and the pinned glow have nowhere to be drawn otherwise.
 
-`.nonactivatingPanel` is deliberate: clicking into a note to type should not pull the whole app forward and displace whatever the user was doing. This is a large part of what makes it feel like a sticky note rather than a document window.
+Three consequences, all mandatory:
 
-### 5.2 The transparent margin
+1. `NoteCardView.hitTest` returns `nil` outside the card's rounded rect. Without it every note
+   carries an invisible 24pt halo that swallows clicks meant for the desktop.
+2. `hasShadow = false`. The system would draw the shadow on the transparent box; the card shadow
+   and pinned glow are drawn by hand.
+3. **All persisted geometry is the CARD rect, never the window rect.** Getting this wrong makes
+   every note drift 24pt per relaunch.
 
-**This is the least obvious structural decision in the project and it must be understood before any window code is written.**
+### 5.3 Chrome
 
-macOS windows clip content to their bounds. The design calls for a skeuomorphic pushpin overhanging the top-left corner and an outer glow bleeding past the card edge. Neither can be drawn at the edge of the window.
+**Header:** title (drag to move, double-click to rename), pin, mode, collapse, close.
 
-Therefore: **the `NSWindow` is larger than the visible card.** A transparent margin of **24 pt on all sides** surrounds the card. The card is drawn inset within it; the pin and glow occupy the transparent zone.
+**Footer — the "action bar":** a palette button, a `>` that opens the formatting tools, and then
+either the tools (bullet, bold, italic, code, opacity) or the tag side (tag icon, reminder bell,
+task progress, tag pills). The two sides **cross-fade**; only a real open or close animates.
 
-Four consequences, all mandatory:
+Tag pills are coloured from a **djb2 hash of the tag text** — never `hashValue`, which is seeded per
+process and would repaint every tag on each launch. Tags that do not fit collapse into a `+N` pill
+that opens a popover listing them all. `TagPillsView` is transparent to the mouse so the empty
+action bar still drags the note — **except** over that `+N` pill.
 
-1. **Custom hit testing.** A transparent region still receives clicks. Without intervention, every note carries an invisible 24 pt halo that swallows clicks meant for the desktop or the app beneath. The content view must override `hitTest(_:)` to return `nil` for points outside the card's rounded rect, with the pin's own bounds carved back in as clickable.
+### 5.4 Pin
 
-2. **`hasShadow = false`.** The system draws its shadow on the window rect, which is the transparent box. The card's drop shadow and the pinned glow are both drawn manually in the content view.
+⌥⌘P. A pinned note floats above other windows and draws the owner's pushpin PNG, anchored by the
+crack in the paper, with a glow in the note's own colour.
 
-3. **Frame math uses the card rect.** The `frame` stored in frontmatter is the card, not the window. Window frame = card frame inset by −24 on all sides. Auto-arrange, cascade placement, and screen-bounds clamping all operate on the card rect. Getting this wrong makes every note drift 24 pt on each relaunch.
+### 5.5 Placement
 
-4. **Title text inset.** ~34 pt of left padding so the pin never overlaps the title.
+New notes are placed by the configured rule (cursor, centred, cascade) and clamped on screen.
+They spring in; closing fades out (§5.7).
 
-### 5.3 Card chrome
+### 5.6 Freeze mode
 
-```
-        ┌─────────────────────────────────────────┐
-   📌   │                                          │
-   ╱    │  Sprint blockers        ✏️   ▾    ✕      │  ← title bar
-  ┌─────┴──────────────────────────────────────────┤
-  │                                                │
-  │  # Sprint blockers                             │
-  │  - [x] Cert renewal on the build agent         │  ← CodeMirror
-  │  - [ ] Graph throttling                        │
-  │                                                │
-  ├────────────────────────────────────────────────┤
-  │  🎨        🏷 work, urgent                  ◢  │  ← footer
-  └────────────────────────────────────────────────┘
-```
+⌥⌘F, `/freeze`, the snowflake in the action bar, or the right-click menu. A frozen note ignores the
+mouse entirely and sits on the desktop as a reference card.
 
-**Title bar:** overhanging pin at top-left (pinned notes only), title text (editable in place), then pencil/book mode toggle, collapse chevron, close.
+**The way out matters more than the way in.** A window that ignores the mouse cannot be clicked to
+un-ignore itself, cannot be right-clicked, and can never become key — so no shortcut reaches it.
+`FreezeMode` therefore keeps the **snowflake corner live**: it polls `NSEvent.mouseLocation` and
+hands the mouse back while the pointer is over that 46×34pt corner. Polling rather than a global
+mouse monitor, because that API family asks for Accessibility permission and a sticky-note app has
+no business doing so. All Notes also offers a thaw, for a note that ends up off-screen.
 
-**Right-click anywhere on the title bar** opens a context menu: Pin/Unpin, Collapse/Expand, Minimize to All Notes, Duplicate, Move to folder…, Close, Delete.
+### 5.7 Movement
 
-**Footer — three controls, plus the action bar.** *(The action bar was added by the owner on 2026-09-19.)* A `>` next to 🎨 opens the action bar: bullet list (right-click to choose an emoji bullet, or clear it), bold, italic, code, and an opacity slider. It can collapse itself again after a delay (Settings → Notes). An earlier design put six color swatches, an opacity slider, an emoji button and a todo button in the footer; at a 280 pt default width they overlapped and were unusable. The insight that fixes it: **color and opacity are set-and-forget properties, not per-session controls.** They do not deserve permanent real estate.
+`Motion` (windows) and the movement block in `editor.css` (page). Windows use real
+`CASpringAnimation` physics. Restoring a deskful at launch animates nothing. Only things that
+appear **once** are animated — an image or code block is rebuilt whenever the caret moves on or off
+its line. Window **frame** animations overshoot less than layer springs, because a frame is clamped
+by `minSize` and a collapse targets exactly that.
 
-| Control | Behavior |
-|---|---|
-| 🎨 Appearance | Opens a popover: an Auto / Dark / Light mode switch, 6 preset swatches for that mode (Dark shows deeper versions, Light paler ones; a preset carries across the switch), a "Custom…" well opening `NSColorPanel`, and the opacity slider with live percentage |
-| 🏷 Tags | Shows current tags; click to edit with autocomplete against existing vault tags |
-| ◢ Resize grip | Standard |
-
-Everything formerly in the footer moves to slash commands (§6), which is where it belonged.
-
-### 5.4 Pinned state
-
-Communicated **redundantly**, because "this window will cover other applications" is consequential enough to warrant more than one signal:
-
-- **Skeuomorphic pin**, ~28 pt, overhanging the top-left corner, rotated so the shaft drives down-right into the card. Clicking it unpins, with a short lift-and-fade animation.
-- **Outer glow** in the outline color: 10 pt blur, 22% alpha, no spread. Subtle enough that ten pinned notes do not turn the desktop into a carnival.
-
-The outline itself does **not** indicate pinned state, because the user controls outline color and width globally (§9) and it must be free to be purely decorative.
-
-**Pin asset requirements:** PNG at @1x/@2x/@3x (28/56/84 px), transparent background, **contact shadow on a separate layer** so the app can render it responsive to note opacity, plus a light variant for use on dark note colors. Redistribution license must permit commercial use and modification (GPL binary redistribution).
-
-### 5.5 Placement and arrangement
-
-- New notes: at cursor / centered / cascade, per setting. Default cascade with a 24 pt step, reset when it would leave the visible screen.
-- Notes are clamped to visible screen bounds on load. A note restored from a frontmatter frame pointing at a disconnected display must be brought back on-screen.
-- Auto-arrange: grid layout across the active screen, card rects, 18 pt gutters, preserving z-order.
+The system's Reduce Motion setting switches all of it off, on both sides.
 
 ---
 
-## 6. Slash commands
+## 6. Slash commands, templates, todos, quick open
 
-Typing `/` at the start of a line or after whitespace opens a filtering command menu. This is both the beginner on-ramp (someone who has never written Markdown can build a formatted note entirely by typing `/`) and the most visible proof that the plugin system is real.
+### 6.1 Slash commands
 
-### 6.1 Implementation
+`/` opens a menu: headings, emphasis, quote, lists, `/checklist`, divider, highlight, link, table,
+code (plain and per-language), date, time, tag, colours, `/freeze`, `/find`, `/template`, image,
+emoji.
 
-CodeMirror 6's `autocompletion` with a custom `CompletionSource`. This is configuration of an existing, battle-tested subsystem rather than a bespoke menu.
+### 6.2 Templates
 
-### 6.2 Core registry
+A template is an **ordinary note carrying a name**: `template: <name>` in the frontmatter. It stays
+a note — it lives in folders and appears in lists.
 
-| Command | Inserts |
-|---|---|
-| `/h1` `/h2` `/h3` | Heading |
-| `/bold` `/italic` `/strike` | Inline emphasis around selection |
-| `/quote` | Blockquote |
-| `/list` `/numbered` `/todo` | Lists |
-| `/divider` | `---` |
-| `/color` | Color submenu → `<span style="color:…">` |
-| `/highlight` | `==text==` |
-| `/image` | Opens Finder picker, copies into `attachments/`, inserts reference |
-| `/link` | Link with URL prompt |
-| `/table` | Table skeleton |
-| `/code` | Fenced block with language picker |
-| `/date` `/time` | Formatted stamps |
-| `/tag` | Tag autocomplete against vault tags |
-| `/emoji` | Emoji picker grid |
+- `/template` names the current note. One word: letters, digits, hyphen, dot, underscore. Anything
+  else is stripped, because the name has to be parsed back out of `@name` in a note's text.
+- `@name` anywhere recalls it; the completion inserts the whole body.
+- All Notes has a templates tab (§8.2) with multi-select, move-to-folder and delete.
 
-`/runner` is **not** in this list. It is contributed by the Runner plugin, deliberately, to prove the extension point works.
+### 6.3 Todo notes and reminders
+
+A todo note is one tagged `todo` or written starting `@Todo`. New todos start `@Todo ` with a greyed
+"todo title" hint; Enter after the title creates the first checkbox.
+
+**`@todo` typed anywhere converts** an existing note: `@Todo` goes to line 1 with the hint, the
+typed text is removed, the view scrolls to the title, and Swift adds the `todo` tag.
+
+`@` therefore means two things, and the collision is resolved explicitly: **line 1's own `@Todo`
+marker is never a template recall**, and `todo` is a **reserved template name**.
+
+**Reminders.** A todo's action bar carries a bell; its popover holds three controls and nothing
+else — when it is due, whether to announce at the time, and whether to announce earlier by a count
+of minutes/hours/days. Dates live in the frontmatter so a reminder travels with the note.
+Notifications go through `UNUserNotificationCenter`, are re-armed at launch, and are **cancelled
+when the note is deleted**. Permission is asked the first time a reminder is *set*, never at launch.
+A moment already past is dropped rather than scheduled.
+
+**Progress.** A todo's action bar shows one square per task — bright and glowing for done, dark for
+not — then `3/7`. A note counts as *done* only when it **has** tasks and all are ticked.
+
+### 6.4 `/find` — quick open
+
+A search box over the middle of the note, focused immediately, fuzzy-matching every note as you
+type. Arrows walk, Return opens, Escape closes. A title match always outranks a body match.
+
+**Opening a note does not take you there.** The other note appears and pulses, but the key window
+stays the one you were typing in and the caret returns to the character it was on.
 
 ---
 
-## 7. Image handling
+## 7. Images and links
 
-Non-negotiable for v1.
+### 7.1 Pasting
 
-- **Paste** (`⌘V` with image data on the pasteboard): write PNG to `attachments/YYYY-MM-DD-HHMMSS.png`, insert `![](attachments/…)`, render inline immediately
-- **Drag and drop** onto a note: same path
-- **`/image`**: `NSOpenPanel`, copy into `attachments/`, insert reference
-- **Setting:** copy into vault (default) or link in place by absolute path
-- Rendered images scale to note width, capped at their natural size
-- **Orphan cleanup** in Settings → Vault: scan all notes for attachment references, list unreferenced files, let the user delete them. Never delete automatically.
+Pasted, dropped and picked images are written into `attachments/` and linked. "Link in place"
+(Settings → Editor) points at the original instead and is never rewritten.
+
+### 7.2 Editing in place
+
+There is **no dialog**. Click an image and it grows four corner handles, plus a crop tool and a bin
+that sit **outside** the picture, above its top-right corner (below it when the image is at the very
+top of a note). Drag a corner to resize — nothing to type. The display width is written into the
+link as `![alt|320](path)`, the Obsidian convention, so the file stays ordinary Markdown.
+
+Cropping frames a rectangle on the picture itself; Return applies, Escape cancels. Swift does the
+pixels and writes a **new** attachment, repointing the link, so the original is never overwritten
+(and can be reclaimed with §9's unused-attachment sweep).
+
+**`ImageEditing.png` takes crop rects in image PIXELS with a bottom-left origin, but
+`draw(in:from:)` reads `from` in the image's POINT space.** The conversion is not optional: without
+it a crop of any Retina image came out black. Test the *content* of a 2× crop, never just its size.
+
+### 7.3 Link previews
+
+**Off by default. The only feature that contacts a website.**
+
+A URL alone on a line becomes a card with the page's title, description, thumbnail and domain.
+The fetch happens in **Swift**, never in the page — the CSP still says `connect-src 'none'`, so
+plugins gain nothing. http/https only; credentials and fragments stripped; redirects to any other
+scheme refused; ephemeral session, no cookies; 8s timeout and hard size caps. The thumbnail is
+downscaled into the vault and loaded from disk.
+
+Hovering shows a ✕ that restores the plain URL. That dismissal is remembered in
+`.pintack/linkpreviews.json`, not in the note, and is **forgotten once the link leaves the note** —
+the ✕ hides the card that is there, not that address forever.
 
 ---
 
 ## 8. Central window ("All Notes")
 
-Borrowed from Windows Sticky Notes, then refined twice.
+### 8.1 Layout
 
-```
-┌──────────────────────────────────────────────────────┐
-│  All Notes                                      ✕    │
-├──────────────┬───────────────────────────────────────┤
-│ ○ Folders    │  🔍 Search                            │
-│ ○ Tags       │  ┌─────────────────────────────────┐  │
-│              │  │ ● Sprint blockers          👁   │  │
-│ 🗒 All   24  │  │   Cert renewal on the build…    │  │
-│ 💼 Work   8  │  ├─────────────────────────────────┤  │
-│ 🏠 Personal 6│  │ ● Groceries                🚫   │  │
-│ ✏️ Scratch 10│  │   apples, oat milk, sourdough   │  │
-│              │  └─────────────────────────────────┘  │
-│              │  [New note]        [Export] [Import]  │
-└──────────────┴───────────────────────────────────────┘
-```
+A sidebar with four **glyph** tabs — folder, `#`, `@` (todos), cube (templates) — a search field, a
+list, and a footer. The Settings gear sits at the sidebar's bottom-left corner.
 
-- **Two view modes, toggled at the top of the sidebar: Folders and Tags.** Folders render the directory tree. Tags render a flat (or nested, for `parent/child`) tag list. The same note appears once under Folders and once per tag under Tags. This is the refinement that makes the window worth opening: "show me everything tagged `urgent` regardless of folder" is the query Windows Sticky Notes cannot answer.
-- Live search across title and body via the FTS index
-- Per-row eye toggle controls `visible`: hiding closes the note's window without deleting the note
-- Clicking a hidden note shows it; clicking a visible note raises and briefly pulses its window
-- Drag a note onto a folder to move it (moves the file on disk)
+### 8.2 Tabs
+
+- **Folders / Tags** — the note list, with check-boxes, reveal, rename and delete per row, and
+  bulk move/delete/export/import.
+- **Todos** — every todo note with a checkbox that finishes the whole note, its title (with the
+  `@Todo` marker stripped), a one-line preview, progress squares and `3/7`, and its due date.
+  Sorted by date created, most done, least done, or due date. Under the due-date sort, notes with
+  **no** date sort last: no date is not the same as overdue. "Show done todos" strikes them through
+  rather than hiding them.
+- **Templates** — every template, with multi-select, Add to Folder and Delete selected.
+
+### 8.3 Quick capture
+
+"New PinTack Note" appears in **any** app's Services menu when text is selected; ⌥⌘C captures the
+clipboard. Neither needs Accessibility permission — the Services entry receives the selection
+because the user chose the menu item. **Never** implement this by synthesising ⌘C into another app;
+that needs Accessibility, and this app must not ask for it.
+
+The capture records which app it came from. `NSServices` is why the app uses a real
+`PinTack/Info.plist` rather than a generated one: `INFOPLIST_KEY_*` cannot express an array of
+dictionaries.
 
 ---
 
 ## 9. Settings
 
-Seven panes. This is the complete v1 inventory.
+Seven panes in a sidebar (a `TabView` overflowed into a "»" menu and looked unfinished):
+Appearance, Notes, Shortcuts, Editor, Vault, Plugins, About.
 
-### Appearance
-- App theme: System / Light / Dark
-- Default note color
-- Custom color picker (`NSColorPanel`) with **automatic contrast**: text color flips light or dark based on computed background luminance, so no user-chosen color can produce unreadable text
-- Corner style: rounded / square
-- Default opacity
-- Note body font family and size
+App chrome uses the fixed `Brand.accentNS`, **never** the user's outline colour — a dark outline
+once made Settings unreadable.
 
-### Notes
-- Outline: on/off
-- Outline color (universal, all notes)
-- Outline width: 1–3 pt (universal)
-- Pinned glow: on/off
-- Default note size
-- New note placement: at cursor / centered / cascade
-- Auto-save interval
+Editor pane covers default mode, spellcheck, slash commands, image handling, bullet, inline-code
+background colour and opacity, rich-text paste, and link previews.
 
-**Note:** the outline color is also the accent color for plugin-contributed UI, including Runner's button border and divider. Setting the outline to teal turns Runner buttons teal. This coherence is cheap and makes the app feel like one product rather than a core plus bolt-ons.
-
-### Shortcuts
-Every action listed with its default binding and a recorder control. Populated dynamically: plugins registering commands get their own section automatically.
-
-### Editor
-- Default mode: Live Preview / Source
-- Spellcheck
-- Smart quotes and dashes
-- Tab inserts spaces / tab
-- Slash commands enabled
-- Attachment folder name
-- Image paste behavior: copy into vault / link in place
-
-### Vault
-- Vault location, with "Move vault…" (moves files, reindexes, updates settings atomically)
-- Open in Finder
-- Export all as JSON
-- Import archive
-- Attachment orphan cleanup
-
-### Plugins
-- Installed plugins with enable/disable toggles
-- Open plugins folder
-- Per-plugin settings, rendered from each plugin's declared schema
-- Runner's pane includes its trust list with per-command revoke
-
-### About
-Version, license, GitHub link, contributors, support link.
-
-### 9.1 App theme vs note theme
-
-These are different and must not be conflated. A user may legitimately want dark app chrome with yellow paper notes. The app theme governs windows, panels, the central window and settings. Each note's color and its light/dark text treatment are per-note. The graphite swatch is a note color that happens to be dark; it is not "dark mode."
+Vault pane holds the location, move, export/import, and **Find unused attachments**. That sweep
+reads the `.md` files **on disk** rather than the notes held in memory — a note that failed to load
+would otherwise have its pictures offered for deletion — and refuses to act at all when it read
+zero notes, because with nothing to compare against every attachment looks unused.
 
 ---
 
@@ -540,345 +443,204 @@ These are different and must not be conflated. A user may legitimately want dark
 
 ### 10.1 Mechanism
 
-Carbon `RegisterEventHotKey`. This is still the only way to get a true system-wide hotkey on macOS **without** requiring Accessibility permission, and it is fully dynamic: unregister the old combo, register the new one.
+Carbon `RegisterEventHotKey`, the only way to get a true system-wide hotkey without Accessibility
+permission. Every registration's `OSStatus` is logged; the first draft failed silently.
 
-`CGEventTap` (which does require Accessibility) is only needed for modifier-free single-key hotkeys. v1 does not support those, and therefore v1 shows no permission prompt.
+In-app shortcuts use a local key monitor, because notes are non-activating and the menu bar is not
+shown while typing in one.
 
-Either hand-roll a wrapper (~60 lines, fully auditable, no dependency) or use `KeyboardShortcuts` by Sindre Sorhus, which wraps the same API and ships a recorder UI. **Recommendation: use the package.** It is well maintained, solves the recorder UI, and the project has bigger problems to spend effort on.
+**One press arrives twice.** AppKit gives the event to the local monitor as an *observer* (which
+cannot consume it), then the same `sendEvent:` carries it to the main menu's key equivalent.
+`ActionRouter` de-dupes on the **identity of the originating `NSEvent`**, not on elapsed time: a
+slow action (an animated collapse) used to outlast a time window and the note toggled straight back.
 
-### 10.2 Defaults
+### 10.2 Bindings
 
-Shipped defaults, all user-rebindable. Chosen to avoid collisions with common system and application shortcuts.
+Global (work from any app): New note ⌥⌘N, New todo ⌥⌘L, New note from clipboard ⌥⌘C, All Notes ⌥⌘H,
+All Notes by tag ⌥⌘T, Todos ⌥⇧T, Templates ⌥⇧2, Auto-arrange ⌥⌘A, Show all on desktop ⌥⇧=.
 
-| Action | Default |
-|---|---|
-| New note | `⌥⌘N` |
-| New todo note | `⌥⌘L` |
-| Show/hide All Notes | `⌥⌘H` |
-| Pin/unpin focused note | `⌥⌘P` |
-| Collapse/expand focused | `⌥⌘K` |
-| Close focused note | `⌥⌘W` |
-| Auto-arrange | `⌥⌘A` |
-| Toggle Live Preview/Source | `⌥⌘M` |
-| Emoji picker | `⌥⌘E` |
-| Note color 1–6 | `⌥⌘1`…`⌥⌘6` |
-| Toggle corners | `⌥⌘R` |
-| Export all | `⌥⌘X` |
+App-scoped (a PinTack window must be key): Pin ⌥⌘P, Collapse ⌥⌘K, Close ⌥⌘W, Mode ⌥⌘M, Freeze ⌥⌘F,
+Delete ⌥⌘D, Emoji ⌥⌘E, colours ⌥⌘1–6, corners ⌥⌘R, opacity ⌥⌘, / ⌥⌘., export ⌥⌘X, import ⌥⌘I,
+shortcut list ⌥⌘/.
 
-Bindings persist to `.pintack/hotkeys.json`. Conflicts are detected at bind time and surfaced in the recorder.
+Everything acting on **one note** stays app-scoped. A system-wide key that bins whatever note
+happens to be focused is not a thing to hand out. Rebindable in Settings, stored in
+`.pintack/hotkeys.json`, conflicts detected.
+
+Note: `⌥⇧` combinations normally type dead keys, so registering them globally takes those
+characters away from every app.
 
 ---
 
-## 11. Widget
+## 11. Widget — NOT BUILT
 
-The market differentiator. Apple's own Notes widget is read-only; no competitor in this category ships one at all.
+A WidgetKit widget with tickable checkboxes is designed but **not implemented**. It is shelved
+pending a signing-team decision, because an app group is required to share the vault and:
 
-### 11.1 Scope
+### 11.2 App group Team ID prefix
 
-- **Small:** one pinned note's content, or a count of open tasks
-- **Medium:** up to 5 open tasks aggregated across notes, each with an interactive checkbox
-- **Large:** up to 10 tasks plus one pinned note excerpt
-
-Checking a task via AppIntents (macOS 14+) writes back to the source note file and reloads the timeline.
-
-### 11.2 The App Group trap
-
-**This will silently break the widget if done wrong, and it is the single most likely thing to go wrong in the whole project.**
-
-On macOS, app group identifiers **must be prefixed with the Team ID**. An unprefixed identifier is rejected by `containermanagerd` with "Group containers identifiers should be prefixed by requestor's team ID," and the widget process exits immediately without ever appearing in the widget gallery. This has been observed on Sonoma and again on macOS 26.
-
-Correct form:
+On macOS an app group identifier **must** carry the Team ID:
 
 ```
-TEAMID.group.io.cymentix.pintack
+TEAMID.group.io.cymentix.pintack     ✅
+group.io.cymentix.pintack            ❌ silently kills the widget
 ```
 
-**Additional hazard:** a free personal signing team has a different Team ID than a paid Developer Program team. Since the Apple Developer membership is deferred until first release (§15), the app group string will change at enrollment, orphaning any container written before then.
-
-**Required mitigation:** resolve the app group identifier **at runtime by reading it out of the app's own entitlements**, with a fallback to any legacy identifier, rather than hardcoding the string. Approximately fifteen lines, and it must be in place from the first commit that touches the group container.
-
-### 11.3 Data path
-
-The widget reads the vault through the App Group container. Two options:
-
-- **A:** vault lives inside the App Group container, symlinked or bookmarked from `~/Documents/PinTack/`
-- **B:** the app maintains a small denormalized snapshot (`widget.json`: open tasks, pinned note excerpt) inside the App Group container, refreshed on save
-
-**Recommendation: B.** The widget does not need the whole vault, security-scoped bookmarks across an extension boundary are fragile, and a snapshot keeps widget refresh cheap. Write-back from the widget goes through an AppIntent that targets the main app, which owns all vault writes.
+An unprefixed identifier is rejected by `containermanagerd`, the widget process exits immediately,
+and the widget never appears in the gallery with no useful error. **Resolve the app group at
+runtime from the app's own entitlements**; the Team ID changes when moving from a free personal
+signing team to the paid programme.
 
 ---
 
 ## 12. Plugin API
 
-### 12.1 Principles
+JavaScript plugins in `<vault>/plugins/<id>/`: `manifest.json`, `main.js`, optional `styles.css`.
+No build step, no marketplace. `docs/PLUGINS.md` is the author's guide.
 
-- Plugins are JavaScript, loaded into the note webview's context
-- Plugins are folders in `<vault>/plugins/<id>/`
-- v1 installation is "drop a folder in and restart." No marketplace, no in-app browser.
-- **The core must not contain private hooks for the bundled plugin.** If Runner needs something the public API lacks, the API gains it publicly. This is the only way the reference plugin proves anything.
+### 12.1 Security model
 
-### 12.2 Manifest
+Every privileged call goes through `PluginBridge.handle`: **capability token** (per plugin, per web
+view) → **declared permission** → for commands, the native approval sheet (§13.4). Never add a path
+that skips a step.
 
-```json
-{
-  "id": "runner",
-  "name": "Runner",
-  "version": "1.0.0",
-  "description": "Inline buttons that run scripts or open URLs.",
-  "author": "PinTack",
-  "minAppVersion": "1.0.0",
-  "main": "main.js",
-  "styles": "styles.css",
-  "permissions": ["process.execute"],
-  "settings": [
-    { "key": "timeout", "type": "number", "default": 30, "label": "Timeout (seconds)" },
-    { "key": "shell", "type": "string", "default": "", "label": "Shell override (blank = login shell)" }
-  ]
-}
-```
+Plugins share one JavaScript realm inside a note, so they are **not** isolated from each other. The
+boundary is on the Swift side. Do not claim more than that.
 
-`permissions` is declared, surfaced to the user at enable time, and enforced by the Swift side. *(Built set: `process.execute`, `shortcuts.run`, `url.open`, `path.reveal`, `vault.read`, `vault.write`. See docs/PLUGINS.md.)* A plugin without `process.execute` cannot invoke the execution bridge, regardless of what its JS attempts.
+### 12.2 Settings
 
-`settings` drives an auto-generated settings pane. Values are stored in `.pintack/settings.json` under the plugin id and delivered to the plugin at load.
+A plugin's manifest declares settings; PinTack draws the form. Values are stored in `settings.json`
+under the plugin's id, so a plugin id may not collide with an app setting name.
 
-### 12.3 Lifecycle and surface
+### 12.3 Events
 
-```js
-module.exports = class RunnerPlugin extends PinTack.Plugin {
-  async onload() {
-    this.registerMarkdownCodeBlockProcessor("runner", this.render.bind(this))
-    this.registerSlashCommand({
-      id: "runner",
-      name: "Runner button",
-      icon: "play",
-      insert: "```runner\nlabel: New action\nrun: \n```\n"
-    })
-    this.registerCommand({
-      id: "runner:run-all",
-      name: "Run all buttons in note",
-      defaultHotkey: null
-    })
-    this.registerSettingsTab(new RunnerSettingsTab(this))
-    this.registerEvent("note:save", this.onNoteSave.bind(this))
-  }
+`note:open`, `note:save`, `note:close`, `note:rename`, `vault:change`. Vault changes are debounced
+so a burst of file events arrives as one.
 
-  async onunload() { /* teardown; must be complete */ }
-}
-```
+### 12.4 Commands
 
-Registration methods for v1:
-
-| Method | Purpose |
-|---|---|
-| `registerMarkdownCodeBlockProcessor(lang, fn)` | Render a fenced block as a widget decoration |
-| `registerMarkdownPostProcessor(fn)` | General render-time transform |
-| `registerSlashCommand(spec)` | Appears in the `/` menu |
-| `registerCommand(spec)` | Appears in Settings → Shortcuts, bindable |
-| `registerSettingsTab(tab)` | Custom settings pane beyond the manifest schema |
-| `registerEvent(name, fn)` | `note:open`, `note:save`, `note:close`, `note:rename`, `vault:change` |
-
-Vault access:
-
-```js
-this.app.vault.read(noteId)
-this.app.vault.modify(noteId, content)
-this.app.vault.create(path, content)
-this.app.vault.getNotes({ folder, tags })
-this.app.vault.getAttachmentPath(filename)
-```
-
-Everything routes through the Swift side. **Plugins get no direct filesystem access and no network access.** The webview CSP forbids remote resource loading.
-
-### 12.4 Host bridge
-
-Privileged operations (`process.execute`, file dialogs, opening URLs) are proxied:
-
-```js
-const result = await this.app.host.invoke("process.execute", {
-  command: "…", cwd: "…", timeout: 30
-})
-```
-
-Swift verifies the calling plugin's declared permissions before dispatch. A plugin id is bound to its loaded script at registration and cannot be spoofed from JS.
+Plugins register commands that appear in Settings → Shortcuts and can be bound to a key, stored
+under `plugin:<key>` in `hotkeys.json`.
 
 ---
 
 ## 13. Runner (reference plugin)
 
-Ships enabled with v1. Proves the plugin API is load-bearing and gives the app a genuinely differentiated capability.
+Bundled. Renders ```` ```runner ```` blocks as buttons that run a command, open a URL, reveal a
+path, or run a Shortcut. It uses **only** the public API — the core has no private hooks for it,
+and it must stay that way.
 
-### 13.1 Syntax
+### 13.4 Trust — there is no autorun
 
-A fenced block with a `runner` info string. This stays valid Markdown and degrades to a visible, harmless code block in any other editor, which preserves the data-longevity promise.
+1. **No autorun, ever.** A command runs only after a physical click.
+2. **A native approval window** shows the exact text, folder and shell. It is drawn by PinTack, not
+   the page, so no plugin can answer it. **There is no setting, flag or environment variable that
+   skips it.** Tests inject a fake presenter; the self-test seeds approvals through `TrustStore`.
+3. Approval is bound to the exact command text **and** its working folder.
+4. Approvals are HMAC-signed with a per-Mac secret kept **outside** the vault, so a `trust.json`
+   arriving through sync can never pre-approve anything.
+5. Text that could render differently from how it executes (escapes, NUL, RTL overrides) is refused
+   before reaching the window.
 
-````markdown
-```runner
-label: Rebuild search index
-run: ~/bin/reindex.py
-cwd: ~/projects/thing
-```
-````
+### 13.5 GUI apps do not inherit shell PATH
 
-Four action types:
-
-| Key | Behavior | Trust required |
-|---|---|---|
-| `run:` | Execute a command | Yes |
-| `open:` | Open a URL in the default browser | No (equivalent to a plain Markdown link) |
-| `reveal:` | Reveal a path in Finder | No |
-| `shortcut:` | Run a named macOS Shortcut | Yes |
-
-`shortcut:` is high value for low cost: it hands users AppleScript, HomeKit and the whole Shortcuts automation library without the project implementing any of it.
-
-### 13.2 Button anatomy
-
-```
-┌────────────────────────────────────────┐
-│  ▶  Rebuild search index    │   <✏️>   │
-└────────────────────────────────────────┘
-```
-
-- Border and divider use the **universal outline color** from Settings → Notes
-- The entire left region (play glyph + label) is the run target
-- The label is editable in place; renaming does not require opening the inspector
-- The play glyph is required. Without it the control reads as ambiguous and the inspect glyph looks like the primary action.
-- The right cell is the inspect target, using the custom `<✏️>` glyph: a pencil between angle brackets, drawn as a single monochrome template asset so it tints with the accent color. **Not a literal emoji** — emoji will not tint, goes mushy at 16 pt, and changes shape across OS releases.
-
-In Source mode the raw YAML is shown; in Live Preview the button is rendered.
-
-### 13.3 Inspector
-
-Opened by `<✏️>`. Shows the exact command, working directory, the shell it will run under, and current trust status. Editable in place; saving writes back to the `runner` block.
-
-**Editing a command resets its trust.** This is what makes the inspector safe rather than a loophole, and it is why the two features fit together.
-
-### 13.4 Trust model
-
-Notes are a transport format. Someone can send a `.md` file or paste content from a website. The moment a note carries an executable button, that is a code execution vector.
-
-- **No autorun, ever.** Execution requires a physical click. There is no flag that changes this.
-- **Trust is bound to the exact command string AND its working folder, not the note.** *(Tightened 2026-09-19: the same `./run.sh` in another folder is a different program. Each entry is also HMAC-signed with a per-Mac secret outside the vault, so a synced or shared `trust.json` cannot pre-approve commands. Entries also record `kind` and `cwd`.)* First click shows an approval sheet displaying the precise string to be executed. Approve once, remembered. Change one character, approval resets.
-- **Imported and pasted notes start untrusted.** Runner blocks render inert with a "review before running" state rather than a live button.
-- **The command is always inspectable from the button.** A friendly label can never conceal what it runs.
-- Approvals stored in `.pintack/trust.json` as `{ hash(command) → { command, approvedAt } }`, revocable individually in Settings → Plugins → Runner.
-
-### 13.5 Execution
-
-Language agnostic, as specified: if the dependencies are installed, the script runs; if not, that is the user's problem and the app does nothing about it.
-
-**One real-world trap that must be handled:** GUI applications on macOS do not inherit the shell's `PATH`. Launch PinTack from the Dock and `python3` will not resolve, even though it works in Terminal. Execution therefore runs through the user's **login shell** so `.zprofile` and `.zshrc` are sourced:
+Launched from the Dock, `python3` will not resolve even though it works in Terminal. Runner
+executes through the user's **login shell**:
 
 ```swift
 let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
-process.executableURL = URL(fileURLWithPath: shell)
 process.arguments = ["-lc", command]
 ```
-
-Dependency management stays entirely the user's responsibility. The app merely gives their scripts the environment they expect.
-
-### 13.6 Output pane
-
-- Rendered below the button, **collapsed entirely when there is no output**
-- Default height ~140 pt, drag handle on the top edge, height persisted per note
-- Internal scroll, monospace font, so it never reflows the note's own layout
-- stderr rendered in a distinct color from stdout
-- Header strip: exit code, elapsed time, stop button while running, copy and clear
-- Auto-scroll to newest line, pausing the moment the user scrolls up manually
-- Default timeout 30 s (configurable), with a visible stop control
 
 ---
 
 ## 14. Import and export
 
-The vault is already the export, so this is a convenience layer.
-
-- **Export all:** single `.json` containing every note's frontmatter and body, plus attachments base64-encoded. Suitable for moving between machines in one file.
-- **Import:** reads the same format, validates structure, and **merges rather than replaces**, keyed on `id`. Conflicts on `id` prompt for keep/replace/duplicate.
-- **Folder export:** zip the vault directory. This should be documented in the README as the real backup story.
+Export all notes as a JSON archive; import one back. Import is defensive about paths — an archive
+is untrusted input and must not be able to write outside the vault.
 
 ---
 
-## 15. Build and distribution
+## 15. Build, verify and distribution
 
-### 15.1 Not the Mac App Store
+```bash
+xcodebuild -scheme PinTack -configuration Debug SYMROOT="$PWD/build" build
+scripts/verify.sh          # unit tests AND the self-test; both must pass
+open build/Debug/PinTack.app
+```
 
-A sandboxed app cannot spawn arbitrary user processes. This is an OS-enforced entitlement boundary, not a policy that can be argued. App Sandbox is mandatory for the Mac App Store. **Shipping Runner therefore rules out MAS distribution.**
+**Always build into `build/`.** A second copy in DerivedData makes LaunchServices list PinTack
+twice in Spotlight and can serve a stale icon.
 
-GPL-3.0 is independently incompatible with the App Store's terms, so this was settled twice over.
+### 15.1 Verification
 
-Distribution: notarized DMG, Homebrew cask, GitHub Releases, Sparkle for auto-updates.
+Two layers:
 
-Upside: no review queue, no 30% cut, no arguing with a reviewer about a notes app that executes scripts, and plugin distribution stays entirely the project's. Cost: discoverability, which is real when the incumbent sits at #58 in Productivity.
+- **Unit tests** (`PinTackTests/`) — frontmatter round-tripping, unknown-key preservation, atomic
+  writes, import safety, search, image maths, reminders, templates, plugin security. The plugin
+  security tests were mutation-checked: skipping approval, ignoring the token's page, and accepting
+  unsigned trust all fail them.
+- **The self-test** (`Support/SelfTest.swift`, Debug only) — the app launches, drives its own
+  windows and web views with real events, and **asserts**. It exits non-zero on any failed check.
+  It renders PNGs of everything as evidence. If you add behaviour, add a check: a fact that is only
+  logged is a fact nobody will notice going wrong.
 
-If MAS presence matters later, two build configurations from one codebase (sandboxed MAS build with Runner disabled; full direct build) is roughly a day of CI work. Not for v1.
+### 15.2 App icon
 
-### 15.2 Signing and notarization
+An **Icon Composer** document, `PinTack/AppIcon.icon`. Do not go back to an `AppIcon.appiconset`:
+modern macOS shrinks a legacy icon into a dark system plate. The plate cannot be made transparent
+(an alpha-0 fill still renders opaque), and in the Dark icon style the system forces it dark for
+every app. The art is full-bleed so no plate shows in the Default style.
 
-- Apple Developer Program membership ($99/yr) is **unavoidable**, not because of iCloud (cut from v1) but because notarization requires a Developer ID certificate and the App Group entitlement effectively requires paid membership
-- **Development requires no paid account.** A free personal signing team runs local builds. The membership is needed only at first public release.
-- Individual enrollment, no D-U-N-S, no legal entity
-- Succession: when a maintainer takes over, they enroll their own individual account. Nothing transfers because there is nothing to transfer. The signing identity changes, Sparkle handles it, users confirm once.
+Never set `NSApp.applicationIconImage`: it made the Dock show one icon and swap to another.
 
-### 15.3 CI
+### 15.3 Distribution — PARTLY BUILT
 
-GitHub Actions on macOS runners: build, test, lint, and on tag, sign, notarize, staple, and publish a DMG plus the Sparkle appcast. Secrets: Developer ID certificate, notarization credentials, Sparkle EdDSA key.
+`scripts/make-dmg.sh` builds a universal (arm64 + x86_64) Release app and packages a DMG with a
+custom background and layout.
+
+**Not built:** Developer ID signing, notarization, Sparkle updates, the Homebrew cask, App Sandbox.
+Until notarization exists, Gatekeeper blocks the first launch on another Mac; the DMG carries a
+note explaining the three ways past it.
 
 ---
 
-## 16. Build plan
+## 16. Build plan — where things stand
 
-Five phases. Each ends in something runnable.
-
-### Phase 1 — Shell and vault (2–3 weeks)
-Xcode project, App Sandbox, runtime-resolved App Group, `MenuBarExtra`. `VaultStore`: read/write markdown with frontmatter, FSEvents watcher, atomic writes. `NotePanel` with transparent margin, custom hit testing, manual shadow, drag, resize, pin/unpin, opacity, collapse, context menu. Plain `NSTextView` placeholder editor.
-**Exit:** create, edit, move, resize, pin and close notes; content persists as readable markdown; external edits reload.
-
-### Phase 2 — Editor (3–5 weeks, highest risk)
-`WKWebView` host, CodeMirror 6, the message bridge, Live Preview decorations, Source toggle, image paste and drop, slash commands.
-**Exit:** Live Preview quality matches Obsidian for the element list in §4.2. **This phase gates everything else. If it cannot be made to feel good, the product thesis needs revisiting before more is built on top.**
-
-### Phase 3 — Organization (2–3 weeks)
-Central window with Folders/Tags mode toggle, FTS5 index, search, show/hide, drag-to-folder, tag autocomplete, full settings implementation, global hotkeys with recorder, import/export.
-**Exit:** feature-complete minus widget and plugins.
-
-### Phase 4 — Widget and plugins (3–4 weeks)
-Widget extension with snapshot data path and AppIntents write-back. Plugin loader, manifest parsing, permission enforcement, registration API, host bridge. Runner built strictly against the public API.
-**Exit:** widget in the gallery with working checkboxes; Runner installs, runs, and its trust model holds under adversarial testing.
-
-### Phase 5 — Release (2–3 weeks)
-Signing, notarization, Sparkle, DMG, Homebrew cask, website, README, plugin authoring docs, icon and asset finalization.
-
-**Total: roughly 3–4 months for one competent macOS developer working steadily.**
+| Phase | Scope | State |
+|---|---|---|
+| 1 | Shell, vault, note panels, hotkeys | **Done** |
+| 2 | WKWebView + CodeMirror, Live Preview, slash commands, image paste | **Done** |
+| 3 | All Notes, FTS5 search, folders/tags, settings, import/export | **Done** |
+| 4 | Widget, plugin API, Runner | Plugins and Runner **done**; widget **shelved** (§11) |
+| 5 | Signing, notarization, Sparkle, DMG, Homebrew | DMG only |
 
 ---
 
 ## 17. Open decisions
 
-| # | Question | Current position |
-|---|---|---|
-| 1 | One webview per note, or a pooled model? | Start per-note; measure at 30 notes in Phase 2 |
-| 2 | `KeyboardShortcuts` package or hand-rolled Carbon? | Package, unless dependency minimalism wins |
-| 3 | Widget data: snapshot or full vault access? | Snapshot (§11.3 option B) |
-| 4 | Plugin API: match Obsidian's naming closely, or diverge? | Match closely; contributors already know it |
-| 5 | Does the plugin non-derivative-work clarification need legal review? | Yes before 1.0, no before first commit |
-| 6 | Sparkle key custody during maintainer handoff | Unresolved; decide before first release |
+- **Signing team** — free personal vs paid Developer Program. Blocks the widget (§11.2),
+  notarization and Sparkle.
+- **App Sandbox** — needs a security-scoped bookmark flow for the vault; deferred.
+- **Memory at scale** — one web view per open note (§2.1) is unmeasured beyond ~10 notes.
+- **JavaScript tests** — roughly 2,000 lines of editor JS have no automated coverage. A test runner
+  would be a new dependency; assertions could instead run inside the self-test's web view.
 
 ---
 
-## 18. Assets required
+## 18. Assets
 
-Not blockers for code, but blockers for release.
-
-| Asset | Spec | Status |
-|---|---|---|
-| Pushpin | PNG @1x/@2x/@3x (28/56/84 px), head upper-left with shaft driving down-right, contact shadow on a **separate layer**, light variant for dark notes, redistribution license permitting commercial use and modification | Draft exists; needs mirroring, shadow rebuild, license verification |
-| `<✏️>` inspect glyph | SVG or PDF, monochrome template, simplified for 16 pt legibility (silhouette + one body line, no ferrule detail), brackets matched to stroke weight | Draft pencil exists; needs vectorizing and simplification |
-| App icon | 1024×1024, Apple rounded-rect grid | **Provisional accepted.** Current asset is 500×500, freeform torn-paper silhouette rather than squircle, and illegible below 48 px (see `docs/assets/icon-size-test.png`). Owner has accepted these knowingly; quality pass deferred. Must be resolved before 1.0. |
-
----
+- `PinTack/AppIcon.icon` — app icon (Icon Composer document)
+- `Assets.xcassets/Pushpin` — the pinned-note pushpin PNG
+- `Editor/icons/` — language logos, Devicon (MIT), vendored
+- `Editor/vendor/` — CodeMirror 6 and Lezer, all MIT, vendored
+- `docs/assets/` — icon sources and the original HTML prototype
 
 ## 19. Contributing
 
-The project is GPL-3.0-or-later. Plugins communicating solely through the documented public API are not considered derivative works and may be licensed however their authors choose.
+Conventional commits (`feat:`, `fix:`, `refactor:`, `docs:`, `chore:`), one logical change each,
+small — the owner's practical undo is `git revert`. Comment the **why**, never the **what**; any
+workaround for a platform constraint must name the constraint and cite its section here.
 
-The project owner handles product direction, positioning and funding. A technical maintainer owning the codebase is actively sought. Funding, if and when the project warrants it, will run through Open Collective with Open Source Collective as fiscal host, so project funds are never any individual's personal income and admin rights transfer with maintainership.
+Tests are required for anything that parses or writes vault files. Frontmatter round-tripping,
+unknown-key preservation and atomic writes are the three places a bug means data loss.

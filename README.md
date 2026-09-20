@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/icon/pintack-icon.png" width="128" alt="PinTack">
+<img src="docs/assets/pintack_icon.png" width="128" alt="PinTack">
 
 # PinTack
 
@@ -9,7 +9,8 @@
 Plain Markdown files. Live Preview rendering. An interactive desktop widget.
 Open source, GPL-3.0.
 
-`Status: pre-implementation. Specification complete, no code written yet.`
+`Status: built and running. Phases 1–4 complete.`
+`Not yet signed or notarized — see Distribution.`
 `Seeking a macOS developer to own the codebase.`
 
 </div>
@@ -30,9 +31,9 @@ PinTack is the native answer to that feature list. Expected bundle size is 10 to
 
 Formatting renders as you type. Raw syntax appears only on the line holding your cursor. Same model Obsidian uses, applied to sticky notes. This is the primary quality bar for v1: if Live Preview feels janky, the product has failed regardless of what else ships.
 
-### 🧩 An interactive widget
+### 🧩 An interactive widget — *designed, not yet built*
 
-Tick a checkbox on a desktop widget without opening the app. Apple's own Notes widget is read-only, Windows Sticky Notes has nothing, and no competitor in this category ships one at all.
+Tick a checkbox on a desktop widget without opening the app. Apple's own Notes widget is read-only, Windows Sticky Notes has nothing, and no competitor in this category ships one. It is shelved until a signing team is chosen, because an app group identifier must carry the Team ID (SPEC.md §11.2).
 
 ### 🗄️ Your notes are files
 
@@ -78,7 +79,9 @@ Runner is built strictly against the public plugin API with no private hooks int
 | 🎨 Appearance | Light/dark app theme independent of note colors, arbitrary note colors with automatic text contrast, configurable outline color and width, rounded or square corners |
 | 🗂️ Organization | Central window with Folders and Tags as separate views, full-text search, show/hide per note |
 | ⌨️ Keyboard | System-wide hotkeys with no Accessibility permission required, fully rebindable with a recorder UI |
-| 🧩 Extension | WidgetKit widget with AppIntents write-back, JavaScript plugin API, Runner bundled |
+| 🧩 Extension | JavaScript plugin API with a capability/permission/approval model, Runner bundled. WidgetKit widget designed but not built |
+| ✅ Todos | Due dates and reminders, progress squares per note, a todos tab that sorts by how done things are |
+| 🧊 Extras | Freeze mode (a note that lets clicks through), templates recalled with `@name`, quick capture from any app, `/find` fuzzy open, link previews (off by default) |
 
 ## Architecture in one paragraph
 
@@ -92,21 +95,28 @@ Full detail in **[SPEC.md](SPEC.md)**, which is written for a developer picking 
 
 | Phase | Scope | Status |
 |---|---|---|
-| 1 | Shell, vault, note panels | Not started |
-| 2 | CodeMirror editor, Live Preview | Not started |
-| 3 | Central window, search, settings, hotkeys | Not started |
-| 4 | Widget, plugin API, Runner | Not started |
-| 5 | Signing, notarization, distribution | Not started |
+| 1 | Shell, vault, note panels | **Done** |
+| 2 | CodeMirror editor, Live Preview | **Done** |
+| 3 | Central window, search, settings, hotkeys | **Done** |
+| 4 | Plugin API, Runner | **Done** |
+| 4 | WidgetKit widget | Shelved — needs a signing team |
+| 5 | Signing, notarization, Sparkle, Homebrew | Not started |
 
-Estimated 3 to 4 months for one competent macOS developer working steadily.
+Verified by 211 unit tests plus a self-test that launches the app, drives its own windows and web
+views with real events, asserts 64 things about what happened, and exits non-zero if any of them
+is wrong. One command runs both:
+
+```bash
+scripts/verify.sh
+```
 
 ## 🙋 Wanted: a maintainer
 
 Honest framing, because vague calls for help waste everyone's time.
 
-**What exists:** a complete technical specification, a working interaction prototype, documented unmet demand from a maintained competitor's reviews, a name, a domain, and funding for the Apple Developer membership.
+**What exists:** a working app — vault, note windows, Live Preview editor, All Notes, settings, hotkeys, plugins and Runner — with a specification kept in step with it, a test suite, and a self-test that can fail a build.
 
-**What does not exist:** a single line of Swift.
+**What does not exist:** the widget, code signing, notarization, Sparkle updates, and the App Sandbox. Those are Phase 5 and the open decisions in SPEC.md §17.
 
 **Who owns what:** the project originator handles product direction, positioning, assets, and funding. He is a Windows endpoint automation engineer, not a Swift developer, and is explicit that he will not be maintaining the codebase. A technical maintainer takes ownership of the code and a real stake in the project's direction.
 
@@ -118,15 +128,17 @@ Open an issue or start a discussion if you are interested.
 
 ## Building
 
-Nothing to build yet. When Phase 1 lands:
-
 ```bash
 git clone https://github.com/<org>/pintack.git
 cd pintack
-open PinTack.xcodeproj
+xcodebuild -scheme PinTack -configuration Debug SYMROOT="$PWD/build" build
+open build/Debug/PinTack.app
 ```
 
-Requires Xcode 16+ and macOS 14+. A free Apple ID is sufficient for local development; the paid Developer Program membership is only needed to produce notarized releases.
+Verify a change with `scripts/verify.sh` (unit tests **and** the self-test; both must pass).
+Build a distributable disk image with `scripts/make-dmg.sh`.
+
+Requires Xcode 16+ and macOS 14+. A free Apple ID is sufficient for local development; the paid Developer Program membership is only needed to produce notarized releases. `CLAUDE.md` holds the working notes: the platform traps, the decisions and their reasons.
 
 ## Distribution
 
@@ -134,9 +146,11 @@ Not the Mac App Store, and this was settled twice over: a sandboxed app cannot s
 
 Releases will ship as a notarized DMG, a Homebrew cask, and GitHub Releases, with Sparkle for auto-updates.
 
+**Today the DMG is ad-hoc signed and *not* notarized**, so Gatekeeper blocks the first launch on another Mac. The disk image carries a note explaining the three ways past it (right-click → Open; Privacy & Security → Open Anyway; `xattr -dr com.apple.quarantine`). Until a signing team is chosen this is a build for testers, not a release.
+
 ## License
 
-**GPL-3.0-or-later.**
+**GPL-3.0-or-later.** Full text in [LICENSE](LICENSE).
 
 You can do anything you like with this code, including sell it. What you cannot do is close it. Any distributed derivative must ship complete source under the same license, so improvements come back to everyone.
 
