@@ -224,22 +224,240 @@ function requestPreview(url) {
   }, 250);
 }
 
+/* ------------------------------------------------------------ images (§7)
+ * An image is edited where it sits. Click it and it grows four corner handles for resizing and a
+ * small toolbar: crop, and a bin. There is no dialog and nothing to type — this is a sticky-note
+ * app. The display width is written into the link as `![alt|320](path)`, the convention Obsidian
+ * uses, so the file stays ordinary Markdown. Cropping is the one thing the page cannot do itself:
+ * it hands Swift a rectangle, Swift writes a NEW attachment and the link is repointed at it. */
+let selectedImage = null;            // document position of the image showing its handles
+let pendingCrop = null;              // { pos, path } while Swift is doing the pixel work
+
+function parseImageAlt(raw) {
+  const m = /^([\s\S]*?)\|(\d{1,5})$/.exec(raw);
+  return m ? { alt: m[1], width: Number(m[2]) } : { alt: raw, width: null };
+}
+
+function imageRangeAt(view, pos) {
+  let n = syntaxTree(view.state).resolveInner(pos, 1);
+  while (n && n.name !== "Image") n = n.parent;
+  return n ? { from: n.from, to: n.to } : null;
+}
+
+function writeImage(view, pos, { alt, width, url }) {
+  const range = imageRangeAt(view, pos);
+  if (!range) return;
+  const label = alt + (width ? "|" + Math.round(width) : "");
+  view.dispatch({ changes: { from: range.from, to: range.to, insert: `![${label}](${url})` } });
+}
+
+function deleteImage(view, pos) {
+  const range = imageRangeAt(view, pos);
+  if (!range) return;
+  selectedImage = null;
+  view.dispatch({ changes: { from: range.from, to: range.to, insert: "" } });
+}
+
+function selectImage(pos) {
+  if (selectedImage === pos) return;
+  selectedImage = pos;
+  if (viewRef) viewRef.dispatch({ effects: refresh.of(null) });
+}
+
+function deselectImage() {
+  if (selectedImage === null) return;
+  selectedImage = null;
+  if (viewRef) viewRef.dispatch({ effects: refresh.of(null) });
+}
+
+const ICON = {
+  crop: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 1v10.5H15M1 4.5h10.5V15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+  trash: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4h11M6.5 4V2.5h3V4M4 4l.8 9.5h6.4L12 4M6.6 6.6v5M9.4 6.6v5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  tick: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3.5 3.5L13 4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  cross: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
+};
+
 class ImageWidget extends WidgetType {
-  constructor(src, alt) { super(); this.src = src; this.alt = alt; }
-  eq(o) { return o.src === this.src && o.alt === this.alt; }
-  toDOM() {
+  constructor(src, alt, width, from, selected) {
+    super();
+    this.src = src; this.alt = alt; this.width = width; this.from = from; this.selected = selected;
+  }
+
+  eq(o) {
+    return o.src === this.src && o.alt === this.alt && o.width === this.width && o.selected === this.selected;
+  }
+
+  /// Where this image starts NOW. The stored `from` is only a fallback: the DOM outlives edits
+  /// made elsewhere in the note, which shift every position after them.
+  position(view, wrap) {
+    try { return view.posAtDOM(wrap); } catch (_) { return this.from; }
+  }
+
+  toDOM(view) {
+    const wrap = document.createElement("span");
+    wrap.className = "cm-image-wrap" + (this.selected ? " cm-image-selected" : "");
+
     const img = document.createElement("img");
     img.className = "cm-image";
     img.alt = this.alt;
+    img.draggable = false;
     img.src = resolveImage(this.src);
+    if (this.width) img.style.width = this.width + "px";
     img.addEventListener("error", () => {
       const s = document.createElement("span");
       s.className = "cm-image-missing";
       s.textContent = `[image not found: ${this.alt || this.src}]`;
-      img.replaceWith(s);
+      wrap.replaceWith(s);
     });
-    return img;
+    wrap.appendChild(img);
+
+    wrap.addEventListener("mousedown", (e) => {
+      if (wrap.classList.contains("cm-image-cropping")) return;
+      e.preventDefault();
+      selectImage(this.position(view, wrap));
+    });
+
+    if (this.selected) {
+      this.addTools(view, wrap, img);
+      this.addHandles(view, wrap, img);
+    }
+    return wrap;
   }
+
+  // MARK: resize
+
+  addHandles(view, wrap, img) {
+    for (const corner of ["nw", "ne", "sw", "se"]) {
+      const handle = document.createElement("span");
+      handle.className = "cm-image-handle cm-image-handle-" + corner;
+      handle.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const startX = e.clientX;
+        const startWidth = img.getBoundingClientRect().width;
+        const grows = corner === "ne" || corner === "se" ? 1 : -1;
+        wrap.classList.add("cm-image-resizing");
+
+        const onMove = (ev) => {
+          // Width only; the height follows so the picture can never be squashed.
+          img.style.width = Math.max(48, startWidth + grows * (ev.clientX - startX)) + "px";
+        };
+        const onUp = () => {
+          document.removeEventListener("mousemove", onMove);
+          document.removeEventListener("mouseup", onUp);
+          wrap.classList.remove("cm-image-resizing");
+          const width = Math.round(img.getBoundingClientRect().width);
+          writeImage(view, this.position(view, wrap), { alt: this.alt, width, url: this.src });
+        };
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+      });
+      wrap.appendChild(handle);
+    }
+  }
+
+  // MARK: toolbar
+
+  addTools(view, wrap, img) {
+    const bar = document.createElement("span");
+    bar.className = "cm-image-tools";
+    const button = (name, title, run) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "cm-image-tool";
+      b.title = title;
+      b.setAttribute("aria-label", title);
+      b.innerHTML = ICON[name];
+      b.addEventListener("mousedown", (e) => { e.preventDefault(); e.stopPropagation(); run(); });
+      bar.appendChild(b);
+      return b;
+    };
+    button("crop", "Crop", () => this.startCrop(view, wrap, img, bar));
+    button("trash", "Delete image", () => deleteImage(view, this.position(view, wrap)));
+    wrap.appendChild(bar);
+  }
+
+  // MARK: crop, framed on the picture itself
+
+  startCrop(view, wrap, img, bar) {
+    wrap.classList.add("cm-image-cropping");
+    bar.innerHTML = "";
+
+    const shade = document.createElement("span");
+    shade.className = "cm-crop-shade";
+    const box = document.createElement("span");
+    box.className = "cm-crop-box";
+    wrap.appendChild(shade);
+    wrap.appendChild(box);
+
+    // Start with a rectangle inset from the edges, so there is something to drag straight away.
+    const area = () => img.getBoundingClientRect();
+    let rect = { x: area().width * 0.1, y: area().height * 0.1, w: area().width * 0.8, h: area().height * 0.8 };
+    const paint = () => {
+      box.style.left = rect.x + "px"; box.style.top = rect.y + "px";
+      box.style.width = rect.w + "px"; box.style.height = rect.h + "px";
+    };
+    paint();
+
+    const clampToImage = (r) => {
+      const a = area();
+      const x = Math.max(0, Math.min(r.x, a.width));
+      const y = Math.max(0, Math.min(r.y, a.height));
+      return { x, y, w: Math.max(12, Math.min(r.w, a.width - x)), h: Math.max(12, Math.min(r.h, a.height - y)) };
+    };
+
+    // Dragging anywhere on the picture draws a new rectangle.
+    shade.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const origin = area();
+      const startX = e.clientX - origin.left, startY = e.clientY - origin.top;
+      const onMove = (ev) => {
+        const nowX = ev.clientX - origin.left, nowY = ev.clientY - origin.top;
+        rect = clampToImage({ x: Math.min(startX, nowX), y: Math.min(startY, nowY),
+                              w: Math.abs(nowX - startX), h: Math.abs(nowY - startY) });
+        paint();
+      };
+      const onUp = () => {
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+      };
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    });
+
+    const finish = (apply) => {
+      if (apply) {
+        // The rectangle is in displayed pixels; the file is in its own. Scale before sending.
+        const a = area();
+        const scale = img.naturalWidth / a.width;
+        pendingCrop = { pos: this.position(view, wrap), path: this.src };
+        post("image.crop", {
+          path: this.src,
+          x: Math.round(rect.x * scale), y: Math.round(rect.y * scale),
+          w: Math.round(rect.w * scale), h: Math.round(rect.h * scale),
+        });
+      }
+      wrap.classList.remove("cm-image-cropping");
+      shade.remove(); box.remove();
+      if (viewRef) viewRef.dispatch({ effects: refresh.of(null) });
+    };
+
+    const button = (name, title, run) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "cm-image-tool";
+      b.title = title;
+      b.setAttribute("aria-label", title);
+      b.innerHTML = ICON[name];
+      b.addEventListener("mousedown", (e) => { e.preventDefault(); e.stopPropagation(); run(); });
+      bar.appendChild(b);
+    };
+    button("tick", "Apply crop", () => finish(true));
+    button("cross", "Cancel crop", () => finish(false));
+  }
+
+  ignoreEvent() { return true; }
 }
 
 // Relative paths (attachments/…) resolve against the app scheme; the Swift side
@@ -434,8 +652,10 @@ function build(state) {
           const url = node.node.getChild("URL");
           const marks = node.node.getChildren("LinkMark");
           if (url) {
-            const alt = marks.length >= 2 ? doc.sliceString(marks[0].to, marks[1].from) : "";
-            swap(from, to, new ImageWidget(doc.sliceString(url.from, url.to), alt));
+            const raw = marks.length >= 2 ? doc.sliceString(marks[0].to, marks[1].from) : "";
+            // `![alt|320](path)`: the number after the pipe is the display width the user dragged to.
+            const { alt, width } = parseImageAlt(raw);
+            swap(from, to, new ImageWidget(doc.sliceString(url.from, url.to), alt, width, from, selectedImage === from));
           }
         }
         return false;
@@ -949,6 +1169,7 @@ const view = new EditorView({
         paste: (e) => { const f = imageFiles(e.clipboardData); if (!f.length) return false; e.preventDefault(); sendImages(f); return true; },
         drop: (e) => { const f = imageFiles(e.dataTransfer); if (!f.length) return false; e.preventDefault(); sendImages(f); return true; },
         mousedown: (e, v) => {
+          if (selectedImage !== null && !(e.target instanceof Element && e.target.closest(".cm-image-wrap"))) deselectImage();
           if (!(e.metaKey || e.ctrlKey)) return false;
           const pos = v.posAtCoords({ x: e.clientX, y: e.clientY });
           const url = pos == null ? null : linkAt(v, pos);
@@ -1037,6 +1258,19 @@ window.__pintack = {
       case "linkpreview.failed":
         linkPreviews.set(p.url, "failed");
         break;
+      // Swift cropped the pixels into a NEW attachment; repoint the link at it. SPEC.md §7.
+      case "image.cropped": {
+        const job = pendingCrop;
+        pendingCrop = null;
+        if (!job || !viewRef || !p.newPath) break;
+        const range = imageRangeAt(viewRef, job.pos);
+        if (!range) break;
+        const current = viewRef.state.sliceDoc(range.from, range.to);
+        const m = /^!\[([\s\S]*)\]\(([^)]*)\)$/.exec(current);
+        if (!m || m[2] !== job.path) break;        // the note moved on; leave it alone
+        viewRef.dispatch({ changes: { from: range.from, to: range.to, insert: `![${m[1]}](${p.newPath})` } });
+        break;
+      }
       case "linkpreview.dismissed":
         dismissedLinks.add(p.url);
         if (viewRef) viewRef.dispatch({ effects: refresh.of(null) });

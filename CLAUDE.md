@@ -241,13 +241,19 @@ Owner decisions added after the rebuild (2026-09-19):
   note actually contains a block in that language. Do not import them eagerly: that is ~3.5 MB per
   note window. A fenced block that names a language also gets a logo + name badge: the logos are
   Devicon SVGs (MIT) in `Editor/icons`, vendored by `scripts/vendor-language-icons.sh`, and the
-  badge keeps a light backing so dark marks (Rust, Markdown) stay visible on a dark note. A
-  language with no logo gets a dot in its own colour.
+  badge has NO pill behind it (an owner decision, 2026-09-20); dark marks such as Rust and Markdown
+  get a faint light halo on dark paper instead. A language with no logo gets a dot in its own colour.
 - Tag pill colours come from a **djb2 hash of the tag text**, never `hashValue` (seeded per process,
   so colours would change every launch). Pills are washed out to always take dark text.
-- A pasted, dropped or picked image goes through the crop/resize sheet first, and nothing is
-  written into the vault until it is answered. Crop rects are in IMAGE PIXELS with a bottom-left
-  origin, never points: a 2x screenshot would otherwise lose half its resolution.
+- Pasting an image inserts it straight away. Cropping and resizing happen IN the note: click the
+  image and it grows four corner handles, a crop tool and a bin (`Editor/editor.js`). There is no
+  dialog and nothing to type. The display width is written into the link as `![alt|320](path)`, the
+  Obsidian convention, so the file stays ordinary Markdown. Cropping asks Swift for the pixels;
+  Swift writes a NEW attachment and the link is repointed, so the original is never overwritten.
+- `ImageEditing.png` takes crop rects in IMAGE PIXELS with a bottom-left origin, but `draw(in:from:)`
+  reads `from` in the image's POINT space. The conversion between them is not optional: without it a
+  crop of any Retina image came out black. Test the CONTENT of a 2x crop, not just its dimensions —
+  that gap is what let the bug through the first time.
 - Link previews are off by default and fetched only in Swift. A dismissed preview is remembered in
   `.pintack/linkpreviews.json`, not in the note, so notes stay plain Markdown, and it is forgotten
   once the link leaves the note: the ✕ hides the card that is there, not that address for ever.

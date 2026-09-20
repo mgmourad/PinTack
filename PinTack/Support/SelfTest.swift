@@ -479,37 +479,177 @@ enum SelfTest {
         }
     }
 
-    /// The crop/resize sheet an image goes through on its way into a note.
-    private static func imageCropTest(out: URL, then next: @escaping () -> Void) {
-        let size = NSSize(width: 420, height: 260)
+    /// Images are edited inside the note: click one and it gets corner handles, a crop tool and a
+    /// bin. This drives all three with real mouse events in the page and checks what reaches the
+    /// Markdown, because "the handles appear" is not the same as "the picture actually changed".
+    private static func imageEditTest(out: URL, then next: @escaping () -> Void) {
+        // A 200x120 picture: left half red, right half blue.
+        let size = NSSize(width: 200, height: 120)
         let image = NSImage(size: size)
         image.lockFocus()
-        NSColor(calibratedRed: 0.13, green: 0.35, blue: 0.62, alpha: 1).setFill()
-        NSRect(origin: .zero, size: size).fill()
-        NSColor(calibratedRed: 0.98, green: 0.78, blue: 0.24, alpha: 1).setFill()
-        NSBezierPath(ovalIn: NSRect(x: 130, y: 50, width: 160, height: 160)).fill()
+        NSColor.red.setFill();  NSRect(x: 0, y: 0, width: 100, height: 120).fill()
+        NSColor.blue.setFill(); NSRect(x: 100, y: 0, width: 100, height: 120).fill()
         image.unlockFocus()
+        guard let png = ImageEditing.png(from: image, crop: nil, size: nil),
+              let path = VaultStore.shared.writeAttachment(png, ext: "png") else { log("image edit: NO ATTACHMENT"); return next() }
 
-        ImageCropPanel.present(image: image, over: nil) { data, _ in
-            log("image crop sheet: returned \(data?.count ?? 0) bytes")
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-            guard let panel = NSApp.windows.first(where: { $0.title == "Insert Image" }) else {
-                log("image crop sheet: NOT SHOWN"); return next()
-            }
-            let rendered = ImageCropPanel.png(from: image, crop: NSRect(x: 120, y: 40, width: 180, height: 180),
-                                              size: NSSize(width: 90, height: 90))
-            log("image crop sheet: shown \(Int(panel.frame.width))x\(Int(panel.frame.height)) pt; "
-                + "a 180x180 crop resized to 90x90 produced \(rendered?.count ?? 0) bytes")
-            snapshot(window: panel, to: out.appendingPathComponent("image-crop.png")) {
-                panel.close()
-                next()
+        let note = VaultStore.shared.createNote(body: "# Image\n\n![shot](\(path))\n",
+                                                frame: WindowManager.shared.nextCardFrame(size: NSSize(width: 420, height: 360)))
+        let panel = WindowManager.shared.open(note, focus: false)
+
+        let js = """
+        const sleep = ms => new Promise(r => setTimeout(r, ms));
+        const view = window.__pintack._view;
+        const at = s => document.querySelector(s);
+        for (let i = 0; i < 60 && !at('.cm-image'); i++) await sleep(100);
+        let img = at('.cm-image');
+        if (!img) return JSON.stringify({ error: 'no image rendered' });
+        for (let i = 0; i < 40 && !img.complete; i++) await sleep(100);
+        const steps = { natural: img.naturalWidth + 'x' + img.naturalHeight };
+
+        const press = (el, x, y, type) => el.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0 }));
+
+        // 1. One click selects it: handles and the two tools appear.
+        let box = img.getBoundingClientRect();
+        press(at('.cm-image-wrap'), box.left + box.width / 2, box.top + box.height / 2, 'mousedown');
+        await sleep(350);
+        steps.handles = document.querySelectorAll('.cm-image-handle').length;
+        steps.tools = document.querySelectorAll('.cm-image-tool').length;
+
+        // 2. Drag the bottom-right handle left to make it narrower.
+        const handle = at('.cm-image-handle-se');
+        // Selecting rebuilt the widget, so the old node is detached and measures zero: re-query.
+        img = at('.cm-image');
+        box = img.getBoundingClientRect();
+        steps.widthBefore = Math.round(box.width);
+        press(handle, box.right, box.bottom, 'mousedown');
+        document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: box.right - 60, clientY: box.bottom }));
+        document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+        await sleep(400);
+        steps.markdownAfterResize = view.state.doc.toString().split('\\n').find(l => l.startsWith('!['));
+        steps.widthAfter = Math.round(at('.cm-image').getBoundingClientRect().width);
+        return JSON.stringify(steps);
+        """
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
+            panel.card.editor.callAsyncJavaScript(js, arguments: [:], in: nil, in: .page) { result in
+                switch result {
+                case .success(let v): log("image edit — select + resize: \(v as? String ?? "nil")")
+                case .failure(let e): log("image edit — select + resize: FAILED \(e)")
+                }
+                imageCropStep(note: note, panel: panel, out: out, then: next)
             }
         }
     }
 
+    /// Crops to the right-hand (blue) half and checks the pixels that land in the vault.
+    private static func imageCropStep(note: Note, panel: NotePanel, out: URL, then next: @escaping () -> Void) {
+        let js = """
+        const sleep = ms => new Promise(r => setTimeout(r, ms));
+        const view = window.__pintack._view;
+        const at = s => document.querySelector(s);
+        const press = (el, x, y, type) => el.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0 }));
+        const steps = {};
+
+        // Re-select (the resize rebuilt the widget), then open crop.
+        let img = at('.cm-image');
+        let box = img.getBoundingClientRect();
+        press(at('.cm-image-wrap'), box.left + box.width / 2, box.top + box.height / 2, 'mousedown');
+        await sleep(300);
+        const cropButton = [...document.querySelectorAll('.cm-image-tool')][0];
+        press(cropButton, 0, 0, 'mousedown');
+        await sleep(300);
+        steps.cropModeOpen = !!at('.cm-crop-shade');
+
+        // Drag a box over the RIGHT half of the picture.
+        img = at('.cm-image');
+        box = img.getBoundingClientRect();
+        const shade = at('.cm-crop-shade');
+        press(shade, box.left + box.width / 2 + 2, box.top + 2, 'mousedown');
+        document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: box.right - 2, clientY: box.bottom - 2 }));
+        document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+        await sleep(200);
+
+        // Apply: the tick is the first tool while cropping.
+        press([...document.querySelectorAll('.cm-image-tool')][0], 0, 0, 'mousedown');
+        for (let i = 0; i < 60; i++) {
+          await sleep(100);
+          const line = view.state.doc.toString().split('\\n').find(l => l.startsWith('!['));
+          if (line && !line.includes(window.__cropStartPath)) { steps.markdownAfterCrop = line; break; }
+        }
+        if (!steps.markdownAfterCrop) steps.markdownAfterCrop = view.state.doc.toString().split('\\n').find(l => l.startsWith('!['));
+        return JSON.stringify(steps);
+        """
+        let seed = "window.__cropStartPath = \(jsString(currentImagePath(note) ?? ""));"
+        panel.card.editor.evaluateJavaScript(seed, completionHandler: nil)
+        panel.card.editor.callAsyncJavaScript(js, arguments: [:], in: nil, in: .page) { result in
+            switch result {
+            case .success(let v): log("image edit — crop: \(v as? String ?? "nil")")
+            case .failure(let e): log("image edit — crop: FAILED \(e)")
+            }
+            // What actually landed in the vault: the crop must be the BLUE half, half as wide.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                let file = VaultStore.shared.vaultURL.appendingPathComponent(currentImagePath(note) ?? "")
+                if let data = try? Data(contentsOf: file), let rep = NSBitmapImageRep(data: data) {
+                    func sample(_ fx: Double, _ fy: Double) -> String {
+                        let x = min(rep.pixelsWide - 1, max(0, Int(Double(rep.pixelsWide) * fx)))
+                        let y = min(rep.pixelsHigh - 1, max(0, Int(Double(rep.pixelsHigh) * fy)))
+                        guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { return "none" }
+                        if c.blueComponent > 0.5 && c.redComponent < 0.4 { return "blue" }
+                        if c.redComponent > 0.5 && c.blueComponent < 0.4 { return "red" }
+                        return String(format: "rgb(%.2f,%.2f,%.2f)", c.redComponent, c.greenComponent, c.blueComponent)
+                    }
+                    log("image edit — cropped file: \(currentImagePath(note) ?? "?"), \(rep.pixelsWide)x\(rep.pixelsHigh) px; "
+                        + "samples left=\(sample(0.2, 0.5)) middle=\(sample(0.5, 0.5)) right=\(sample(0.8, 0.5)) "
+                        + "(cropping the right half must give all blue, ~half the original 400px width)")
+                } else {
+                    log("image edit — cropped file: NOT FOUND")
+                }
+                imageDeleteStep(note: note, panel: panel, out: out, then: next)
+            }
+        }
+    }
+
+    private static func imageDeleteStep(note: Note, panel: NotePanel, out: URL, then next: @escaping () -> Void) {
+        let js = """
+        const sleep = ms => new Promise(r => setTimeout(r, ms));
+        const view = window.__pintack._view;
+        const at = s => document.querySelector(s);
+        const press = (el, x, y, type) => el.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0 }));
+        const img = at('.cm-image');
+        if (!img) return JSON.stringify({ error: 'no image to delete' });
+        const box = img.getBoundingClientRect();
+        press(at('.cm-image-wrap'), box.left + box.width / 2, box.top + box.height / 2, 'mousedown');
+        await sleep(300);
+        const tools = [...document.querySelectorAll('.cm-image-tool')];
+        press(tools[tools.length - 1], 0, 0, 'mousedown');
+        await sleep(400);
+        return JSON.stringify({ imageGone: !at('.cm-image'), markdownHasImage: view.state.doc.toString().includes('![') });
+        """
+        panel.card.editor.callAsyncJavaScript(js, arguments: [:], in: nil, in: .page) { result in
+            switch result {
+            case .success(let v): log("image edit — bin: \(v as? String ?? "nil")")
+            case .failure(let e): log("image edit — bin: FAILED \(e)")
+            }
+            snapshot(window: panel, to: out.appendingPathComponent("image-edit.png")) { next() }
+        }
+    }
+
+    /// The attachment path the note's image link currently points at.
+    private static func currentImagePath(_ note: Note) -> String? {
+        guard let line = note.body.components(separatedBy: "\n").first(where: { $0.hasPrefix("![") }),
+              let open = line.lastIndex(of: "("), let close = line.lastIndex(of: ")"), open < close
+        else { return nil }
+        return String(line[line.index(after: open)..<close])
+    }
+
+    private static func jsString(_ s: String) -> String {
+        let data = try? JSONSerialization.data(withJSONObject: [s], options: [])
+        let json = data.flatMap { String(data: $0, encoding: .utf8) } ?? "[\"\"]"
+        return String(json.dropFirst().dropLast())
+    }
+
     private static func renderWindows(out: URL) {
-        runnerTest(out: out) { linkPreviewTest(out: out) { imageCropTest(out: out) { renderWindowsNow(out: out) } } }
+        runnerTest(out: out) { linkPreviewTest(out: out) { imageEditTest(out: out) { renderWindowsNow(out: out) } } }
     }
 
     private static func renderWindowsNow(out: URL) {
