@@ -598,7 +598,10 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     func controlTextDidEndEditing(_ obj: Notification) {
         let text = titleField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         endRename()
-        if text.isEmpty { titleField.stringValue = note.title } else if text != note.title { editor.setTitle(text) }
+        // Renaming stores a title beside the note rather than rewriting its first line, so the
+        // body is left alone and the editor does not need to be told anything.
+        if text != note.title { WindowManager.shared.rename(note, to: text) }
+        titleField.stringValue = note.title
         window?.makeFirstResponder(editor)
     }
 

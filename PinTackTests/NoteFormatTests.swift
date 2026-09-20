@@ -162,4 +162,70 @@ final class NoteFormatTests: XCTestCase {
         XCTAssertEqual(a.count, 26)
         XCTAssertLessThan(a.prefix(10), b.prefix(10))
     }
+
+    // MARK: Title vs first line (owner decision, 2026-09-19)
+
+    /// A new note has no `title:`, so its title simply is its first line and follows every edit.
+    func testTitleFollowsTheFirstLineUntilTheNoteIsRenamed() {
+        let n = Note.parse("---\nid: A1\n---\n# Draft\n\nbody\n", fileURL: url)
+        XCTAssertEqual(n.title, "Draft")
+        n.body = "# Draft two\n\nbody\n"
+        XCTAssertEqual(n.title, "Draft two", "with no title: of its own the header must track the first line")
+        XCTAssertNil(n.customTitle)
+        XCTAssertFalse(n.serialized().contains("title:"), "an un-renamed note must not gain a title: key")
+    }
+
+    /// Renaming stores the name beside the note and leaves every byte of the body alone.
+    func testRenamingStoresTitleInFrontmatterAndNeverTouchesTheBody() {
+        let body = "# Draft\n\nbody text\n"
+        let n = Note.parse("---\nid: A1\n---\n" + body, fileURL: url)
+        n.retitle(to: "Q4 rollout")
+        XCTAssertEqual(n.title, "Q4 rollout")
+        XCTAssertEqual(n.body, body, "renaming must not rewrite the first line")
+
+        let reloaded = Note.parse(n.serialized(), fileURL: url)
+        XCTAssertEqual(reloaded.title, "Q4 rollout", "the name must survive a save and reload")
+        XCTAssertEqual(reloaded.body, body)
+    }
+
+    /// The point of the split: after a rename the two are independent in BOTH directions.
+    func testAfterRenamingTheFirstLineNoLongerRenamesTheNote() {
+        let n = Note.parse("---\nid: A1\n---\n# Draft\n\nbody\n", fileURL: url)
+        n.retitle(to: "Q4 rollout")
+        n.body = "# Something else entirely\n\nbody\n"
+        XCTAssertEqual(n.title, "Q4 rollout")
+        XCTAssertEqual(n.titleFromBody, "Something else entirely")
+    }
+
+    /// Renaming back to what the first line says (or to nothing) re-links them.
+    func testRenamingToTheFirstLineOrToNothingClearsTheOverride() {
+        let n = Note.parse("---\nid: A1\n---\n# Draft\n\nbody\n", fileURL: url)
+        n.retitle(to: "Q4 rollout")
+        XCTAssertNotNil(n.customTitle)
+        n.retitle(to: "Draft")
+        XCTAssertNil(n.customTitle, "matching the first line puts the note back to following it")
+
+        n.retitle(to: "Q4 rollout")
+        n.retitle(to: "   ")
+        XCTAssertNil(n.customTitle, "an empty rename clears the override")
+        XCTAssertEqual(n.title, "Draft")
+    }
+
+    func testTitleWithQuotesAndColonsSurvivesARoundTrip() {
+        let n = Note.parse("---\nid: A1\n---\nbody\n", fileURL: url)
+        n.retitle(to: "He said \"hi\": a report")
+        let reloaded = Note.parse(n.serialized(), fileURL: url)
+        XCTAssertEqual(reloaded.title, "He said \"hi\": a report")
+    }
+
+    func testTitleDoesNotDisturbUnknownKeyPreservation() {
+        let raw = "---\nid: A1\nplugin-thing:\n  a: 1\n  b: two\n---\nbody\n"
+        let n = Note.parse(raw, fileURL: url)
+        n.retitle(to: "Renamed")
+        let out = Note.parse(n.serialized(), fileURL: url).serialized()
+        XCTAssertTrue(out.contains("plugin-thing:"))
+        XCTAssertTrue(out.contains("  a: 1"))
+        XCTAssertTrue(out.contains("  b: two"))
+        XCTAssertTrue(out.contains("title: \"Renamed\""))
+    }
 }

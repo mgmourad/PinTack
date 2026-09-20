@@ -100,14 +100,13 @@ final class WindowManager {
     /// title creates the first checkbox (the editor does that). Tagged #todo from the start.
     func newTodo() { newNote(body: "@Todo ", tags: ["todo"]) }
 
-    /// Rename from anywhere (All Notes, the header): rewrites the title line, saves, and refreshes the
-    /// note's window if it is open.
+    /// Rename from anywhere (All Notes, the header). The body is not touched, so the open editor
+    /// keeps whatever the note says and only the header and the lists need refreshing.
     func rename(_ note: Note, to title: String) {
         SaveCoordinator.shared.flush(noteID: note.id)
         note.retitle(to: title)
         VaultStore.shared.save(note)
-        panels[note.id]?.card.editor.reloadBody()
-        NotificationCenter.default.post(name: .noteBodyDidChange, object: note)
+        panels[note.id]?.card.refreshFromNote()
         NotificationCenter.default.post(name: .vaultDidChange, object: nil)
     }
 

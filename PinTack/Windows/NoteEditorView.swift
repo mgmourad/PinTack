@@ -204,7 +204,6 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
     func reloadBody() { send("note.reload", ["body": note.body]) }
     func pushSettings() { send("settings.changed", settingsPayload()) }
     func pushTags() { send("tags.changed", ["tags": VaultStore.shared.tagCounts().map(\.tag)]) }
-    func setTitle(_ title: String) { send("title.set", ["title": title]) }
     func openEmoji() { send("emoji.open") }
 
     /// Action-bar buttons: "bold", "italic", "code", "bullet".

@@ -31,6 +31,13 @@ final class Note {
     var body: String
     var fileURL: URL
 
+    /// A title the user typed over the note's first line, stored as `title:` in the frontmatter.
+    /// While it is nil the title simply IS the first line and follows every edit to it, which is
+    /// what a new note wants. Renaming the header sets it, and from then on the two are separate:
+    /// renaming never rewrites what you wrote, and editing the first line never renames the note.
+    /// SPEC.md §3.3, §4.4.
+    var customTitle: String?
+
     /// Frontmatter blocks we do not recognize, verbatim (key line plus any
     /// indented continuation lines). SPEC.md §3.3.
     var unknownBlocks: [String] = []
@@ -43,6 +50,12 @@ final class Note {
     static let defaultCardSize = NSSize(width: 280, height: 210)
 
     var title: String {
+        if let customTitle, !customTitle.isEmpty { return customTitle }
+        return titleFromBody
+    }
+
+    /// The title a note shows while it has no `title:` of its own: its first non-empty line.
+    var titleFromBody: String {
         for line in body.split(separator: "\n", omittingEmptySubsequences: false) {
             let t = line.trimmingCharacters(in: .whitespaces)
             if t.isEmpty { continue }
@@ -154,7 +167,19 @@ final class Note {
 
     private static func unquote(_ s: String) -> String {
         guard s.count >= 2, let f = s.first, let l = s.last, f == l, f == "\"" || f == "'" else { return s }
-        return String(s.dropFirst().dropLast())
+        let inner = String(s.dropFirst().dropLast())
+        // A double-quoted scalar may carry escapes; `serialized()` writes them for any title
+        // holding a quote. Without undoing them here a rename to `say "hi"` grows a backslash
+        // on every save.
+        guard f == "\"" else { return inner }
+        var out = ""
+        var escaped = false
+        for c in inner {
+            if escaped { out.append(c); escaped = false }
+            else if c == "\\" { escaped = true }
+            else { out.append(c) }
+        }
+        return out
     }
 
     private func apply(yamlLines: [String]) {
@@ -172,6 +197,7 @@ final class Note {
             case "visible":   visible = (value != "false")
             case "color":     if !value.isEmpty { colorHex = value }
             case "theme":     if !value.isEmpty { theme = value }
+            case "title":     customTitle = value.isEmpty ? nil : value
             case "opacity":   opacity = min(1.0, max(0.3, Double(value) ?? 1.0))
             case "tags":
                 if block.value.hasPrefix("[") {
@@ -218,6 +244,12 @@ final class Note {
         out += "id: \(id)\n"
         out += "created: \(Note.iso.string(from: created))\n"
         out += "modified: \(Note.iso.string(from: modified))\n"
+        if let customTitle, !customTitle.isEmpty {
+            let escaped = customTitle
+                .replacingOccurrences(of: "\\", with: "\\\\")      // backslash first, or the next pass doubles it
+                .replacingOccurrences(of: "\"", with: "\\\"")
+            out += "title: \"\(escaped)\"\n"
+        }
         out += "tags: [\(tags.joined(separator: ", "))]\n"
         out += "pinned: \(pinned)\n"
         out += "color: \"\(colorHex)\"\n"
@@ -242,6 +274,7 @@ final class Note {
         created = other.created; modified = other.modified; tags = other.tags
         pinned = other.pinned; colorHex = other.colorHex; theme = other.theme
         opacity = other.opacity; collapsed = other.collapsed; visible = other.visible
+        customTitle = other.customTitle
         cardFrame = other.cardFrame; hasFrame = other.hasFrame
         body = other.body; unknownBlocks = other.unknownBlocks; usesCRLF = other.usesCRLF
         if other.id != id { id = other.id }
@@ -249,28 +282,18 @@ final class Note {
 
     // MARK: - Renaming
 
-    /// Renames the note by rewriting its title line, exactly as double-clicking the header does in
-    /// the editor: a heading keeps its level, an `@Todo` note keeps its marker, and a note whose
-    /// first line is plain text gets a heading ABOVE it (nothing the user wrote is deleted).
+    /// Renames the note. This does NOT touch the body: the new name is stored as `title:` in the
+    /// frontmatter, so whatever the first line says stays exactly as written, and later edits to
+    /// that line no longer rename the note (an owner decision, 2026-09-19).
+    ///
+    /// Renaming to the text the first line already shows, or to nothing, clears the override
+    /// instead, which puts the note back to following its first line.
     func retitle(to raw: String) {
-        let title = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !title.isEmpty else { return }
-        var lines = body.components(separatedBy: "\n")
-        guard let i = lines.firstIndex(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) else {
-            body = "# \(title)\n"
-            return
-        }
-        let line = lines[i]
-        if line == "@Todo" || line.hasPrefix("@Todo ") || line.hasPrefix("@Todo\t") {
-            var rest = title
-            if rest.hasPrefix("@Todo") { rest = String(rest.dropFirst(5)).trimmingCharacters(in: .whitespaces) }
-            lines[i] = "@Todo " + rest
-        } else if let m = line.range(of: #"^#{1,6}\s"#, options: .regularExpression) {
-            lines[i] = String(line[m]).trimmingCharacters(in: .whitespaces) + " " + title
-        } else {
-            lines.insert(contentsOf: ["# \(title)", ""], at: i)
-        }
-        body = lines.joined(separator: "\n")
+        // Newlines inside the value would end the frontmatter line and corrupt the file.
+        let title = raw.replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        customTitle = (title.isEmpty || title == titleFromBody) ? nil : title
     }
 
     // MARK: - Tags

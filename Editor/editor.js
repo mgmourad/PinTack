@@ -892,23 +892,6 @@ function setMode(mode) {
   view.dispatch({ effects: modeCompartment.reconfigure(mode === "source" ? sourceExt : livePreviewExt) });
 }
 
-// Header title edit: rewrite the first heading, or add one. SPEC.md §4.4 title sync.
-function setTitle(title) {
-  const doc = view.state.doc;
-  for (let n = 1; n <= doc.lines; n++) {
-    const l = doc.line(n);
-    if (l.text.trim() === "") continue;
-    if (/^@Todo(\s|$)/.test(l.text)) {                 // a todo note keeps its marker
-      view.dispatch({ changes: { from: l.from, to: l.to, insert: `@Todo ${title.replace(/^@Todo\s*/, "")}` } });
-      return;
-    }
-    const m = /^(#{1,6})\s+.*$/.exec(l.text);
-    view.dispatch({ changes: m ? { from: l.from, to: l.to, insert: `${m[1]} ${title}` } : { from: l.from, insert: `# ${title}\n\n` } });
-    return;
-  }
-  view.dispatch({ changes: { from: 0, insert: `# ${title}\n\n` } });
-}
-
 window.__pintack = {
   receive(msg) {
     const p = msg.payload || {};
@@ -926,7 +909,6 @@ window.__pintack = {
       case "settings.changed": applySettings(p); break;
       case "tags.changed": noteState.tags = p.tags || []; break;
       case "mode.set": setMode(p.mode); break;
-      case "title.set": setTitle(p.title); break;
       case "emoji.open": view.focus(); openEmoji(view); break;
       case "bullet.pick": openEmoji(view, { pick: "bullet" }); break;
       case "plugin.result": runtime.onResult(p); break;

@@ -121,34 +121,46 @@ final class RenameFolderColorTests: VaultTestCase {
 
     private func note(_ body: String) -> Note { Note(fileURL: URL(fileURLWithPath: "/tmp/x.md"), body: body) }
 
-    func testRenameKeepsTheHeadingLevel() {
+    // Renaming used to rewrite the note's first line. Since 2026-09-19 it stores the name in the
+    // frontmatter instead and leaves the body untouched, so these check the body is NOT rewritten.
+
+    func testRenameLeavesAHeadingExactlyAsWritten() {
         let n = note("## Old title\n\nbody\n"); n.retitle(to: "  New title ")
-        XCTAssertEqual(n.body, "## New title\n\nbody\n")
-        XCTAssertEqual(n.title, "New title")
+        XCTAssertEqual(n.body, "## Old title\n\nbody\n")
+        XCTAssertEqual(n.title, "New title", "the typed name is trimmed and shown in the header")
+        XCTAssertEqual(n.titleFromBody, "Old title")
     }
 
-    func testRenameAToDoKeepsItsMarker() {
+    func testRenameAToDoLeavesItsMarkerAndTextAlone() {
         let n = note("@Todo Groceries\n\n- [ ] milk\n"); n.retitle(to: "Weekend shop")
-        XCTAssertEqual(n.body, "@Todo Weekend shop\n\n- [ ] milk\n")
-        n.retitle(to: "@Todo Again"); XCTAssertEqual(n.body.components(separatedBy: "\n")[0], "@Todo Again", "no doubled marker")
+        XCTAssertEqual(n.body, "@Todo Groceries\n\n- [ ] milk\n")
+        XCTAssertEqual(n.title, "Weekend shop")
     }
 
-    func testRenamingAPlainFirstLineNeverDeletesUserText() {
+    func testRenamingAPlainFirstLineNeverDeletesOrAddsUserText() {
         let n = note("buy milk\n- eggs\n"); n.retitle(to: "Shopping")
-        XCTAssertEqual(n.body, "# Shopping\n\nbuy milk\n- eggs\n")
+        XCTAssertEqual(n.body, "buy milk\n- eggs\n", "no heading is inserted above what the user wrote")
+        XCTAssertEqual(n.title, "Shopping")
     }
 
-    func testRenameSkipsLeadingBlankLinesAndHandlesEmptyNotes() {
-        let n = note("\n\n# Real title\nx"); n.retitle(to: "Changed"); XCTAssertEqual(n.body, "\n\n# Changed\nx")
-        let e = note(""); e.retitle(to: "First"); XCTAssertEqual(e.body, "# First\n")
-        let blank = note("Keep"); blank.retitle(to: "   "); XCTAssertEqual(blank.body, "Keep", "an empty name changes nothing")
+    func testRenameHandlesLeadingBlankLinesAndEmptyNotes() {
+        let n = note("\n\n# Real title\nx"); n.retitle(to: "Changed")
+        XCTAssertEqual(n.body, "\n\n# Real title\nx")
+        XCTAssertEqual(n.title, "Changed")
+        let e = note(""); e.retitle(to: "First")
+        XCTAssertEqual(e.body, "", "an empty note stays empty; the name lives in the frontmatter")
+        XCTAssertEqual(e.title, "First")
+        let blank = note("Keep"); blank.retitle(to: "   ")
+        XCTAssertEqual(blank.body, "Keep"); XCTAssertEqual(blank.title, "Keep", "an empty name changes nothing")
     }
 
     func testRenameThroughTheStoreSurvivesAReload() throws {
         let n = store.createNote(body: "# Before\n\ntext")
         n.retitle(to: "After"); store.save(n)
         let fresh = VaultStore(root: root); fresh.loadAll()
-        XCTAssertEqual(try XCTUnwrap(fresh.note(id: n.id)).title, "After")
+        let reloaded = try XCTUnwrap(fresh.note(id: n.id))
+        XCTAssertEqual(reloaded.title, "After")
+        XCTAssertEqual(reloaded.body, "# Before\n\ntext", "the body is untouched by a rename")
         XCTAssertTrue(n.fileURL.lastPathComponent.hasSuffix("-before.md"), "the file name is frozen at creation. SPEC.md §3.4")
     }
 
