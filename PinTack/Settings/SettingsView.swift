@@ -94,7 +94,7 @@ struct SettingsView: View {
         case .shortcuts:  ShortcutsPane()
         case .editor:     EditorPane()
         case .vault:      VaultPane()
-        case .plugins:    PluginsPane()
+        case .plugins:    PluginsSettingsPane()
         case .about:      AboutPane()
         }
     }
@@ -240,10 +240,13 @@ private struct NotesPane: View {
 private struct ShortcutsPane: View {
     @State private var revision = 0
     @State private var errors: [ShortcutAction: String] = [:]
+    @State private var pluginErrors: [String: String] = [:]
+    @ObservedObject private var plugins = PluginManager.shared
 
     var body: some View {
         VStack(spacing: 0) {
             List {
+                pluginSections
                 ForEach(["Notes", "Appearance", "Windows", "Data"], id: \.self) { group in
                     Section(group) {
                         ForEach(ShortcutAction.allCases.filter { $0.group == group }, id: \.self) { action in
@@ -256,7 +259,7 @@ private struct ShortcutsPane: View {
                                     if let e = errors[action] { Text(e).font(.caption2).foregroundStyle(.red) }
                                 }
                                 Spacer()
-                                ShortcutRecorder(action: action, onRecord: { combo in record(combo, for: action) },
+                                ShortcutRecorder(onRecord: { combo in record(combo, for: action) },
                                                  current: ShortcutStore.shared.combo(for: action))
                                     .frame(width: 118, height: 24)
                                     .id(revision)
@@ -274,9 +277,43 @@ private struct ShortcutsPane: View {
         }
     }
 
+    /// One section per plugin that registered commands (SPEC.md §9: plugins get their own section).
+    @ViewBuilder private var pluginSections: some View {
+        let commands = PluginManager.shared.commands
+        ForEach(Array(Set(commands.map(\.pluginID))).sorted(), id: \.self) { pid in
+            Section(PluginManager.shared.plugin(id: pid)?.name ?? pid) {
+                ForEach(commands.filter { $0.pluginID == pid }) { cmd in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(cmd.name)
+                            Text("Plugin command · works while a note is focused").font(.caption2).foregroundStyle(.secondary)
+                            if let e = pluginErrors[cmd.key] { Text(e).font(.caption2).foregroundStyle(.red) }
+                        }
+                        Spacer()
+                        ShortcutRecorder(onRecord: { combo in recordPlugin(combo, for: cmd) }, current: ShortcutStore.shared.pluginCombo(for: cmd))
+                            .frame(width: 118, height: 24)
+                            .id(revision)
+                    }
+                }
+            }
+        }
+    }
+
+    private func recordPlugin(_ combo: KeyCombo?, for cmd: PluginCommand) -> String? {
+        if let combo, let other = ShortcutStore.shared.conflictTitle(for: combo, excludingPlugin: cmd.key) {
+            let msg = "Already used by “\(other)”"
+            pluginErrors[cmd.key] = msg
+            return msg
+        }
+        pluginErrors[cmd.key] = nil
+        ShortcutStore.shared.setPlugin(combo, for: cmd)
+        revision += 1
+        return nil
+    }
+
     private func record(_ combo: KeyCombo?, for action: ShortcutAction) -> String? {
-        if let combo, let other = ShortcutStore.shared.conflict(for: combo, excluding: action) {
-            let msg = "Already used by “\(other.title)”"
+        if let combo, let other = ShortcutStore.shared.conflictTitle(for: combo, excludingAction: action) {
+            let msg = "Already used by “\(other)”"
             errors[action] = msg
             return msg
         }
@@ -406,24 +443,6 @@ private struct OrphanSheet: View {
             }
         }
         .padding(18).frame(width: 420)
-    }
-}
-
-// MARK: - Plugins
-
-private struct PluginsPane: View {
-    var body: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "puzzlepiece.extension").font(.system(size: 34)).foregroundStyle(.secondary)
-            Text("Plugins are not built yet").font(.headline)
-            Text("The plugin system and the Runner plugin are Phase 4 in SPEC.md. This pane is where installed plugins, their toggles and their settings will live.")
-                .multilineTextAlignment(.center).foregroundStyle(.secondary).frame(maxWidth: 380)
-            Button("Open plugins folder") {
-                try? FileManager.default.createDirectory(at: VaultStore.shared.pluginsURL, withIntermediateDirectories: true)
-                NSWorkspace.shared.open(VaultStore.shared.pluginsURL)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

@@ -24,9 +24,23 @@ final class EditorSchemeHandler: NSObject, WKURLSchemeHandler {
     private static let imageExts: Set<String> = ["png", "jpg", "jpeg", "gif", "svg", "webp", "heic"]
 
     func webView(_ webView: WKWebView, start task: WKURLSchemeTask) {
-        guard let url = task.request.url, let file = resolve(url) else { return fail(task, 404) }
-        guard let data = try? Data(contentsOf: file) else { return fail(task, 404) }
-        let type = EditorSchemeHandler.mime[file.pathExtension.lowercased()] ?? "application/octet-stream"
+        guard let url = task.request.url else { return fail(task, 404) }
+        var name = url.path
+        while name.hasPrefix("/") { name.removeFirst() }
+
+        let data: Data
+        let type: String
+        if name.hasPrefix("plugins/") {
+            // A plugin's own script, stylesheet or images, and only if it is enabled and valid. Its main
+            // script is wrapped so it can only reach its own facade. See PluginManager.wrap.
+            guard let served = PluginManager.shared.servedFile(forPath: name), let raw = try? Data(contentsOf: served.url) else { return fail(task, 404) }
+            data = served.isMain ? Data(PluginManager.wrap(String(decoding: raw, as: UTF8.self)).utf8) : raw
+            type = EditorSchemeHandler.mime[served.url.pathExtension.lowercased()] ?? "application/octet-stream"
+        } else {
+            guard let file = resolve(url), let raw = try? Data(contentsOf: file) else { return fail(task, 404) }
+            data = raw
+            type = EditorSchemeHandler.mime[file.pathExtension.lowercased()] ?? "application/octet-stream"
+        }
         let headers = ["Content-Type": type, "Content-Length": "\(data.count)",
                        "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store"]
         let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: headers)!
@@ -76,6 +90,7 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
     private let note: Note
     private var isReady = false
     private var queued: [String] = []
+    private lazy var lastTitle: String = note.title
 
     private(set) var mode: String
 
@@ -148,7 +163,42 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
             "tags": VaultStore.shared.tagCounts().map(\.tag),
             "settings": settingsPayload(),
             "focus": focus,
+            "plugins": pluginSession(),
         ])
+    }
+
+    // MARK: Plugins
+
+    private(set) var hasPlugins = false
+
+    /// Enabled plugins for this page load, each with a fresh capability token. SPEC.md §12.
+    private func pluginSession() -> [[String: Any]] {
+        let session = PluginManager.shared.makeSession(for: self)
+        hasPlugins = !session.isEmpty
+        return session
+    }
+
+    func sendPluginEvent(_ name: String, _ payload: [String: Any] = [:]) {
+        guard hasPlugins else { return }
+        send("plugin.event", ["name": name, "payload": payload])
+    }
+
+    func sendPluginSettings(_ id: String) {
+        guard hasPlugins, let p = PluginManager.shared.plugin(id: id) else { return }
+        send("plugin.settings", ["id": id, "settings": PluginManager.shared.settingsValues(for: p)])
+    }
+
+    /// Reloads the page (and so the plugins). Used when a plugin is switched on or off.
+    func reloadEditor() {
+        PluginBridge.shared.cancelRuns(owner: self)
+        isReady = false
+        queued.removeAll()
+        reload()
+    }
+
+    deinit {
+        PluginManager.shared.endSession(for: self)
+        PluginBridge.shared.cancelRuns(owner: self)
     }
 
     func reloadBody() { send("note.reload", ["body": note.body]) }
@@ -216,7 +266,10 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
 
         switch type {
         case "ready":
+            // The page just (re)loaded, so it has no note and no plugins yet: send them first, then
+            // anything that was waiting (a focus request, say).
             isReady = true
+            loadNote(focus: false)
             queued.forEach { evaluateJavaScript($0, completionHandler: nil) }
             queued.removeAll()
 
@@ -225,9 +278,24 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
             note.body = body
             SaveCoordinator.shared.scheduleSave(note)
             NotificationCenter.default.post(name: .noteBodyDidChange, object: note)
+            if note.title != lastTitle {
+                sendPluginEvent("note:rename", ["noteId": note.id, "oldTitle": lastTitle, "newTitle": note.title])
+                lastTitle = note.title
+            }
 
         case "focus.changed":
             onFocusChange?(payload["focused"] as? Bool ?? false)
+
+        case "plugin.host":
+            PluginBridge.shared.handle(payload, from: PluginBridge.Sender(owner: self, noteID: note.id,
+                                                                          send: { [weak self] type, body in self?.send(type, body) }))
+
+        case "plugin.commands":
+            // The page reports what its plugins registered; the manager only accepts enabled plugins.
+            let raw = payload["commands"] as? [[String: Any]] ?? []
+            for id in Set(raw.compactMap { $0["pluginId"] as? String }) {
+                PluginManager.shared.setCommands(pluginID: id, from: raw.filter { ($0["pluginId"] as? String) == id })
+            }
 
         case "image.paste":
             guard let b64 = payload["data"] as? String, let data = Data(base64Encoded: b64) else { return }

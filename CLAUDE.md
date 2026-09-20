@@ -192,9 +192,10 @@ Settings, hotkeys, import/export, FTS5 search). It builds, and the unit tests
 (`xcodebuild -scheme PinTack test`) cover frontmatter round-tripping, unknown-key
 preservation, atomic writes, import safety and search.
 
-**Not built yet (Phase 4 and 5):** the WidgetKit widget, the plugin system and
-Runner, Sparkle, signing/notarization, App Sandbox. Settings → Plugins is an
-honest placeholder. The pushpin is a vector stand-in for the PNG asset (SPEC §18).
+**Phase 4, plugins and Runner: built.** The WidgetKit widget is **shelved by the owner**: it needs a real
+Apple signing team (app group must carry the Team ID, trap 2), so it waits on that decision.
+
+**Not built yet:** the widget, Sparkle, signing/notarization, App Sandbox.
 The app is a normal Dock app (no `LSUIElement`) plus a menu-bar item: an
 owner decision that replaced the original menu-bar-only design.
 
@@ -214,6 +215,20 @@ Owner decisions added after the rebuild (2026-09-19):
   two paths (Carbon + key monitor) and a toggle then cancels itself. Key auto-repeats are swallowed.
 - Colored text uses `<span style="color:…">`, but its tags are always hidden in the editor and
   Tab leaves the span. `/red`, `/blue`... are the slash commands (no `color-` prefix).
+
+### Plugins (docs/PLUGINS.md is the author's guide)
+
+- The core has NO private hooks for Runner. `Plugins/runner/` uses only the public API, and it must stay that way.
+- Every privileged call goes through `PluginBridge.handle`: token (per plugin, per web view) → declared
+  permission → for commands, the native `ApprovalPresenter`. Never add a path that skips a step.
+- **There is no flag, setting or environment variable that answers the approval sheet.** Tests inject a fake
+  presenter; the self-test seeds approvals through `TrustStore` and never clicks an unapproved command.
+- Trust is bound to command text AND working folder, and each entry is HMAC-signed with a per-Mac secret that
+  lives outside the vault, so a synced or shared `trust.json` cannot pre-approve anything.
+- Plugins run in each note's web view. They share a JS realm, so they are not isolated from each other; the
+  boundary is on the Swift side. Do not claim more than that.
+- `PinTackTests/PluginBridgeTests.swift` and `PluginFoundationTests.swift` are the security tests. They were
+  mutation-checked (skipping approval, ignoring the token's page, accepting unsigned trust all fail them).
 
 Choices that differ from SPEC.md or the prototype, made deliberately:
 - Only New note, New todo, All Notes and Auto-arrange are **global** hotkeys.

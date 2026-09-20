@@ -30,6 +30,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         vault.bootstrap()
         AppSettings.shared.load(from: vault.metaURL)
         ShortcutStore.shared.load(from: vault.metaURL)
+        // Plugins must be known BEFORE the first note window loads, because each page asks for its plugins.
+        PluginManager.shared.installBundledPlugins()
+        PluginManager.shared.reload()
 
         NSApp.mainMenu = MainMenuBuilder.build(target: self)
         statusItemController = StatusItemController(target: self)
@@ -95,13 +98,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func handleShortcut(_ event: NSEvent) -> NSEvent? {
         // Let the shortcut recorder see the raw key.
         if NSApp.keyWindow?.firstResponder is ShortcutRecorder.RecorderButton { return event }
-        guard let action = ShortcutStore.shared.action(for: event) else { return event }
+        guard let action = ShortcutStore.shared.action(for: event) else {
+            // Not one of the app's own shortcuts: is it a plugin command's?
+            guard let command = ShortcutStore.shared.pluginCommand(for: event) else { return event }
+            if !event.isARepeat { runPluginCommand(command) }
+            return nil
+        }
 
         // A held key sends auto-repeat presses. Swallow them: they must not act again (holding
         // ⌥⌘N used to keep making notes) and must not leak into the editor as stray characters.
         // Opacity is the exception, because holding it to fade a note is natural.
         if event.isARepeat { return (action == .lessOpaque || action == .moreOpaque) ? handle(action) : nil }
         return handle(action)
+    }
+
+    /// Plugin commands run in the focused note's page, where the plugin's code lives.
+    private func runPluginCommand(_ command: PluginCommand) {
+        guard let panel = WindowManager.shared.focusedPanel else { Toast.show("Click a note first"); return }
+        panel.card.editor.send("command.run", ["key": command.key])
     }
 
     private func handle(_ action: ShortcutAction) -> NSEvent? {

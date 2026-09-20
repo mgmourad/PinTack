@@ -1,0 +1,15 @@
+{
+  "id": "runner",
+  "name": "Runner",
+  "version": "1.0.0",
+  "description": "Inline buttons that run scripts, open URLs, reveal files or run macOS Shortcuts.",
+  "author": "PinTack",
+  "minAppVersion": "0.1.0",
+  "main": "main.js",
+  "styles": "styles.css",
+  "permissions": ["process.execute", "shortcuts.run", "url.open", "path.reveal"],
+  "settings": [
+    { "key": "timeout", "type": "number", "default": 30, "label": "Timeout (seconds)" },
+    { "key": "shell", "type": "string", "default": "", "label": "Shell override (blank = login shell)" }
+  ]
+}

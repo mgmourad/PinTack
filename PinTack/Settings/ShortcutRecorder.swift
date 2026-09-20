@@ -9,10 +9,9 @@ import Carbon.HIToolbox
 /// at bind time, not silently accepted.
 struct ShortcutRecorder: NSViewRepresentable {
 
-    let action: ShortcutAction
     /// Returns an error message to show, or nil when accepted.
     let onRecord: (KeyCombo?) -> String?
-    let current: KeyCombo
+    let current: KeyCombo?          // nil = not set (a plugin command with no binding)
 
     func makeNSView(context: Context) -> RecorderButton {
         let b = RecorderButton()
@@ -29,7 +28,7 @@ struct ShortcutRecorder: NSViewRepresentable {
     final class RecorderButton: NSButton {
 
         var onRecord: ((KeyCombo?) -> String?)?
-        var combo = KeyCombo(keyCode: 0, modifiers: 0) { didSet { refresh() } }
+        var combo: KeyCombo? { didSet { refresh() } }
         private var recording = false { didSet { refresh() } }
         private var message: String?
 
@@ -51,7 +50,7 @@ struct ShortcutRecorder: NSViewRepresentable {
         }
 
         private func refresh() {
-            title = recording ? "Press keys…" : (message ?? combo.display)
+            title = recording ? "Press keys…" : (message ?? combo?.display ?? "Not set")
             contentTintColor = message != nil ? .systemRed : nil
         }
 

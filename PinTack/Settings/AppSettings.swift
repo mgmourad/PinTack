@@ -40,6 +40,18 @@ final class AppSettings: ObservableObject {
     @Published var imagePaste = "copy"            // copy | link
     @Published var bulletEmoji = ""               // "" = the ordinary "- " bullet
 
+    // Plugins. Which are switched on; each plugin's own values live under its id in `extra`.
+    @Published var enabledPlugins: [String: Bool] = [:]
+
+    /// Keys the app owns in settings.json. A plugin id may not equal one, because a plugin's saved
+    /// settings are stored under its id in the same file. SPEC.md §12.2.
+    static let reservedKeys: Set<String> = [
+        "appTheme", "defaultColor", "newNoteColor", "cornerStyle", "defaultOpacity", "fontFamily", "fontSize",
+        "outlineEnabled", "outlineColor", "outlineWidth", "pinnedGlow", "defaultNoteWidth", "defaultNoteHeight",
+        "placement", "autosaveSeconds", "actionBarAutoCollapse", "actionBarCollapseSeconds", "defaultMode",
+        "spellcheck", "slashCommands", "imagePaste", "bulletEmoji", "enabledPlugins", "plugins",
+    ]
+
     private var fileURL: URL?
     private var extra: [String: Any] = [:]        // unknown keys, preserved. SPEC.md §12.2
     private var loading = false
@@ -98,12 +110,13 @@ final class AppSettings: ObservableObject {
         slashCommands = b("slashCommands") ?? slashCommands
         imagePaste = s("imagePaste") ?? imagePaste
         bulletEmoji = s("bulletEmoji") ?? bulletEmoji
+        enabledPlugins = (dict["enabledPlugins"] as? [String: Bool]) ?? enabledPlugins
 
         let known: Set<String> = ["appTheme", "defaultColor", "cornerStyle", "defaultOpacity", "fontFamily", "fontSize",
                                   "outlineEnabled", "outlineColor", "outlineWidth", "pinnedGlow", "defaultNoteWidth",
                                   "defaultNoteHeight", "placement", "autosaveSeconds", "defaultMode", "spellcheck",
                                   "slashCommands", "imagePaste", "newNoteColor", "actionBarAutoCollapse",
-                                  "actionBarCollapseSeconds", "bulletEmoji"]
+                                  "actionBarCollapseSeconds", "bulletEmoji", "enabledPlugins"]
         extra = dict.filter { !known.contains($0.key) }
         applyRuntimeEffects()
     }
@@ -122,6 +135,18 @@ final class AppSettings: ObservableObject {
         case "dark":  NSApp?.appearance = NSAppearance(named: .darkAqua)
         default:      NSApp?.appearance = nil
         }
+    }
+
+    // MARK: - Plugin settings (kept under the plugin's id, untouched by everything else)
+
+    func pluginSettings(_ id: String) -> [String: Any] { extra[id] as? [String: Any] ?? [:] }
+
+    func setPluginSetting(_ id: String, key: String, value: Any) {
+        guard !AppSettings.reservedKeys.contains(id) else { return }
+        var values = pluginSettings(id)
+        values[key] = value
+        extra[id] = values
+        save()
     }
 
     func save() {
@@ -149,6 +174,7 @@ final class AppSettings: ObservableObject {
         dict["slashCommands"] = slashCommands
         dict["imagePaste"] = imagePaste
         dict["bulletEmoji"] = bulletEmoji
+        dict["enabledPlugins"] = enabledPlugins
         guard let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted, .sortedKeys]) else { return }
         do { try AtomicWriter.write(data, to: fileURL) }
         catch { NSLog("PinTack: settings save failed: \(error)") }

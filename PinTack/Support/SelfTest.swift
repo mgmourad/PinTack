@@ -304,7 +304,62 @@ enum SelfTest {
     🥛 oat milk
     """
 
-    private static func renderWindows(out: URL) {
+    // MARK: Runner, end to end: real plugin → real bridge → real process, inside WKWebView
+
+    private static func runnerTest(out: URL, then next: @escaping () -> Void) {
+        let pm = PluginManager.shared
+        log("plugins: " + pm.installed.map { "\($0.id) v\($0.manifest?.version ?? "?") enabled=\($0.enabled) valid=\($0.isValid)" }.joined(separator: ", "))
+
+        // A command approved "earlier": written through the same TrustStore API a real approval uses. The
+        // self-test has NO way to answer the approval sheet, so it never clicks an unapproved command.
+        let approved = "echo runner-selftest-$((6*7)); echo to-stderr 1>&2"
+        TrustStore.shared.approve(TrustKey(kind: .command, value: approved, cwd: NSHomeDirectory()))
+        let body = "# Runner test\n\nSome text.\n\n```runner\nlabel: Approved job\nrun: \(approved)\n```\n\n```runner\nlabel: Unapproved job\nrun: echo never-runs-without-approval\n```\n"
+        let note = VaultStore.shared.createNote(body: body, frame: WindowManager.shared.nextCardFrame(size: NSSize(width: 380, height: 330)))
+        let panel = WindowManager.shared.open(note, focus: true)
+        panel.card.debugExpandActionBar()
+
+        let js = """
+        const sleep = ms => new Promise(r => setTimeout(r, ms));
+        for (let i = 0; i < 60 && document.querySelectorAll('.runner').length < 2; i++) await sleep(100);
+        await sleep(600);
+        const out = {};
+        out.blocks = document.querySelectorAll('.runner').length;
+        out.rawFenceHidden = !document.querySelector('.cm-content').textContent.includes('```runner');
+        out.badges = [...document.querySelectorAll('.rn-badge')].map(e => e.textContent);
+        out.playGlyphs = document.querySelectorAll('.rn-run svg.rn-play').length;
+        out.outputCollapsed = [...document.querySelectorAll('.rn-out')].every(e => e.hidden);
+        document.querySelectorAll('.rn-run')[0].click();
+        for (let i = 0; i < 80; i++) { await sleep(100); const c = document.querySelectorAll('.rn-chip')[0]; if (c && c.textContent.startsWith('exit')) break; }
+        out.chip = document.querySelectorAll('.rn-chip')[0].textContent;
+        out.output = document.querySelectorAll('.rn-body')[0].textContent.trim();
+        out.stderrRed = !!document.querySelectorAll('.rn-body')[0].querySelector('.rn-err');
+        out.badgesAfter = [...document.querySelectorAll('.rn-badge')].map(e => e.textContent);
+        return JSON.stringify(out);
+        """
+        // The page needs time to load the module, then the plugin, then render.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            panel.card.editor.callAsyncJavaScript(js, arguments: [:], in: nil, in: .page) { result in
+                switch result {
+                case .success(let v): log("Runner in the real app: \(v)")
+                case .failure(let e): log("Runner in the real app FAILED: \(e)")
+                }
+                log("running processes left after the run: \(PluginBridge.shared.activeRunCount)")
+                let nowTrusted = TrustStore.shared.isTrusted(TrustKey(kind: .command, value: "echo never-runs-without-approval", cwd: NSHomeDirectory()))
+                log("the unapproved command was approved by the test (must be false): \(nowTrusted)")
+                PluginSettingsWindows.shared.show(pluginID: "runner", title: "Runner")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    if let w = NSApp.windows.first(where: { $0.title == "Runner Settings" }) {
+                        snapshot(window: w, to: out.appendingPathComponent("plugin-settings.png")) { next() }
+                    } else { next() }
+                }
+            }
+        }
+    }
+
+    private static func renderWindows(out: URL) { runnerTest(out: out) { renderWindowsNow(out: out) } }
+
+    private static func renderWindowsNow(out: URL) {
         // Put some realistic content in a note so the Live Preview render is visible.
         if let first = WindowManager.shared.openPanels.sorted(by: { $0.note.created < $1.note.created }).first {
             first.note.pinned = true
@@ -325,7 +380,7 @@ enum SelfTest {
             // Reproduce the reported bug: a DARK outline color used to tint Settings' labels and buttons
             // the same dark red on a dark window, making them unreadable.
             AppSettings.shared.outlineColorHex = "#5A1F1A"
-            SettingsView.initialPane = .notes
+            SettingsView.initialPane = .plugins
             AllNotesWindowController.shared.show()
             SettingsWindowController.shared.show()
             ShortcutsOverlay.shared.show()

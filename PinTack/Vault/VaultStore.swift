@@ -257,6 +257,7 @@ final class VaultStore {
             try AtomicWriter.write(text, to: note.fileURL)
             note.lastWrittenHash = text.hashValue
             index?.upsert(note)
+            NotificationCenter.default.post(name: .noteDidSave, object: note)
         } catch {
             NSLog("PinTack: save failed for \(note.fileURL.lastPathComponent): \(error)")
         }

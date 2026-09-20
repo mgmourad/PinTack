@@ -152,3 +152,7 @@ body {
 
 #emoji::-webkit-scrollbar { width: 8px; }
 #emoji::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .28); border-radius: 4px; border: 2px solid transparent; background-clip: content-box; }
+
+/* ---------- plugin blocks ---------- */
+.cm-plugin-block { margin: 6px 0; }
+.plugin-error { padding: 6px 9px; border-radius: 6px; background: rgba(220, 40, 40, .16); color: inherit; font-size: .9em; }

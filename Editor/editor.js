@@ -14,6 +14,7 @@ import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { syntaxTree, ensureSyntaxTree, syntaxHighlighting, HighlightStyle } from "@codemirror/language";
 import { autocompletion, completionKeymap, startCompletion } from "@codemirror/autocomplete";
 import { tags as t } from "@lezer/highlight";
+import { createRuntime } from "./plugin-runtime.js";
 
 /* ------------------------------------------------------------------ bridge */
 
@@ -30,6 +31,17 @@ function post(type, payload = {}) {
 
 const setFocus = StateEffect.define();
 const refresh = StateEffect.define();
+
+// The plugin runtime. The view does not exist yet when this module loads, so it is reached lazily.
+let viewRef = null;
+const runtime = createRuntime({
+  post: (type, payload) => post(type, payload),
+  getNoteId: () => noteState.noteId,
+  getBody: () => (viewRef ? viewRef.state.doc.toString() : ""),
+  insertText: (text) => { if (viewRef) { const s = viewRef.state.selection.main; edit(viewRef, s.from, s.to, text); } },
+  requestRefresh: () => { if (viewRef) viewRef.dispatch({ effects: refresh.of(null) }); },
+});
+let pluginsStarted = false;
 
 const focusField = StateField.define({
   create: () => false,
@@ -82,6 +94,41 @@ class HintWidget extends WidgetType {
     return s;
   }
   ignoreEvent() { return true; }
+}
+
+// A fenced block a plugin has claimed (```runner …```), drawn by that plugin's processor. Kept alive
+// across edits elsewhere in the note by eq(), so a plugin's UI state (e.g. running output) survives.
+class PluginBlockWidget extends WidgetType {
+  constructor(lang, source) { super(); this.lang = lang; this.source = source; }
+  eq(o) { return o.lang === this.lang && o.source === this.source; }
+  toDOM(view) {
+    const el = document.createElement("div");
+    el.className = "cm-plugin-block";
+    const ctx = { noteId: noteState.noteId, lang: this.lang, updateSource: (text) => updateBlockSource(view, el, text) };
+    if (!runtime.renderCodeBlock(this.lang, this.source, el, ctx)) el.textContent = `No plugin handles “${this.lang}” blocks`;
+    return el;
+  }
+  ignoreEvent() { return true; }
+}
+
+// The text between a block's fences. `to` is exclusive of the newline before the closing fence.
+function blockInner(doc, node) {
+  const first = doc.lineAt(node.from), last = doc.lineAt(node.to);
+  const closing = last.number > first.number && /^\s*(```|~~~)/.test(last.text);
+  const from = first.to + 1;
+  const to = closing ? last.from - 1 : node.to;
+  return { first, from, to, empty: from > to };
+}
+
+// Rewrites the inside of the fenced block that contains `el` (the plugin's own edit path).
+function updateBlockSource(view, el, text) {
+  let pos;
+  try { pos = view.posAtDOM(el); } catch (_) { return; }
+  let n = syntaxTree(view.state).resolveInner(pos, 1);
+  while (n && n.name !== "FencedCode") n = n.parent;
+  if (!n) return;
+  const inner = blockInner(view.state.doc, n);
+  view.dispatch({ changes: inner.empty ? { from: inner.first.to, insert: "\n" + text } : { from: inner.from, to: inner.to, insert: text } });
 }
 
 class ImageWidget extends WidgetType {
@@ -228,6 +275,15 @@ function build(state) {
       else if (name === "FencedCode") {
         const first = doc.lineAt(from), last = doc.lineAt(to);
         const editing = touched(from, to);
+        // A plugin may own this language (```runner). Draw its widget unless the caret is inside.
+        const info = node.node.getChild("CodeInfo");
+        const lang = info ? doc.sliceString(info.from, info.to).trim() : "";
+        if (lang && runtime.hasCodeBlockProcessor(lang) && !editing) {
+          const inner = blockInner(doc, node.node);
+          swap(from, to, new PluginBlockWidget(lang, inner.empty ? "" : doc.sliceString(inner.from, inner.to)), true);
+          codeRanges.push([from, to]);
+          return false;
+        }
         for (let n = first.number; n <= last.number; n++) {
           const l = doc.line(n);
           let cls = "cm-codeblock";
@@ -446,11 +502,28 @@ const slashOptions = commands.map(([id, detail, apply], i) => ({
   label: "/" + id, detail, apply, type: "keyword", boost: 100 - i,
 }));
 
+// A plugin's slash command: either `insert` text (with an optional $0 caret marker) or a `run` callback.
+function applyPluginSlash(c, view, from, to) {
+  if (typeof c.run === "function") {
+    view.dispatch({ changes: { from, to } });
+    try { c.run({ insertText: (t) => { const s = view.state.selection.main; edit(view, s.from, s.to, t); } }); } catch (e) { console.log("[plugin] slash command failed", e && e.message); }
+    return;
+  }
+  let text = String(c.insert == null ? "" : c.insert);
+  let caret = text.indexOf("$0");
+  text = text.replace("$0", "");
+  if (caret < 0) caret = text.length;
+  // Block inserts (code fences) start on a line of their own.
+  const line = view.state.doc.lineAt(from);
+  const prefix = view.state.sliceDoc(line.from, from).trim() === "" ? "" : "\n";
+  view.dispatch({ changes: { from, to, insert: prefix + text }, selection: { anchor: from + prefix.length + caret }, scrollIntoView: true });
+}
+
 function slashSource(ctx) {
   const m = ctx.matchBefore(/\/[\w-]*/);
   if (!m) return null;
   if (m.from > 0 && !/\s/.test(ctx.state.sliceDoc(m.from - 1, m.from))) return null;   // "/" mid-word is not a command
-  return { from: m.from, options: slashOptions, validFor: /^\/[\w-]*$/ };
+  return { from: m.from, options: [...slashOptions, ...runtime.slashOptions(applyPluginSlash)], validFor: /^\/[\w-]*$/ };
 }
 
 // #tag completion against the vault's existing tags. SPEC.md §3.5, §6.2.
@@ -741,6 +814,8 @@ const view = new EditorView({
   }),
 });
 
+viewRef = view;
+
 // A webview must never navigate away from the editor. SPEC.md §4.4.
 document.addEventListener("click", (e) => { if (e.target.closest("a[href]")) e.preventDefault(); }, true);
 
@@ -799,6 +874,7 @@ window.__pintack = {
         setMode(p.mode || "live");
         setBody(p.body || "", false);
         if (p.focus) view.focus();
+        if (!pluginsStarted) { pluginsStarted = true; runtime.loadPlugins(p.plugins || []); }
         break;
       case "note.reload": setBody(p.body || "", true); break;
       case "settings.changed": applySettings(p); break;
@@ -807,6 +883,11 @@ window.__pintack = {
       case "title.set": setTitle(p.title); break;
       case "emoji.open": view.focus(); openEmoji(view); break;
       case "bullet.pick": openEmoji(view, { pick: "bullet" }); break;
+      case "plugin.result": runtime.onResult(p); break;
+      case "plugin.progress": runtime.onProgress(p); break;
+      case "plugin.event": runtime.emit(p.name, p.payload); break;
+      case "plugin.settings": runtime.updateSettings(p.id, p.settings); break;
+      case "command.run": runtime.runCommand(p.key); break;
       case "format.apply": if (applyFormat[p.kind]) applyFormat[p.kind](view); break;
       case "focus": view.focus(); break;
       case "image.inserted": {

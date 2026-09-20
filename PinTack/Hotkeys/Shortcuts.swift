@@ -28,6 +28,27 @@ struct KeyCombo: Codable, Equatable, Hashable {
                   modifiers: KeyCombo.carbonModifiers(event.modifierFlags.intersection(.deviceIndependentFlagsMask)))
     }
 
+    /// Parses "Alt+Cmd+R" / "Ctrl+Shift+K" (as a plugin manifest may write a default hotkey).
+    /// Returns nil unless there is one recognised modifier and exactly one recognised key.
+    static func parse(_ text: String) -> KeyCombo? {
+        var mods: UInt32 = 0
+        var key: UInt32?
+        for raw in text.split(whereSeparator: { $0 == "+" || $0 == "-" }) {
+            switch raw.lowercased() {
+            case "cmd", "command", "meta", "mod": mods |= UInt32(cmdKey)
+            case "alt", "option", "opt":          mods |= UInt32(optionKey)
+            case "shift":                         mods |= UInt32(shiftKey)
+            case "ctrl", "control":               mods |= UInt32(controlKey)
+            default:
+                guard key == nil, let code = (0..<128).first(where: { keyName(UInt32($0)).lowercased() == raw.lowercased() && !keyName(UInt32($0)).hasPrefix("Key") })
+                else { return nil }
+                key = UInt32(code)
+            }
+        }
+        guard let key, mods & UInt32(cmdKey | optionKey | controlKey) != 0 else { return nil }
+        return KeyCombo(keyCode: key, modifiers: mods)
+    }
+
     /// e.g. "⌥⌘N"
     var display: String {
         var s = ""
@@ -150,6 +171,8 @@ final class ShortcutStore {
     static let shared = ShortcutStore()
 
     private(set) var overrides: [ShortcutAction: KeyCombo] = [:]
+    /// Bindings for plugin commands, stored under "plugin:<key>" in the same hotkeys.json. SPEC.md §10.2.
+    private(set) var pluginOverrides: [String: KeyCombo] = [:]
     private var fileURL: URL?
 
     func load(from metaDirectory: URL) {
@@ -158,6 +181,33 @@ final class ShortcutStore {
         guard let data = try? Data(contentsOf: url),
               let raw = try? JSONDecoder().decode([String: KeyCombo].self, from: data) else { return }
         overrides = Dictionary(uniqueKeysWithValues: raw.compactMap { k, v in ShortcutAction(rawValue: k).map { ($0, v) } })
+        pluginOverrides = Dictionary(uniqueKeysWithValues: raw.compactMap { k, v in
+            k.hasPrefix("plugin:") ? (String(k.dropFirst("plugin:".count)), v) : nil
+        })
+    }
+
+    // MARK: Plugin commands
+
+    func pluginCombo(for command: PluginCommand) -> KeyCombo? {
+        pluginOverrides[command.key] ?? command.defaultHotkey.flatMap(KeyCombo.parse)
+    }
+
+    func setPlugin(_ combo: KeyCombo?, for command: PluginCommand) {
+        if let combo { pluginOverrides[command.key] = combo } else { pluginOverrides.removeValue(forKey: command.key) }
+        save()
+        NotificationCenter.default.post(name: .shortcutsDidChange, object: nil)
+    }
+
+    /// What already uses this key combination: an app action or another plugin command.
+    func conflictTitle(for combo: KeyCombo, excludingAction action: ShortcutAction? = nil, excludingPlugin key: String? = nil) -> String? {
+        if let a = ShortcutAction.allCases.first(where: { $0 != action && self.combo(for: $0) == combo }) { return a.title }
+        if let c = PluginManager.shared.commands.first(where: { $0.key != key && pluginCombo(for: $0) == combo }) { return c.name }
+        return nil
+    }
+
+    func pluginCommand(for event: NSEvent) -> PluginCommand? {
+        let combo = KeyCombo(event: event)
+        return PluginManager.shared.commands.first { pluginCombo(for: $0) == combo }
     }
 
     func combo(for action: ShortcutAction) -> KeyCombo { overrides[action] ?? action.defaultCombo }
@@ -181,7 +231,8 @@ final class ShortcutStore {
 
     private func save() {
         guard let fileURL else { return }
-        let raw = Dictionary(uniqueKeysWithValues: overrides.map { ($0.key.rawValue, $0.value) })
+        var raw = Dictionary(uniqueKeysWithValues: overrides.map { ($0.key.rawValue, $0.value) })
+        for (key, combo) in pluginOverrides { raw["plugin:" + key] = combo }
         guard let data = try? JSONEncoder().encode(raw) else { return }
         try? AtomicWriter.write(data, to: fileURL)
     }

@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		B10000000000000000000001 /* Editor in Resources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000003 /* Editor */; };
+		B10000000000000000000002 /* Plugins in Resources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000004 /* Plugins */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -24,6 +25,7 @@
 		B20000000000000000000001 /* PinTack.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PinTack.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B20000000000000000000002 /* PinTackTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PinTackTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B20000000000000000000003 /* Editor */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Editor; sourceTree = "<group>"; };
+		B20000000000000000000004 /* Plugins */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Plugins; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -63,6 +65,7 @@
 				B40000000000000000000002 /* PinTack */,
 				B40000000000000000000003 /* PinTackTests */,
 				B20000000000000000000003 /* Editor */,
+				B20000000000000000000004 /* Plugins */,
 				B40000000000000000000004 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -155,6 +158,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				B10000000000000000000001 /* Editor in Resources */,
+				B10000000000000000000002 /* Plugins in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

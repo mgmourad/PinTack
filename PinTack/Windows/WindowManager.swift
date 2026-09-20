@@ -13,6 +13,42 @@ final class WindowManager {
         nc.addObserver(self, selector: #selector(noteChangedExternally(_:)), name: .noteDidChangeExternally, object: nil)
         nc.addObserver(self, selector: #selector(noteRemoved(_:)), name: .noteWasRemoved, object: nil)
         nc.addObserver(self, selector: #selector(conflict(_:)), name: .vaultConflict, object: nil)
+        nc.addObserver(self, selector: #selector(noteSaved(_:)), name: .noteDidSave, object: nil)
+        nc.addObserver(self, selector: #selector(vaultChangedForPlugins), name: .vaultDidChange, object: nil)
+        nc.addObserver(self, selector: #selector(pluginSettingChanged(_:)), name: .pluginSettingsDidChange, object: nil)
+    }
+
+    // MARK: - Plugins (SPEC.md §12.3 events)
+
+    var allEditors: [NoteEditorView] { panels.values.map { $0.card.editor } }
+
+    /// A plugin was switched on or off: reload every editor so the change takes effect everywhere.
+    func reloadEditors() { allEditors.forEach { $0.reloadEditor() } }
+
+    /// A plugin rewrote a note's text through the vault API.
+    func noteChangedByPlugin(_ note: Note) {
+        panels[note.id]?.card.editor.reloadBody()
+        NotificationCenter.default.post(name: .noteBodyDidChange, object: note)
+        NotificationCenter.default.post(name: .vaultDidChange, object: nil)
+    }
+
+    @objc private func noteSaved(_ n: Notification) {
+        guard let note = n.object as? Note else { return }
+        panels[note.id]?.card.editor.sendPluginEvent("note:save", ["noteId": note.id])
+    }
+
+    private var vaultChangeWork: DispatchWorkItem?
+    /// Debounced: a burst of file events must reach plugins as one `vault:change`.
+    @objc private func vaultChangedForPlugins() {
+        vaultChangeWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.allEditors.forEach { $0.sendPluginEvent("vault:change") } }
+        vaultChangeWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
+    }
+
+    @objc private func pluginSettingChanged(_ n: Notification) {
+        guard let id = n.userInfo?["id"] as? String else { return }
+        allEditors.forEach { $0.sendPluginSettings(id) }
     }
 
     var openPanels: [NotePanel] { Array(panels.values) }
@@ -86,6 +122,10 @@ final class WindowManager {
     /// Hide the window but keep the note ("Minimize to All Notes"). SPEC.md §8.
     func close(noteID: String) {
         guard let panel = panels.removeValue(forKey: noteID) else { return }
+        // Tell plugins (best effort: the page is about to go away), and make sure that none of this
+        // note's commands keep running whether or not they got the message.
+        panel.card.editor.sendPluginEvent("note:close", ["noteId": noteID])
+        PluginBridge.shared.cancelRuns(owner: panel.card.editor)
         panel.orderOut(nil)
         panel.close()
         if lastFocusedID == noteID { lastFocusedID = nil }

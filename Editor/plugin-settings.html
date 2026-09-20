@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!-- Hosts a plugin's custom settings tab (registerSettingsTab). Same rule as the note editor: local
+     content only. No inline script, no network. -->
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src pintack-app:; style-src pintack-app: 'unsafe-inline'; img-src pintack-app: data:; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<title>Plugin settings</title>
+<style>
+  :root { color-scheme: light dark; --fg: CanvasText; --accent: #ff9f0a; --surface: rgba(128,128,128,.14); --rule: rgba(128,128,128,.3); --mono: ui-monospace, "SF Mono", Menlo, monospace; }
+  body { font: 13px -apple-system, system-ui, sans-serif; margin: 0; padding: 18px 22px; color: var(--fg); background: transparent; }
+  h3 { margin: 0 0 8px; font-size: 15px; }
+  p { margin: 0 0 10px; line-height: 1.45; }
+  input, select, textarea, button { font: inherit; }
+</style>
+</head>
+<body>
+<div id="host">Loading…</div>
+<script type="module" src="plugin-settings.js"></script>
+</body>
+</html>

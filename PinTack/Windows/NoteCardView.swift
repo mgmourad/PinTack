@@ -45,7 +45,6 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         super.init(frame: .zero)
         wantsLayer = true
         buildSubviews()
-        editor.loadNote(focus: false)
 
         let nc = NotificationCenter.default
         nc.addObserver(self, selector: #selector(bodyChanged(_:)), name: .noteBodyDidChange, object: note)

@@ -637,7 +637,7 @@ The widget reads the vault through the App Group container. Two options:
 }
 ```
 
-`permissions` is declared, surfaced to the user at enable time, and enforced by the Swift side. A plugin without `process.execute` cannot invoke the execution bridge, regardless of what its JS attempts.
+`permissions` is declared, surfaced to the user at enable time, and enforced by the Swift side. *(Built set: `process.execute`, `shortcuts.run`, `url.open`, `path.reveal`, `vault.read`, `vault.write`. See docs/PLUGINS.md.)* A plugin without `process.execute` cannot invoke the execution bridge, regardless of what its JS attempts.
 
 `settings` drives an auto-generated settings pane. Values are stored in `.pintack/settings.json` under the plugin id and delivered to the plugin at load.
 
@@ -757,7 +757,7 @@ Opened by `<✏️>`. Shows the exact command, working directory, the shell it w
 Notes are a transport format. Someone can send a `.md` file or paste content from a website. The moment a note carries an executable button, that is a code execution vector.
 
 - **No autorun, ever.** Execution requires a physical click. There is no flag that changes this.
-- **Trust is bound to the exact command string, not the note.** First click shows an approval sheet displaying the precise string to be executed. Approve once, remembered. Change one character, approval resets.
+- **Trust is bound to the exact command string AND its working folder, not the note.** *(Tightened 2026-09-19: the same `./run.sh` in another folder is a different program. Each entry is also HMAC-signed with a per-Mac secret outside the vault, so a synced or shared `trust.json` cannot pre-approve commands. Entries also record `kind` and `cwd`.)* First click shows an approval sheet displaying the precise string to be executed. Approve once, remembered. Change one character, approval resets.
 - **Imported and pasted notes start untrusted.** Runner blocks render inert with a "review before running" state rather than a live button.
 - **The command is always inspectable from the button.** A friendly label can never conceal what it runs.
 - Approvals stored in `.pintack/trust.json` as `{ hash(command) → { command, approvedAt } }`, revocable individually in Settings → Plugins → Runner.
