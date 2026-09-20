@@ -437,6 +437,9 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         panel.applyPinned()
         applyColors()
         editor.pushSettings()
+        // A note can BECOME a todo (typing @todo), which changes what the action bar shows.
+        updateActionBar()
+        updateReminderGlyph()
         needsLayout = true
         needsDisplay = true
     }

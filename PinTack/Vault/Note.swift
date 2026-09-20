@@ -27,6 +27,11 @@ final class Note {
 
     /// When this todo is due, and how it should nag. Todo notes only (SPEC.md §6). Kept in the
     /// frontmatter so a reminder travels with the note through sync, not in app state.
+    /// A template's name, "" for an ordinary note. Recalled by typing @name in any note.
+    /// Templates are still ordinary notes: they live in the vault, can sit in folders, and the
+    /// only thing that marks one is this key.
+    var templateName: String
+
     /// The app a quick-captured note came from, for when it is obvious now and not in a month.
     var source: String
 
@@ -79,6 +84,27 @@ final class Note {
             return String(t.prefix(60))
         }
         return "Untitled"
+    }
+
+    var isTemplate: Bool { !templateName.isEmpty }
+
+    /// Template names are one word: letters, digits, hyphens, dots and underscores, nothing else.
+    /// They are typed after an @ to recall one, so a space or a slash could not be parsed back out.
+    static func sanitizedTemplateName(_ raw: String) -> String {
+        let cleaned = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            .filter { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "." || $0 == "_" }
+        return String(cleaned.prefix(40))
+    }
+
+    /// `todo` cannot be a template name: @todo already means "turn this into a todo note".
+    static let reservedTemplateNames: Set<String> = ["todo"]
+
+    /// The title without the @Todo marker, for lists that are all todos anyway.
+    var titleWithoutTodoMarker: String {
+        let text = title
+        guard text.lowercased().hasPrefix("@todo") else { return text }
+        let rest = text.dropFirst(5).trimmingCharacters(in: .whitespaces)
+        return rest.isEmpty ? "Untitled todo" : rest
     }
 
     /// A todo note: either tagged `todo` (how New Todo makes one) or written as an @Todo list.
@@ -192,6 +218,7 @@ final class Note {
         self.collapsed = false
         self.visible = true
         self.frozen = false
+        self.templateName = ""
         self.source = ""
         self.due = nil
         self.remindOnTime = false
@@ -305,6 +332,7 @@ final class Note {
             case "collapsed": collapsed = (value == "true")
             case "frozen":    frozen = (value == "true")
             case "source":    source = value
+            case "template":  templateName = Note.sanitizedTemplateName(value)
             case "due":       due = value.isEmpty ? nil : Note.iso.date(from: value)
             case "remindOnTime": remindOnTime = (value == "true")
             case "remindAhead":  remindAhead = Note.normalizedAhead(value)
@@ -372,6 +400,7 @@ final class Note {
         out += "collapsed: \(collapsed)\n"
         out += "frozen: \(frozen)\n"
         if !source.isEmpty { out += "source: \"\(source.replacingOccurrences(of: "\"", with: ""))\"\n" }
+        if !templateName.isEmpty { out += "template: \(templateName)\n" }
         if let due {
             out += "due: \(Note.iso.string(from: due))\n"
             out += "remindOnTime: \(remindOnTime)\n"
@@ -397,7 +426,7 @@ final class Note {
         opacity = other.opacity; collapsed = other.collapsed; visible = other.visible
         frozen = other.frozen
         due = other.due; remindOnTime = other.remindOnTime; remindAhead = other.remindAhead
-        source = other.source
+        source = other.source; templateName = other.templateName
         customTitle = other.customTitle
         cardFrame = other.cardFrame; hasFrame = other.hasFrame
         body = other.body; unknownBlocks = other.unknownBlocks; usesCRLF = other.usesCRLF

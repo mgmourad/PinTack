@@ -21,7 +21,7 @@ import { createRuntime } from "./plugin-runtime.js";
 
 /* ------------------------------------------------------------------ bridge */
 
-const noteState = { noteId: null, tags: [], settings: {} };
+const noteState = { noteId: null, tags: [], settings: {}, templates: [] };
 
 function post(type, payload = {}) {
   const msg = { type, noteId: noteState.noteId, payload };
@@ -877,7 +877,7 @@ const commands = [
   ["quote", "Blockquote", linePrefix("> ")],
   ["list", "Bulleted list", linePrefix("- ")],
   ["numbered", "Numbered list", linePrefix("1. ")],
-  ["todo", "Task list", linePrefix("- [ ] ")],
+  ["checklist", "Checklist", linePrefix("- [ ] ")],
   ["divider", "Divider", (v, _c, f, to) => edit(v, f, to, "---\n")],
   ["highlight", "Highlight", wrap("==", "==", "text")],
   ["link", "Link", (v, _c, f, to) => edit(v, f, to, "[text](https://)", 1, 4)],
@@ -889,6 +889,7 @@ const commands = [
   // Native actions: the slash menu is just another way to reach what the note's own controls do.
   ["freeze", "Freeze / thaw (click-through)", (v, _c, f, to) => { edit(v, f, to, ""); post("note.action", { action: "freeze" }); }],
   ["find", "Find a note…", (v, _c, f, to) => { edit(v, f, to, ""); post("notes.list"); }],
+  ["template", "Save as template…", (v, _c, f, to) => { edit(v, f, to, ""); post("template.save"); }],
   ["image", "Image from Finder…", (v, _c, f, to) => { edit(v, f, to, ""); post("image.pick"); }],
   ["emoji", "Emoji picker", (v, _c, f, to) => { edit(v, f, to, ""); openEmoji(v); }],
 ];
@@ -938,6 +939,59 @@ function tagSource(ctx) {
     .filter((tag) => tag.toLowerCase().startsWith(typed) && tag.toLowerCase() !== typed)
     .map((tag) => ({ label: "#" + tag, type: "keyword" }));
   return options.length ? { from: m.from, options, validFor: /^#[\w/-]*$/ } : null;
+}
+
+/* ---------------------------------------------------------- @ recall (§8)
+ * `@todo` typed anywhere turns the note into a todo list; `@name` recalls a template. The @Todo
+ * marker already sitting on line 1 is neither: it IS the todo note, so it is left alone. */
+
+const TODO_TRIGGER = /(^|[\s(])@todo$/i;
+
+/** Puts "@Todo " on line 1 with the greyed title hint, and removes the trigger the user typed. */
+function convertToTodo(view, triggerFrom, triggerTo) {
+  const doc = view.state.doc;
+  if (/^@Todo(\s|$)/.test(doc.line(1).text)) {
+    // Already a todo note: just drop the text they typed rather than stacking a second marker.
+    view.dispatch({ changes: { from: triggerFrom, to: triggerTo, insert: "" } });
+    return;
+  }
+  view.dispatch({
+    changes: [{ from: triggerFrom, to: triggerTo, insert: "" }, { from: 0, insert: "@Todo \n\n" }],
+    selection: { anchor: 6 },        // right after "@Todo ", in front of the hint
+  });
+  post("note.action", { action: "tagTodo" });
+}
+
+/** Template names offered after an @. */
+function templateSource(ctx) {
+  const m = ctx.matchBefore(/@[\w.-]*/);
+  if (!m || (m.text.length < 2 && !ctx.explicit)) return null;
+  if (m.from > 0 && !/[\s(]/.test(ctx.state.sliceDoc(m.from - 1, m.from))) return null;
+  // Line 1's @Todo marker is the note's own title, not a template recall.
+  if (ctx.state.doc.lineAt(m.from).number === 1 && /^@Todo(\s|$)/.test(ctx.state.doc.line(1).text)) return null;
+
+  const typed = m.text.slice(1).toLowerCase();
+  const options = noteState.templates
+    .filter((t) => t.name.toLowerCase().startsWith(typed))
+    .map((t) => ({
+      label: "@" + t.name,
+      detail: t.title,
+      type: "keyword",
+      apply: (view, _c, from, to) => {
+        // Enter inserts the whole template where the @ was.
+        view.dispatch({ changes: { from, to, insert: t.body }, userEvent: "input.complete" });
+      },
+    }));
+  // "@todo" is offered too, because converting a note is the other thing an @ can do here.
+  if ("todo".startsWith(typed)) {
+    options.unshift({
+      label: "@todo",
+      detail: "Turn this into a todo note",
+      type: "keyword",
+      apply: (view, _c, from, to) => convertToTodo(view, from, to),
+    });
+  }
+  return options.length ? { from: m.from, options, validFor: /^@[\w.-]*$/ } : null;
 }
 
 /* --------------------------------------------------------------- emoji UI */
@@ -1173,7 +1227,7 @@ const view = new EditorView({
       modeCompartment.of(livePreviewExt),
       spellCompartment.of(EditorView.contentAttributes.of({ spellcheck: "false", autocorrect: "off", autocapitalize: "off" })),
       placeholder("Start typing…  ( / for commands )"),
-      autocompletion({ override: [slashSource, tagSource], icons: false, defaultKeymap: true }),
+      autocompletion({ override: [slashSource, tagSource, templateSource], icons: false, defaultKeymap: true }),
       Prec.highest(keymap.of([{ key: "Enter", run: enterHandler }, { key: "Tab", run: tabOutOfSpan }])),
       // With an emoji bullet chosen, typing "- " at the start of a line produces that emoji instead.
       EditorView.inputHandler.of((view, from, to, text) => {
@@ -1289,6 +1343,7 @@ window.__pintack = {
       case "note.load":
         noteState.noteId = msg.noteId;
         noteState.tags = p.tags || noteState.tags;
+        noteState.templates = p.templates || noteState.templates;
         if (p.settings) applySettings(p.settings);
         setMode(p.mode || "live");
         setBody(p.body || "", false);
@@ -1298,6 +1353,7 @@ window.__pintack = {
       case "note.reload": setBody(p.body || "", true); break;
       case "settings.changed": applySettings(p); break;
       case "tags.changed": noteState.tags = p.tags || []; break;
+      case "templates.changed": noteState.templates = p.templates || []; break;
 
       // Swift answered /find with the vault's notes; put the quick-open overlay up. SPEC.md §8.
       case "notes.list":

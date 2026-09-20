@@ -4,7 +4,7 @@ import AppKit
 /// Drives the All Notes window. Reloads whenever the vault changes.
 final class AllNotesModel: ObservableObject {
 
-    enum Mode: String { case folders = "Folders", tags = "Tags", todo = "Todo" }
+    enum Mode: String { case folders = "Folders", tags = "Tags", todo = "Todo", templates = "Templates" }
     enum Selection: Hashable { case all, folder(String), tag(String) }
 
     /// How the todo tab is ordered. SPEC.md §6.
@@ -20,7 +20,11 @@ final class AllNotesModel: ObservableObject {
     /// self-test happens to run relative to the window being built.
     static var debugInitialMode: Mode = {
         #if DEBUG
-        if ProcessInfo.processInfo.environment["PINTACK_ALLNOTES_TAB"] == "todo" { return .todo }
+        switch ProcessInfo.processInfo.environment["PINTACK_ALLNOTES_TAB"] {
+        case "todo":      return .todo
+        case "templates": return .templates
+        default:          break
+        }
         #endif
         return .folders
     }()
@@ -54,6 +58,17 @@ final class AllNotesModel: ObservableObject {
 
     /// Todo notes for the todo tab, filtered and ordered. Finished ones are hidden unless asked
     /// for, and when shown they are struck through rather than removed.
+    /// Every template in the vault, newest name order.
+    var templateNotes: [Note] {
+        _ = revision
+        var notes = VaultStore.shared.notes.filter(\.isTemplate)
+        if !query.isEmpty {
+            let q = query.lowercased()
+            notes = notes.filter { $0.templateName.lowercased().contains(q) || $0.title.lowercased().contains(q) }
+        }
+        return notes.sorted { $0.templateName.localizedStandardCompare($1.templateName) == .orderedAscending }
+    }
+
     var todoNotes: [Note] {
         _ = revision
         var notes = VaultStore.shared.notes.filter(\.isTodo)
@@ -143,15 +158,17 @@ struct AllNotesView: View {
                 Image(systemName: "folder").tag(AllNotesModel.Mode.folders)
                 Image(systemName: "number").tag(AllNotesModel.Mode.tags)
                 Text("@").tag(AllNotesModel.Mode.todo)
+                Image(systemName: "cube.box").tag(AllNotesModel.Mode.templates)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
             .padding(.horizontal, 10).padding(.top, 10)
-            .help("Folders, tags, or todo notes")
+            .help("Folders, tags, todos, or templates")
 
             if model.mode == .todo { todoControls }
+            if model.mode == .templates { templateControls }
 
-            if model.mode == .todo { Spacer() } else {
+            if model.mode == .todo || model.mode == .templates { Spacer() } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 1) {
                     row(icon: "note.text", title: "All notes", sel: .all, indent: 0)
@@ -204,6 +221,77 @@ struct AllNotesView: View {
         .padding(.horizontal, 10)
     }
 
+    /// The templates tab's sidebar: what a template is, and what the checked ones can be done with.
+    private var templateControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Templates are ordinary notes you have named. Type @name in any note to drop one in.")
+                .font(.caption).foregroundStyle(.secondary)
+            Text("\(model.templateNotes.count) template\(model.templateNotes.count == 1 ? "" : "s")")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 10)
+    }
+
+    @ViewBuilder private var templateList: some View {
+        let templates = model.templateNotes
+        if templates.isEmpty {
+            Spacer()
+            Text("No templates yet. Write a note the way you like it, then type /template to name it.")
+                .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center).padding()
+            Spacer()
+        } else {
+            HStack {
+                Button(model.selected.isEmpty ? "Select all" : "Clear selection") {
+                    model.selected = model.selected.isEmpty ? Set(templates.map(\.id)) : []
+                }
+                .buttonStyle(.plain).font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Text(model.selected.isEmpty ? "\(templates.count) templates" : "\(model.selected.count) selected")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 14).padding(.bottom, 4)
+
+            ScrollView {
+                LazyVStack(spacing: 2) {
+                    ForEach(templates, id: \.id) { note in TemplateRow(note: note, model: model) }
+                }
+                .padding(.horizontal, 8).padding(.bottom, 8)
+            }
+
+            Divider()
+            HStack(spacing: 8) {
+                settingsButton
+                Menu {
+                    Button("Vault root (no folder)") { move(to: "") }
+                    if !model.folders.isEmpty { Divider() }
+                    ForEach(model.folders, id: \.self) { f in Button(f) { move(to: f) } }
+                    Divider()
+                    Button("New folder…") { if let f = newFolderName() { move(to: f) } }
+                } label: {
+                    Label("Add to Folder", systemImage: "folder")
+                }
+                .disabled(model.selected.isEmpty)
+                .fixedSize()
+
+                Button("Delete selected", role: .destructive) { deleteSelected() }
+                    .disabled(model.selected.isEmpty)
+                    .fixedSize()
+                Spacer()
+            }
+            .padding(10)
+        }
+    }
+
+    /// Shortcut to Settings from the window everything else is managed in.
+    private var settingsButton: some View {
+        Button { SettingsWindowController.shared.show() } label: {
+            Image(systemName: "gearshape").frame(width: 22, height: 22).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
+        .help("PinTack Settings")
+    }
+
     private func row(icon: String, title: String, sel: AllNotesModel.Selection, indent: Int) -> some View {
         HStack(spacing: 7) {
             Image(systemName: icon).frame(width: 16).foregroundStyle(.secondary)
@@ -234,7 +322,11 @@ struct AllNotesView: View {
             .background(RoundedRectangle(cornerRadius: 7).fill(.quaternary))
             .padding(.horizontal, 10).padding(.top, 10).padding(.bottom, 4)
 
-            if model.mode == .todo { todoList } else { folderAndTagList }
+            switch model.mode {
+            case .todo:      todoList
+            case .templates: templateList
+            default:         folderAndTagList
+            }
         }
     }
 
@@ -255,6 +347,13 @@ struct AllNotesView: View {
                 }
                 .padding(.horizontal, 8).padding(.bottom, 8)
             }
+            Divider()
+            HStack(spacing: 8) {
+                settingsButton
+                Button("New todo") { WindowManager.shared.newTodo() }.fixedSize()
+                Spacer()
+            }
+            .padding(10)
         }
     }
 
@@ -289,6 +388,7 @@ struct AllNotesView: View {
 
             Divider()
             HStack(spacing: 8) {
+                settingsButton
                 Button("New note") {
                     let folder: String? = { if case .folder(let f) = model.selection { return f }; return nil }()
                     WindowManager.shared.newNote(folder: folder)
@@ -330,6 +430,13 @@ struct AllNotesView: View {
 
     // MARK: Actions
 
+    /// Creates a folder and returns its path, for menus that then move something into it.
+    private func newFolderName() -> String? {
+        guard let name = Prompt.text(title: "New folder", message: "Folders are directories inside your vault. Use / for a nested folder.",
+                                     placeholder: "Folder name", confirm: "Create") else { return nil }
+        return VaultStore.shared.createFolder(name)
+    }
+
     private func newFolder() {
         guard let name = Prompt.text(title: "New folder", message: "Folders are directories inside your vault. Use / for a nested folder.",
                                      placeholder: "Folder name", confirm: "Create"),
@@ -360,6 +467,61 @@ struct AllNotesView: View {
 
 /// One todo note in the todo tab: a checkbox that finishes the whole note, its title, a one-line
 /// preview, and its progress as squares with a count. SPEC.md §6.
+/// One template in the templates tab: its @name, the note it came from, and a checkbox so several
+/// can be moved into a folder or deleted at once.
+private struct TemplateRow: View {
+
+    let note: Note
+    @ObservedObject var model: AllNotesModel
+    @State private var hovering = false
+
+    private var isSelected: Bool { model.selected.contains(note.id) }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Button { model.toggle(note) } label: {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 15))
+                    .foregroundStyle(isSelected ? Color(nsColor: Brand.accentNS) : .secondary)
+            }
+            .buttonStyle(.plain)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text("@" + note.templateName)
+                        .font(.system(size: 12.5, weight: .semibold, design: .monospaced))
+                    let folder = VaultStore.shared.folder(of: note)
+                    if !folder.isEmpty {
+                        Text(folder).font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
+                Text(note.previewLine.isEmpty ? note.title : note.previewLine)
+                    .font(.system(size: 11.5)).foregroundStyle(.secondary).lineLimit(1)
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { WindowManager.shared.reveal(note) }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 7).padding(.horizontal, 10)
+        .background(RoundedRectangle(cornerRadius: 8).fill(hovering ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear)))
+        .onHover { hovering = $0 }
+        .contextMenu {
+            Button("Open") { WindowManager.shared.reveal(note) }
+            Button("Stop being a template") { unmark() }
+            Divider()
+            Button("Move to Trash", role: .destructive) { WindowManager.shared.delete([note]) }
+        }
+    }
+
+    /// Keeps the note, drops the template marker — the harmless half of "delete".
+    private func unmark() {
+        note.templateName = ""
+        VaultStore.shared.save(note)
+        NotificationCenter.default.post(name: .vaultDidChange, object: nil)
+    }
+}
+
 private struct TodoRow: View {
 
     let note: Note
@@ -382,7 +544,8 @@ private struct TodoRow: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
-                    Text(note.title)
+                    // Every row here is a todo, so the @Todo marker is noise.
+                    Text(note.titleWithoutTodoMarker)
                         .font(.system(size: 12.5, weight: .semibold))
                         .strikethrough(note.isDone)
                         .lineLimit(1)

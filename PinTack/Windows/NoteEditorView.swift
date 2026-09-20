@@ -164,6 +164,7 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
             "settings": settingsPayload(),
             "focus": focus,
             "plugins": pluginSession(),
+            "templates": NoteEditorView.templatePayload(),
         ])
     }
 
@@ -226,6 +227,52 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
 
     /// Colors are decided natively so contrast is always right for the note color.
     /// SPEC.md §4.3, §9.
+    /// Asks for a template name, checks it, and marks this note as a template.
+    private func promptForTemplateName() {
+        let suggestion = Note.sanitizedTemplateName(note.templateName.isEmpty ? note.title : note.templateName)
+        guard let raw = Prompt.text(title: "Save as template",
+                                    message: "One word: letters, numbers, hyphens, dots and underscores. "
+                                           + "Recall it in any note by typing @name.",
+                                    placeholder: suggestion.isEmpty ? "meeting-notes" : suggestion,
+                                    confirm: "Save") else { return }
+
+        let name = Note.sanitizedTemplateName(raw)
+        guard !name.isEmpty else {
+            Toast.show("A template name needs at least one letter or number")
+            return
+        }
+        guard !Note.reservedTemplateNames.contains(name.lowercased()) else {
+            // @todo already means "turn this into a todo note"; a template of that name could
+            // never be recalled.
+            Toast.show("“\(name)” is reserved — @todo already converts a note")
+            return
+        }
+        if let clash = VaultStore.shared.notes.first(where: {
+            $0.id != note.id && $0.templateName.caseInsensitiveCompare(name) == .orderedSame
+        }) {
+            guard Prompt.confirm(title: "Replace the “\(name)” template?",
+                                 message: "“\(clash.title)” is already saved under that name. It stays a note, "
+                                        + "but it stops being a template.",
+                                 button: "Replace") else { return }
+            clash.templateName = ""
+            VaultStore.shared.save(clash)
+        }
+
+        SaveCoordinator.shared.flush(noteID: note.id)
+        note.templateName = name
+        VaultStore.shared.save(note)
+        NotificationCenter.default.post(name: .vaultDidChange, object: nil)
+        WindowManager.shared.refreshTemplates()
+        Toast.show("Saved as @\(name)")
+    }
+
+    /// Every template the vault holds, for the @ menu.
+    static func templatePayload() -> [[String: Any]] {
+        VaultStore.shared.notes.filter(\.isTemplate).map { template in
+            ["name": template.templateName, "title": template.title, "body": template.body]
+        }
+    }
+
     /// Pushes one freshly fetched preview to the page.
     private func sendPreview(_ url: String) {
         guard !LinkPreviewStore.shared.isDismissed(noteID: note.id, url: url) else { return }
@@ -356,9 +403,21 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
             panel.pulse()
             window?.makeKeyAndOrderFront(nil)
 
+        // /template: name this note and it becomes one, recallable with @name anywhere.
+        case "template.save":
+            promptForTemplateName()
+
         // A slash command asking for something the note itself does (e.g. /freeze).
         case "note.action":
-            if let raw = payload["action"] as? String, let action = ShortcutAction(rawValue: raw) {
+            if payload["action"] as? String == "tagTodo" {
+                // The page put "@Todo" on line 1; the tag is Swift's side of the same change.
+                if !note.isTodo || !note.tags.contains(where: { $0.caseInsensitiveCompare("todo") == .orderedSame }) {
+                    note.tags.append("todo")
+                    VaultStore.shared.save(note)
+                    NotificationCenter.default.post(name: .vaultDidChange, object: nil)
+                }
+                WindowManager.shared.panel(for: note.id)?.card.refreshFromNote()
+            } else if let raw = payload["action"] as? String, let action = ShortcutAction(rawValue: raw) {
                 WindowManager.shared.panel(for: note.id)?.card.perform(action)
             }
 

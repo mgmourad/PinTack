@@ -272,6 +272,15 @@ Owner decisions added after the rebuild (2026-09-19):
   implement this by synthesising ⌘C into another app — that needs Accessibility, and this app must
   not ask for it. NSServices is why the app uses a real `PinTack/Info.plist` instead of
   GENERATE_INFOPLIST_FILE: `INFOPLIST_KEY_*` cannot express an array of dictionaries.
+- `@` in a note means two things and they must not collide: `@todo` converts the note to a todo
+  (puts `@Todo` on line 1 with the greyed hint and adds the `todo` tag), and `@name` recalls a
+  template. Line 1's own `@Todo` marker is NEVER a template trigger, and `todo` is a reserved
+  template name. The old `/todo` command is now `/checklist`.
+- Templates are ordinary notes carrying `template: <name>` in the frontmatter — they still live in
+  folders and appear in lists. Names are one word (letters, digits, hyphen, dot, underscore),
+  because the name has to be parsed back out of `@name` in a note's text.
+- All Notes has four glyph tabs: folder, #, @ (todos), cube (templates). Todo rows strip the
+  `@Todo` marker from the title, since every row there is a todo.
 - `/find` is quick open. Opening a note from it deliberately does NOT move focus: the key window and
   the caret stay where the search started.
 - Link previews are off by default and fetched only in Swift. A dismissed preview is remembered in

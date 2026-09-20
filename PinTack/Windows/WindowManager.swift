@@ -25,6 +25,12 @@ final class WindowManager {
     /// A plugin was switched on or off: reload every editor so the change takes effect everywhere.
     func reloadEditors() { allEditors.forEach { $0.reloadEditor() } }
 
+    /// Pushes the vault's templates to every open note, so a newly saved one is recallable at once.
+    func refreshTemplates() {
+        let payload = NoteEditorView.templatePayload()
+        allEditors.forEach { $0.send("templates.changed", ["templates": payload]) }
+    }
+
     /// A plugin rewrote a note's text through the vault API.
     func noteChangedByPlugin(_ note: Note) {
         panels[note.id]?.card.editor.reloadBody()

@@ -764,6 +764,13 @@ enum SelfTest {
     /// The reminder bell: it appears on todo notes only, and its popover writes the date into the
     /// note. Notification delivery itself is the system's business and is not simulated here.
     private static func reminderTest(out: URL, then next: @escaping () -> Void) {
+        // A template, so the templates tab and the @ menu have something in them.
+        let template = VaultStore.shared.createNote(
+            body: "# Change record\n\n| Step | Owner |\n| --- | --- |\n| Raise | me |\n",
+            frame: WindowManager.shared.nextCardFrame(size: NSSize(width: 300, height: 200)))
+        template.templateName = "change-record"
+        VaultStore.shared.save(template)
+
         // A second todo with a longer list, so the todo tab has something with real progress in it.
         let other = VaultStore.shared.createNote(
             body: "@Todo Cert rotation\n\nRenew before the audit\n\n- [x] export\n- [x] sign\n- [x] stage\n- [ ] deploy\n- [ ] verify\n",
@@ -888,8 +895,60 @@ enum SelfTest {
         next()
     }
 
+    /// Templates and the @ conversions, in the real page: the template list has to reach it, an
+    /// @-recall has to paste the whole template, and @todo has to tag the note on the Swift side.
+    private static func templateTest(then next: @escaping () -> Void) {
+        let plain = VaultStore.shared.createNote(body: "# Plain note\n\nSome content.\n",
+                                                 frame: WindowManager.shared.nextCardFrame(size: NSSize(width: 320, height: 240)))
+        let panel = WindowManager.shared.open(plain, focus: false)
+        log("templates in the vault: \(VaultStore.shared.notes.filter(\.isTemplate).map(\.templateName))")
+
+        let js = """
+        const sleep = ms => new Promise(r => setTimeout(r, ms));
+        const view = window.__pintack._view;
+        const type = (text) => { for (const ch of text) { const s = view.state.selection.main;
+          view.dispatch({ changes: { from: s.from, to: s.to, insert: ch }, selection: { anchor: s.from + 1 }, userEvent: "input.type" }); } };
+        const steps = {};
+        view.focus();
+
+        // 1. Recall a template by name.
+        view.dispatch({ selection: { anchor: view.state.doc.length } });
+        type("@chan");
+        await sleep(400);
+        const menu = document.querySelector('.cm-tooltip-autocomplete');
+        steps.templateOffered = menu ? [...menu.querySelectorAll('li')].map(l => l.textContent) : [];
+        view.contentDOM.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        await sleep(400);
+        steps.templateInserted = view.state.doc.toString().includes('| Step | Owner |');
+
+        // 2. Convert the note to a todo.
+        view.dispatch({ selection: { anchor: view.state.doc.length } });
+        type("@tod");
+        await sleep(400);
+        view.contentDOM.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        await sleep(500);
+        steps.firstLine = view.state.doc.toString().split('\\n')[0];
+        steps.hintShown = !!document.querySelector('.cm-hint');
+        return JSON.stringify(steps);
+        """
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.3) {
+            panel.card.editor.callAsyncJavaScript(js, arguments: [:], in: nil, in: .page) { result in
+                switch result {
+                case .success(let v): log("templates + @todo in the app: \(v as? String ?? "nil")")
+                case .failure(let e): log("templates + @todo in the app: FAILED \(e)")
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    SaveCoordinator.shared.flush(noteID: plain.id)
+                    log("@todo tagged the note in Swift: isTodo = \(plain.isTodo), tags = \(plain.tags), "
+                        + "bell shown = \(!(WindowManager.shared.panel(for: plain.id)?.card.debugBellHidden ?? true))")
+                    next()
+                }
+            }
+        }
+    }
+
     private static func renderWindows(out: URL) {
-        runnerTest(out: out) { linkPreviewTest(out: out) { imageEditTest(out: out) { freezeTest { reminderTest(out: out) { findTest(out: out) { quickCaptureTest { renderWindowsNow(out: out) } } } } } } }
+        runnerTest(out: out) { linkPreviewTest(out: out) { imageEditTest(out: out) { freezeTest { reminderTest(out: out) { findTest(out: out) { quickCaptureTest { templateTest { renderWindowsNow(out: out) } } } } } } } }
     }
 
     private static func renderWindowsNow(out: URL) {
