@@ -338,6 +338,9 @@ private struct EditorPane: View {
             .pickerStyle(.segmented)
             Toggle("Spellcheck", isOn: $s.spellcheck)
             Toggle("Slash commands (type / for a menu)", isOn: $s.slashCommands)
+            Toggle("Paste rich text as Markdown", isOn: $s.pasteAsMarkdown)
+            Text("Copying from a web page or an email keeps its headings, links, lists and tables. Hold Shift when pasting (⇧⌘V) to paste the plain text instead.")
+                .font(.caption).foregroundStyle(.secondary)
             Picker("Pasted or picked images", selection: $s.imagePaste) {
                 Text("Copy into the vault").tag("copy"); Text("Link in place").tag("link")
             }

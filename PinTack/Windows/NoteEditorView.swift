@@ -258,6 +258,7 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
             "bullet": s.bulletEmoji,
             "spellcheck": s.spellcheck,
             "slashCommands": s.slashCommands,
+            "pasteAsMarkdown": s.pasteAsMarkdown,
             "linkPreviews": s.linkPreviews,
         ]
     }

@@ -15,6 +15,7 @@ import { syntaxTree, ensureSyntaxTree, syntaxHighlighting, HighlightStyle } from
 import { autocompletion, completionKeymap, startCompletion } from "@codemirror/autocomplete";
 import { tags as t } from "@lezer/highlight";
 import { codeLanguages, badgeFor } from "./languages.js";
+import { htmlToMarkdown } from "./html-to-markdown.js";
 import { createRuntime } from "./plugin-runtime.js";
 
 /* ------------------------------------------------------------------ bridge */
@@ -140,6 +141,7 @@ function updateBlockSource(view, el, text) {
 const linkPreviews = new Map();      // url -> {title, summary, domain, image} | "failed"
 const dismissedLinks = new Set();
 let previewsEnabled = false;
+let pasteAsMarkdown = true;      // Settings → Editor
 
 class LinkPreviewWidget extends WidgetType {
   constructor(url, data) { super(); this.url = url; this.data = data; }
@@ -1190,7 +1192,25 @@ const view = new EditorView({
       EditorView.domEventHandlers({
         focus: (_e, v) => { v.dispatch({ effects: setFocus.of(true) }); post("focus.changed", { focused: true }); },
         blur: (_e, v) => { v.dispatch({ effects: setFocus.of(false) }); post("focus.changed", { focused: false }); },
-        paste: (e) => { const f = imageFiles(e.clipboardData); if (!f.length) return false; e.preventDefault(); sendImages(f); return true; },
+        paste: (e, v) => {
+          const files = imageFiles(e.clipboardData);
+          if (files.length) { e.preventDefault(); sendImages(files); return true; }
+          // Rich text: keep the headings, links and lists instead of flattening them. Shift-Cmd-V
+          // skips this and pastes the plain flavour, the usual macOS escape hatch.
+          if (e.shiftKey || !pasteAsMarkdown) return false;
+          const html = e.clipboardData && e.clipboardData.getData("text/html");
+          if (!html) return false;
+          let markdown = "";
+          try { markdown = htmlToMarkdown(html); } catch (_) { return false; }
+          const plain = (e.clipboardData.getData("text/plain") || "").trim();
+          // Only worth it when the conversion actually kept something the plain text lost.
+          if (!markdown || markdown === plain) return false;
+          e.preventDefault();
+          const sel = v.state.selection.main;
+          v.dispatch({ changes: { from: sel.from, to: sel.to, insert: markdown },
+                       selection: { anchor: sel.from + markdown.length }, userEvent: "input.paste" });
+          return true;
+        },
         drop: (e) => { const f = imageFiles(e.dataTransfer); if (!f.length) return false; e.preventDefault(); sendImages(f); return true; },
         mousedown: (e, v) => {
           if (selectedImage !== null && !(e.target instanceof Element && e.target.closest(".cm-image-wrap"))) deselectImage();
@@ -1246,6 +1266,7 @@ function applySettings(s) {
     view.dispatch({ effects: spellCompartment.reconfigure(EditorView.contentAttributes.of({ spellcheck: String(s.spellcheck), autocorrect: "off", autocapitalize: "off" })) });
   }
   if (s.slashCommands === false) { /* handled by Swift filtering; kept for future use */ }
+  if (s.pasteAsMarkdown != null) pasteAsMarkdown = s.pasteAsMarkdown;
   if (s.linkPreviews != null && s.linkPreviews !== previewsEnabled) {
     previewsEnabled = s.linkPreviews;
     // Turning the setting off must drop the cards immediately, not at the next keystroke.

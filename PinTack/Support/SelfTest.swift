@@ -194,11 +194,20 @@ enum SelfTest {
         // Paste through the responder chain, with the user's clipboard saved and restored.
         let general = NSPasteboard.general
         let saved = general.string(forType: .string)
-        general.clearContents(); general.setString("PASTE-OK", forType: .string)
+        // Rich text: the pasteboard carries BOTH flavours, exactly as a browser copy does. The
+        // editor must take the HTML one and write Markdown, not flatten it to the plain string.
+        general.clearContents()
+        general.setString("<h3>Rollout</h3><ul><li>Pilot <b>ring 1</b></li></ul>", forType: .html)
+        general.setString("Rollout Pilot ring 1", forType: .string)
         p2m.makeKeyAndOrderFront(nil); p2m.makeFirstResponder(p2m.card.editor)
         let handled = NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: nil)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            p2m.card.editor.evaluateJavaScript("window.__pintack._view.state.doc.toString().includes('PASTE-OK')") { r, _ in
+            p2m.card.editor.evaluateJavaScript("(()=>{const d=window.__pintack._view.state.doc.toString();"
+                + "return JSON.stringify({markdown: d.includes('### Rollout') && d.includes('- Pilot **ring 1**'),"
+                + " flattened: d.includes('Rollout Pilot ring 1')})})()") { r, _ in
+                log("rich text paste → Markdown: \(r ?? "nil") (markdown must be true, flattened false)")
+            }
+            p2m.card.editor.evaluateJavaScript("window.__pintack._view.state.doc.toString().includes('Rollout')") { r, _ in
                 log("Paste from the context menu path: sendAction handled = \(handled), text arrived in the note = \(String(describing: r))")
                 general.clearContents(); if let saved { general.setString(saved, forType: .string) }
             }
