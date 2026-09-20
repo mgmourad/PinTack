@@ -15,6 +15,15 @@ its notes in `~/Documents/PinTack/`. It shows a Dock icon and a pushpin in the m
 If you cannot see the pushpin, a menu-bar manager (Thaw, Bartender, Ice) or the MacBook
 notch has probably pushed it out of view; check that tool's hidden section.
 
+## Making a DMG to test on another Mac
+
+```bash
+scripts/make-dmg.sh        # -> dist/PinTack-<version>.dmg (universal, ad-hoc signed, NOT notarized)
+```
+
+The other Mac's Gatekeeper blocks the first launch until notarization exists (Phase 5); the DMG carries a
+"READ ME FIRST" note with the three ways past it.
+
 ## Layout
 
 | Path | What |
