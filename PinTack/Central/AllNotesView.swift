@@ -642,7 +642,9 @@ private struct NoteRow: View {
                         .onExitCommand { model.renamingID = nil }
                 } else {
                     HStack(spacing: 4) {
-                        Text(note.title).font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
+                        // The @Todo marker is how a todo note is WRITTEN, not what it is called.
+                        // The todo tab has always stripped it; this list should read the same.
+                        Text(note.titleWithoutTodoMarker).font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
                         if note.pinned { Image(systemName: "pin.fill").font(.caption2).foregroundStyle(.secondary) }
                         // A frozen note takes no clicks of its own, so this is the backstop for
                         // thawing one that has ended up somewhere awkward (off-screen, behind

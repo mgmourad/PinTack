@@ -27,17 +27,50 @@ enum SelfTest {
 
     private static func log(_ s: String) { lines.append(s); NSLog("PinTack selftest: \(s)") }
 
+    // MARK: Checks
+    //
+    // The report used to be prose that a person had to read and judge. That made it useless to
+    // anyone who did not already know what "good" looked like, and it could not gate a build.
+    // Every fact worth checking now goes through `check`, failures are collected, and the process
+    // exits non-zero so this can run in CI.
+
+    private static var failures: [String] = []
+    private static var checksRun = 0
+
+    /// Records one expectation. `detail` is always logged, so the report still reads as a story.
+    @discardableResult
+    static func check(_ what: String, _ passed: Bool, _ detail: String = "") -> Bool {
+        checksRun += 1
+        let line = (passed ? "PASS  " : "FAIL  ") + what + (detail.isEmpty ? "" : ": " + detail)
+        log(line)
+        if !passed { failures.append(what + (detail.isEmpty ? "" : ": " + detail)) }
+        return passed
+    }
+
+    /// For values worth recording that nothing asserts on (sizes, ids, timings).
+    static func note(_ what: String, _ detail: String) { log("      " + what + ": " + detail) }
+
+    /// Reads one field out of a JSON string a page returned, for checking.
+    static func field(_ json: String?, _ key: String) -> Any? {
+        guard let json, let data = json.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        return object[key]
+    }
+
+    static func bool(_ json: String?, _ key: String) -> Bool { field(json, key) as? Bool ?? false }
+    static func int(_ json: String?, _ key: String) -> Int { field(json, key) as? Int ?? -1 }
+    static func text(_ json: String?, _ key: String) -> String { field(json, key) as? String ?? "" }
+
     private static func run(out: URL, statusItem: StatusItemController?) {
-        log("activationPolicy = \(NSApp.activationPolicy() == .regular ? "regular (Dock icon shown)" : "NOT regular")")
+        check("Dock icon shown (activation policy is regular)", NSApp.activationPolicy() == .regular)
         log("vault = \(VaultStore.shared.vaultURL.path)")
         log("notes in vault = \(VaultStore.shared.notes.count), open panels = \(WindowManager.shared.openPanels.count)")
 
         // Dock icon
         if let icon = NSApp.applicationIconImage {
-            log("dock icon: \(Int(icon.size.width))x\(Int(icon.size.height)) pt, \(icon.representations.count) representations")
+            check("the app has a Dock icon", icon.size.width > 0, "\(Int(icon.size.width))x\(Int(icon.size.height)) pt")
             save(icon, to: out.appendingPathComponent("dock-icon.png"))
-        } else { log("dock icon: MISSING") }
-        log("asset 'AppIcon' resolves: \(NSImage(named: "AppIcon") != nil)")
+        } else { check("the app has a Dock icon", false, "MISSING") }
 
         // Menu-bar icon
         if let item = statusItem?.statusItem {
@@ -69,19 +102,21 @@ enum SelfTest {
             }
             for wanted in [ShortcutAction.deleteNote, .allNotesByTag, .showTodos, .showTemplates, .showAllOnDesktop] {
                 let hit = shown.first { $0.hasSuffix(ShortcutStore.shared.combo(for: wanted).display) }
-                log("menu entry for \(wanted.rawValue): \(hit ?? "MISSING")")
+                check("\(wanted.rawValue) has a menu entry with its shortcut", hit != nil, hit ?? "MISSING")
             }
         }
 
         // Hotkeys: registration status per global action, then push a simulated press
         // through the same Carbon handler path and check that a note appears.
         for (action, status) in GlobalHotKeyCenter.shared.lastStatus.sorted(by: { $0.key.rawValue < $1.key.rawValue }) {
-            log("hotkey \(ShortcutStore.shared.combo(for: action).display) (\(action.rawValue)): OSStatus \(status) \(status == noErr ? "registered" : "FAILED")")
+            check("global hotkey \(ShortcutStore.shared.combo(for: action).display) registers (\(action.rawValue))",
+                  status == noErr, status == noErr ? "" : "OSStatus \(status)")
         }
         let before = VaultStore.shared.notes.count
         let delivered = GlobalHotKeyCenter.shared.simulatePress(of: .newNote)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-            log("simulated ⌥⌘N through Carbon handler: delivered=\(delivered), notes \(before) -> \(VaultStore.shared.notes.count)")
+            check("⌥⌘N through the Carbon handler makes exactly one note", delivered && VaultStore.shared.notes.count == before + 1,
+                  "delivered=\(delivered), notes \(before) -> \(VaultStore.shared.notes.count)")
             bridgeTest(out: out)
         }
     }
@@ -111,7 +146,8 @@ enum SelfTest {
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
             let onDisk = (try? String(contentsOf: target.note.fileURL, encoding: .utf8)) ?? ""
-            log("bridge round trip (type → JS → Swift → atomic save): file contains edit = \(onDisk.contains("BRIDGE-TEST-OK")); inline #tag merged into frontmatter = \(onDisk.contains("selftest"))")
+            check("typing reaches the file (JS → Swift → atomic save)", onDisk.contains("BRIDGE-TEST-OK"))
+            check("an inline #tag is merged into the frontmatter", onDisk.contains("selftest"))
             codeHighlightTest(panels: panels) { shortcutTest(out: out) { interactionTest(out: out) } }
         }
     }
@@ -149,10 +185,11 @@ enum SelfTest {
         });
         """
         panels[1].card.editor.callAsyncJavaScript(js, arguments: [:], in: nil, in: .page) { result in
-            switch result {
-            case .success(let value): log("code block highlighting in the app: \(value as? String ?? "nil")")
-            case .failure(let error): log("code block highlighting in the app: FAILED \(error)")
-            }
+            let json = (try? result.get()) as? String
+            check("a fenced block is syntax highlighted", int(json, "tokens") > 0 && int(json, "distinctColours") > 1,
+                  json ?? "no result")
+            check("the language logo loads under the page's CSP", text(json, "logo").contains(".svg"), text(json, "logo"))
+            check("the block carries its language badge", text(json, "badge") == "PowerShell", text(json, "badge"))
             next()
         }
     }
@@ -226,7 +263,9 @@ enum SelfTest {
             p2m.card.editor.evaluateJavaScript("(()=>{const d=window.__pintack._view.state.doc.toString();"
                 + "return JSON.stringify({markdown: d.includes('### Rollout') && d.includes('- Pilot **ring 1**'),"
                 + " flattened: d.includes('Rollout Pilot ring 1')})})()") { r, _ in
-                log("rich text paste → Markdown: \(r ?? "nil") (markdown must be true, flattened false)")
+                let j = r as? String
+                check("pasted rich text becomes Markdown instead of being flattened",
+                      bool(j, "markdown") && !bool(j, "flattened"), j ?? "no result")
             }
             p2m.card.editor.evaluateJavaScript("window.__pintack._view.state.doc.toString().includes('Rollout')") { r, _ in
                 log("Paste from the context menu path: sendAction handled = \(handled), text arrived in the note = \(String(describing: r))")
@@ -314,17 +353,19 @@ enum SelfTest {
         func press(_ a: ShortcutAction, rep: Bool = false) {
             if let e = key(ShortcutStore.shared.combo(for: a), repeat: rep, in: p) { _ = app.handleShortcut(e) }
         }
-        let pinned0 = n.pinned; press(.pin);  log("shortcut ⌥⌘P: pinned \(pinned0) -> \(n.pinned)")
+        let pinned0 = n.pinned; press(.pin); check("⌥⌘P pins the focused note", n.pinned != pinned0)
         press(.pin)
-        let col0 = n.collapsed; press(.collapse); log("shortcut ⌥⌘K: collapsed \(col0) -> \(n.collapsed)"); press(.collapse)
-        let mode0 = p.card.editor.mode; press(.toggleMode); log("shortcut ⌥⌘M: mode \(mode0) -> \(p.card.editor.mode)"); press(.toggleMode)
-        press(.color3); log("shortcut ⌥⌘3: color = \(n.colorHex) (expected Mint \(NotePalette.set(for: n.theme)[2].hex))")
-        let op0 = n.opacity; press(.lessOpaque); log("shortcut ⌥⌘,: opacity \(op0) -> \(n.opacity)"); press(.moreOpaque)
+        let col0 = n.collapsed; press(.collapse); check("⌥⌘K collapses the focused note", n.collapsed != col0); press(.collapse)
+        let mode0 = p.card.editor.mode; press(.toggleMode); check("⌥⌘M switches Live Preview / Source", p.card.editor.mode != mode0); press(.toggleMode)
+        press(.color3)
+        check("⌥⌘3 applies the third swatch", n.colorHex.caseInsensitiveCompare(NotePalette.set(for: n.theme)[2].hex) == .orderedSame,
+              "got \(n.colorHex)")
+        let op0 = n.opacity; press(.lessOpaque); check("⌥⌘, fades the note", n.opacity < op0); press(.moreOpaque)
 
         // Key repeat: a held ⌥⌘P must act once, not flip back and forth.
         let before = n.pinned
         press(.pin); press(.pin, rep: true); press(.pin, rep: true); press(.pin, rep: true)
-        log("held ⌥⌘P (1 press + 3 auto-repeats): pinned \(before) -> \(n.pinned) (must have toggled exactly once)")
+        check("a HELD ⌥⌘P toggles once, not once per repeat", n.pinned != before)
         press(.pin, rep: false)
 
         // The same press arriving by two paths (Carbon + key monitor) must act ONCE.
@@ -332,7 +373,7 @@ enum SelfTest {
         ActionRouter.resetDedupeMemory()
         let beforeDup = n.pinned
         press(.pin); press(.pin)
-        log("one press delivered twice (two paths): pinned \(beforeDup) -> \(n.pinned) (must have toggled exactly once)")
+        check("one press arriving by two paths acts once", n.pinned != beforeDup)
         ActionRouter.dedupeInterval = 0
         press(.pin)
 
@@ -345,7 +386,9 @@ enum SelfTest {
         let realBefore = n.collapsed
         if let e = key(ShortcutStore.shared.combo(for: .collapse), in: p) { NSApp.postEvent(e, atStart: false) }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            log("REAL ⌥⌘K press (every dispatch path): collapsed \(realBefore) -> \(n.collapsed), toggleCollapse ran \(NoteCardView.collapseRunCount)x (must be 1)")
+            check("a REAL ⌥⌘K press collapses the note exactly once",
+                  n.collapsed != realBefore && NoteCardView.collapseRunCount == 1,
+                  "ran \(NoteCardView.collapseRunCount)x")
             if n.collapsed != realBefore { p.card.toggleCollapse() }
             ActionRouter.dedupeInterval = 0
             shortcutTailTest(p: p, n: n, then: next)
@@ -357,12 +400,14 @@ enum SelfTest {
         let notesBefore = VaultStore.shared.notes.count
         for _ in 0..<5 { GlobalHotKeyCenter.shared.simulatePress(of: .newNote) }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            log("5 rapid ⌥⌘N presses: notes \(notesBefore) -> \(VaultStore.shared.notes.count) (must be +1)")
+            check("five rapid ⌥⌘N presses make one note", VaultStore.shared.notes.count == notesBefore + 1,
+                  "notes \(notesBefore) -> \(VaultStore.shared.notes.count)")
             // Active note when the key window is something else (All Notes): falls back to the last focused note.
             AllNotesWindowController.shared.show()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                 let target = WindowManager.shared.focusedPanel
-                log("with All Notes key, shortcut target = \(target?.note.title.debugDescription ?? "NONE (would toast 'Click a note first')")")
+                check("with All Notes key, note shortcuts still find a target", target != nil,
+                      target?.note.title ?? "none")
                 next()
             }
         }
@@ -482,10 +527,9 @@ enum SelfTest {
         // replaced under the waiting promise ("completion handler is no longer reachable").
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
         panel.card.editor.callAsyncJavaScript(js, arguments: [:], in: nil, in: .page) { result in
-            switch result {
-            case .success(let value): log("link preview card: \(value as? String ?? "nil")")
-            case .failure(let error): log("link preview card: FAILED \(error)")
-            }
+            let card = (try? result.get()) as? String
+            check("a pasted link renders a card with its title and thumbnail",
+                  bool(card, "card") && !text(card, "title").isEmpty && bool(card, "thumbLoaded"), card ?? "no result")
             // Dismissing must leave the plain URL behind, and must stick.
             let dismissJS = """
             const card = document.querySelector('.cm-link-card');
@@ -501,8 +545,10 @@ enum SelfTest {
             return JSON.stringify(steps);
             """
             panel.card.editor.callAsyncJavaScript(dismissJS, arguments: [:], in: nil, in: .page) { r2 in
-                if case .success(let v) = r2 { log("link preview ✕ dismiss: \(v as? String ?? "nil")") }
-                log("dismissal recorded in Swift = \(LinkPreviewStore.shared.isDismissed(noteID: note.id, url: url))")
+                let j = (try? r2.get()) as? String
+                check("the card's ✕ restores the plain URL and sticks",
+                      bool(j, "cardGone") && bool(j, "showsURL")
+                      && LinkPreviewStore.shared.isDismissed(noteID: note.id, url: url), j ?? "no result")
                 snapshot(window: panel, to: out.appendingPathComponent("link-preview.png")) { next() }
             }
         }
@@ -574,10 +620,12 @@ enum SelfTest {
         """
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
             panel.card.editor.callAsyncJavaScript(js, arguments: [:], in: nil, in: .page) { result in
-                switch result {
-                case .success(let v): log("image edit — select + resize: \(v as? String ?? "nil")")
-                case .failure(let e): log("image edit — select + resize: FAILED \(e)")
-                }
+                let j = (try? result.get()) as? String
+                check("clicking an image gives it 4 handles and 2 tools",
+                      int(j, "handles") == 4 && int(j, "tools") == 2, j ?? "no result")
+                check("dragging a corner resizes the image and writes the width",
+                      int(j, "widthAfter") < int(j, "widthBefore") && text(j, "markdownAfterResize").contains("|"),
+                      text(j, "markdownAfterResize"))
                 imageCropStep(note: note, panel: panel, out: out, then: next)
             }
         }
@@ -641,10 +689,9 @@ enum SelfTest {
         let seed = "window.__cropStartPath = \(jsString(currentImagePath(note) ?? ""));"
         panel.card.editor.evaluateJavaScript(seed, completionHandler: nil)
         panel.card.editor.callAsyncJavaScript(js, arguments: [:], in: nil, in: .page) { result in
-            switch result {
-            case .success(let v): log("image edit — crop: \(v as? String ?? "nil")")
-            case .failure(let e): log("image edit — crop: FAILED \(e)")
-            }
+            let j = (try? result.get()) as? String
+            check("the crop tool opens and its tick is clickable",
+                  bool(j, "cropModeOpen") && text(j, "tickHit") == "cm-image-tool", j ?? "no result")
             // Second crop, applied with the RETURN key rather than the tick, to prove the keyboard
             // path reaches Swift too (closing crop mode alone would not: Escape closes it as well).
             let enterJS = """
@@ -674,8 +721,8 @@ enum SelfTest {
             return JSON.stringify({ appliedByReturn: false, before });
             """
             panel.card.editor.callAsyncJavaScript(enterJS, arguments: [:], in: nil, in: .page) { r in
-                if case .success(let v) = r { log("image edit — crop applied with Return: \(v as? String ?? "nil")") }
-                if case .failure(let e) = r { log("image edit — crop applied with Return: FAILED \(e)") }
+                let j = (try? r.get()) as? String
+                check("Return applies a crop as well as the tick", bool(j, "appliedByReturn"), j ?? "no result")
             }
             // What actually landed in the vault: the crop must be the BLUE half, half as wide.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
@@ -689,11 +736,12 @@ enum SelfTest {
                         if c.redComponent > 0.5 && c.blueComponent < 0.4 { return "red" }
                         return String(format: "rgb(%.2f,%.2f,%.2f)", c.redComponent, c.greenComponent, c.blueComponent)
                     }
-                    log("image edit — cropped file: \(currentImagePath(note) ?? "?"), \(rep.pixelsWide)x\(rep.pixelsHigh) px; "
-                        + "samples left=\(sample(0.2, 0.5)) middle=\(sample(0.5, 0.5)) right=\(sample(0.8, 0.5)) "
-                        + "(cropping the right half must give all blue, ~half the original 400px width)")
+                    let allBlue = sample(0.2, 0.5) == "blue" && sample(0.5, 0.5) == "blue" && sample(0.8, 0.5) == "blue"
+                    check("cropping the right half keeps the right PIXELS, not just the right size",
+                          allBlue && rep.pixelsWide < 260,
+                          "\(rep.pixelsWide)x\(rep.pixelsHigh) px, samples \(sample(0.2, 0.5))/\(sample(0.5, 0.5))/\(sample(0.8, 0.5))")
                 } else {
-                    log("image edit — cropped file: NOT FOUND")
+                    check("the cropped file is written into the vault", false, "NOT FOUND")
                 }
                 imageDeleteStep(note: note, panel: panel, out: out, then: next)
             }
@@ -730,10 +778,9 @@ enum SelfTest {
         return JSON.stringify({ binHit: hit, imageGone: !at('.cm-image'), markdownHasImage: view.state.doc.toString().includes('![') });
         """
         panel.card.editor.callAsyncJavaScript(js, arguments: [:], in: nil, in: .page) { result in
-            switch result {
-            case .success(let v): log("image edit — bin: \(v as? String ?? "nil")")
-            case .failure(let e): log("image edit — bin: FAILED \(e)")
-            }
+            let j = (try? result.get()) as? String
+            check("the bin removes the image and its Markdown",
+                  bool(j, "imageGone") && !bool(j, "markdownHasImage"), j ?? "no result")
             snapshot(window: panel, to: out.appendingPathComponent("image-edit.png")) { next() }
         }
     }
@@ -762,22 +809,22 @@ enum SelfTest {
         panel.card.perform(.freeze)
         let card = NotePanel.cardRect(forWindow: panel.frame)
         let corner = FreezeMode.liveCornerRect(of: panel)
-        log("freeze: note.frozen = \(note.frozen), panel ignores the mouse = \(panel.ignoresMouseEvents)")
-        log("freeze: thaw corner \(Int(corner.width))x\(Int(corner.height)) pt at the card's bottom-right; "
-            + "inside the card = \(card.contains(NSPoint(x: corner.midX, y: corner.midY)))")
+        check("freezing makes the note ignore the mouse", note.frozen && panel.ignoresMouseEvents)
+        check("the thaw corner is inside the card", card.contains(NSPoint(x: corner.midX, y: corner.midY)),
+              "\(Int(corner.width))x\(Int(corner.height)) pt")
 
         // The pointer being over that corner must hand the mouse back, or there is no way out.
         panel.ignoresMouseEvents = !corner.contains(NSPoint(x: corner.midX, y: corner.midY))
-        log("freeze: pointer over the corner → ignores the mouse = \(panel.ignoresMouseEvents) (must be false)")
+        check("a pointer over the thaw corner hands the mouse back", !panel.ignoresMouseEvents)
         panel.ignoresMouseEvents = !corner.contains(NSPoint(x: card.minX + 5, y: card.midY))
-        log("freeze: pointer over the middle → ignores the mouse = \(panel.ignoresMouseEvents) (must be true)")
+        check("a pointer over the middle still passes through", panel.ignoresMouseEvents)
 
         let onDisk = { (try? String(contentsOf: note.fileURL, encoding: .utf8)) ?? "" }
         SaveCoordinator.shared.flush(noteID: note.id)
-        log("freeze: written to the note file = \(onDisk().contains("frozen: true"))")
+        check("frozen is written to the note file", onDisk().contains("frozen: true"))
 
         panel.card.perform(.freeze)
-        log("freeze: thawed again → frozen = \(note.frozen), ignores the mouse = \(panel.ignoresMouseEvents)")
+        check("thawing puts it back", !note.frozen && !panel.ignoresMouseEvents)
         if note.frozen != wasFrozen { panel.card.perform(.freeze) }
         next()
     }
@@ -794,8 +841,9 @@ enum SelfTest {
         let taggedPanel = WindowManager.shared.open(tagged, focus: false)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
             let pills = taggedPanel.card.debugTagPills
-            log("tag overflow: tags = \(tagged.tags.count), \"+N\" pill shown = \(!pills.overflowRect.isEmpty), "
-                + "clickable = \(pills.hitTest(pills.convert(NSPoint(x: pills.overflowRect.midX, y: pills.overflowRect.midY), to: taggedPanel.card)) != nil)")
+            let hits = pills.hitTest(pills.convert(NSPoint(x: pills.overflowRect.midX, y: pills.overflowRect.midY), to: taggedPanel.card)) != nil
+            check("too many tags collapse into a clickable +N pill", !pills.overflowRect.isEmpty && hits,
+                  "\(tagged.tags.count) tags")
         }
 
         // A template, so the templates tab and the @ menu have something in them.
@@ -820,8 +868,8 @@ enum SelfTest {
         panel.card.debugCollapseActionBar()
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
-            log("reminder bell: shown on a todo note = \(!panel.card.debugBellHidden), "
-                + "on a plain note = \(plain.map { !$0.card.debugBellHidden } ?? false) (must be true, false)")
+            check("the reminder bell is on todo notes and only todo notes",
+                  !panel.card.debugBellHidden && !(plain.map { !$0.card.debugBellHidden } ?? false))
 
             // Set a date the way the popover does, then check what reached the file.
             todo.due = Date().addingTimeInterval(3600)
@@ -831,8 +879,10 @@ enum SelfTest {
             panel.card.updateReminderGlyph()
             SaveCoordinator.shared.flush(noteID: todo.id)
             let onDisk = (try? String(contentsOf: todo.fileURL, encoding: .utf8)) ?? ""
-            log("reminder written to the note: due = \(onDisk.contains("due:")), onTime = \(onDisk.contains("remindOnTime: true")), "
-                + "ahead = \(onDisk.contains("remindAhead: 30m")); scheduled moments = \(todo.reminderDates.map(\.id))")
+            check("a due date and both reminders reach the note file",
+                  onDisk.contains("due:") && onDisk.contains("remindOnTime: true") && onDisk.contains("remindAhead: 30m"))
+            check("both reminder moments are scheduled", todo.reminderDates.count == 2,
+                  "\(todo.reminderDates.map(\.id))")
 
             // Close anything already up, or the snapshot below catches the wrong popover.
             panel.card.debugDismissPopover()
@@ -844,7 +894,7 @@ enum SelfTest {
                         panel.card.debugDismissPopover(); next()
                     }
                 } else {
-                    log("reminder popover: NOT SHOWN")
+                    check("the reminder popover opens", false, "NOT SHOWN")
                     next()
                 }
             }
@@ -890,15 +940,19 @@ enum SelfTest {
         """
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             home.card.editor.callAsyncJavaScript(js, arguments: [:], in: nil, in: .page) { result in
-                switch result {
-                case .success(let v): log("/find overlay: \(v as? String ?? "nil")")
-                case .failure(let e): log("/find overlay: FAILED \(e)")
-                }
+                let j = (try? result.get()) as? String
+                check("/find opens with the search box focused and every note offered",
+                      bool(j, "searchBoxHasFocus") && int(j, "rowsOffered") > 0, j ?? "no result")
+                check("typing narrows the results", (field(j, "afterTyping") as? [String])?.count == 1,
+                      "\(field(j, "afterTyping") ?? "none")")
+                check("opening a note from /find puts the caret back where the search started",
+                      bool(j, "overlayClosed") && int(j, "caretAfter") == int(j, "caretBefore"),
+                      "caret \(int(j, "caretBefore")) -> \(int(j, "caretAfter"))")
                 // The note it opened must be on screen, but the CARET must still be in this note.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                     let key = NSApp.keyWindow as? NotePanel
-                    log("/find: key window is still the note the search started in = \(key === home) "
-                        + "(it opened '\(key?.note.title ?? "?")')")
+                    check("/find does not steal focus to the note it opened", key === home,
+                          "key window is '\(key?.note.title ?? "none")'")
                     next()
                 }
             }
@@ -910,22 +964,25 @@ enum SelfTest {
     private static func quickCaptureTest(then next: @escaping () -> Void) {
         let services = Bundle.main.infoDictionary?["NSServices"] as? [[String: Any]] ?? []
         let entry = services.first
-        log("quick capture: NSServices declared = \(services.count), "
-            + "menu item = \((entry?["NSMenuItem"] as? [String: String])?["default"] ?? "MISSING"), "
-            + "message = \(entry?["NSMessage"] as? String ?? "MISSING")")
-        log("quick capture: services provider registered = \(NSApp.servicesProvider != nil), "
-            + "responds to captureSelection = \((NSApp.servicesProvider as? NSObject)?.responds(to: Selector(("captureSelection:userData:error:"))) ?? false)")
+        check("the Services entry is declared in Info.plist",
+              (entry?["NSMenuItem"] as? [String: String])?["default"] == "New PinTack Note"
+              && entry?["NSMessage"] as? String == "captureSelection",
+              "\(services.count) service(s)")
+        check("the services provider is registered and answers to it",
+              NSApp.servicesProvider != nil
+              && ((NSApp.servicesProvider as? NSObject)?.responds(to: Selector(("captureSelection:userData:error:"))) ?? false))
 
         let before = VaultStore.shared.notes.count
         let note = QuickCapture.shared.capture("Rollout plan\nring 1 on Monday\nring 2 on Friday", from: "Safari")
         SaveCoordinator.shared.flush(noteID: note.id)
         let onDisk = (try? String(contentsOf: note.fileURL, encoding: .utf8)) ?? ""
-        log("quick capture: notes \(before) -> \(VaultStore.shared.notes.count), title = \(note.title.debugDescription), "
-            + "source written = \(onDisk.contains("source: \"Safari\"")), text kept = \(onDisk.contains("ring 2 on Friday"))")
+        check("a capture writes a real note with its source and all its text",
+              VaultStore.shared.notes.count == before + 1 && note.title == "Rollout plan"
+              && onDisk.contains("source: \"Safari\"") && onDisk.contains("ring 2 on Friday"))
 
         // ⌥⌘C has to reach it from any app, so it must be one of the global hotkeys.
-        log("quick capture: \(ShortcutStore.shared.combo(for: .quickCapture).display) is global = \(ShortcutAction.quickCapture.isGlobal), "
-            + "registered OSStatus = \(GlobalHotKeyCenter.shared.lastStatus[.quickCapture].map(String.init) ?? "not registered")")
+        check("quick capture works from any app (global hotkey registered)",
+              ShortcutAction.quickCapture.isGlobal && GlobalHotKeyCenter.shared.lastStatus[.quickCapture] == noErr)
         next()
     }
 
@@ -935,7 +992,8 @@ enum SelfTest {
         let plain = VaultStore.shared.createNote(body: "# Plain note\n\nSome content.\n",
                                                  frame: WindowManager.shared.nextCardFrame(size: NSSize(width: 320, height: 240)))
         let panel = WindowManager.shared.open(plain, focus: false)
-        log("templates in the vault: \(VaultStore.shared.notes.filter(\.isTemplate).map(\.templateName))")
+        check("the vault has a template to recall", !VaultStore.shared.notes.filter(\.isTemplate).isEmpty,
+              "\(VaultStore.shared.notes.filter(\.isTemplate).map(\.templateName))")
 
         let js = """
         const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -967,14 +1025,17 @@ enum SelfTest {
         """
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.3) {
             panel.card.editor.callAsyncJavaScript(js, arguments: [:], in: nil, in: .page) { result in
-                switch result {
-                case .success(let v): log("templates + @todo in the app: \(v as? String ?? "nil")")
-                case .failure(let e): log("templates + @todo in the app: FAILED \(e)")
-                }
+                let j = (try? result.get()) as? String
+                check("@name offers a template and Enter inserts the whole thing",
+                      (field(j, "templateOffered") as? [String])?.isEmpty == false && bool(j, "templateInserted"),
+                      j ?? "no result")
+                check("@todo converts the note, marker on line 1 with the title hint",
+                      text(j, "firstLine").hasPrefix("@Todo") && bool(j, "hintShown"), text(j, "firstLine"))
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                     SaveCoordinator.shared.flush(noteID: plain.id)
-                    log("@todo tagged the note in Swift: isTodo = \(plain.isTodo), tags = \(plain.tags), "
-                        + "bell shown = \(!(WindowManager.shared.panel(for: plain.id)?.card.debugBellHidden ?? true))")
+                    check("@todo tags the note and brings up its bell",
+                          plain.isTodo && !(WindowManager.shared.panel(for: plain.id)?.card.debugBellHidden ?? true),
+                          "tags \(plain.tags)")
                     next()
                 }
             }
@@ -994,11 +1055,14 @@ enum SelfTest {
                 let during = card.debugActionBarState
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                     let after = card.debugActionBarState
-                    log("action bar closed: tools hidden = \(before.toolHidden), tags hidden = \(before.tagHidden)")
-                    log("action bar mid-open: tools hidden = \(during.toolHidden) alpha = \(String(format: "%.2f", during.toolAlpha)) "
-                        + "(must be visible and part-way), tags alpha = \(String(format: "%.2f", during.tagAlpha))")
-                    log("action bar settled: tools hidden = \(after.toolHidden) alpha = \(String(format: "%.2f", after.toolAlpha)), "
-                        + "tags hidden = \(after.tagHidden)")
+                    check("the action bar starts closed", before.toolHidden && !before.tagHidden)
+                    // Caught mid-flight BOTH sides are part-way, which is what a cross-fade looks
+                    // like and a snap does not.
+                    check("opening the action bar cross-fades rather than snapping",
+                          !during.toolHidden && during.toolAlpha > 0 && during.toolAlpha < 1 && during.tagAlpha < 1,
+                          "tools \(String(format: "%.2f", during.toolAlpha)), tags \(String(format: "%.2f", during.tagAlpha))")
+                    check("the action bar settles with the tools shown and the tags away",
+                          !after.toolHidden && after.tagHidden)
                     card.debugCollapseActionBar()
                     next()
                 }
@@ -1047,10 +1111,22 @@ enum SelfTest {
     }
 
     private static func finish(out: URL) {
+        let summary = failures.isEmpty
+            ? "\nSELFTEST PASSED — \(checksRun) checks"
+            : "\nSELFTEST FAILED — \(failures.count) of \(checksRun) checks:\n"
+              + failures.map { "  • " + $0 }.joined(separator: "\n")
+        log(summary)
         try? lines.joined(separator: "\n").write(to: out.appendingPathComponent("report.txt"), atomically: true, encoding: .utf8)
+
         if ProcessInfo.processInfo.environment["PINTACK_SELFTEST_QUIT"] != nil {
             SaveCoordinator.shared.flushAll()
-            NSApp.terminate(nil)
+            // Exit non-zero on failure so a build script can rely on this. NSApp.terminate would
+            // always exit 0, which is how a red report could pass unnoticed.
+            if failures.isEmpty {
+                NSApp.terminate(nil)
+            } else {
+                exit(1)
+            }
         }
     }
 

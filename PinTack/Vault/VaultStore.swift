@@ -256,17 +256,39 @@ final class VaultStore {
         do {
             try AtomicWriter.write(text, to: note.fileURL)
             note.lastWrittenHash = text.hashValue
+            saveFailures.remove(note.id)
             index?.upsert(note)
             NotificationCenter.default.post(name: .noteDidSave, object: note)
         } catch {
+            // A write that fails silently is the one way this app can still lose your work: the
+            // note looks saved and is not. Atomic writes stop a HALF-written file (constraint 5);
+            // they cannot stop a full disk or a permissions problem, so say so out loud.
             NSLog("PinTack: save failed for \(note.fileURL.lastPathComponent): \(error)")
+            reportSaveFailure(note, error)
         }
     }
 
+    /// Tells the user a save did not happen, without pestering them once per keystroke while the
+    /// cause (a full disk, a locked folder) is still there.
+    private var lastSaveFailureReport = Date.distantPast
+    private func reportSaveFailure(_ note: Note, _ error: Error) {
+        saveFailures.insert(note.id)
+        guard Date().timeIntervalSince(lastSaveFailureReport) > 20 else { return }
+        lastSaveFailureReport = Date()
+        Toast.show("Could not save “\(note.title)” — check the vault folder")
+    }
+
+    /// Notes whose last write failed. A note in here is NOT on disk as you see it.
+    private(set) var saveFailures: Set<String> = []
+
     func delete(_ note: Note) {
         SaveCoordinator.shared.discard(noteID: note.id)
+        // Its reminders go with it: otherwise a binned todo still fires a banner pointing at a
+        // note that no longer exists.
+        Reminders.shared.cancel(note)
         try? FileManager.default.trashItem(at: note.fileURL, resultingItemURL: nil)
         notes.removeAll { $0.id == note.id }
+        saveFailures.remove(note.id)
         index?.remove(id: note.id)
         NotificationCenter.default.post(name: .vaultDidChange, object: nil)
     }

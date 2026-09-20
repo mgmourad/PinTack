@@ -41,6 +41,13 @@ final class TagPillsView: NSView {
         addCursorRect(overflowRect, cursor: .pointingHand)
     }
 
+    /// Drawn, not built from controls. Without this VoiceOver finds no tags on the note at all.
+    override func isAccessibilityElement() -> Bool { !tags.isEmpty }
+    override func accessibilityRole() -> NSAccessibility.Role? { .staticText }
+    override func accessibilityLabel() -> String? {
+        tags.isEmpty ? nil : "Tags: " + tags.joined(separator: ", ")
+    }
+
     /// A tag's colour, from a stable hash of its text. NOT `hashValue`: Swift seeds its hasher per
     /// process, so every launch would repaint the same tag a different colour.
     static func color(for tag: String) -> NSColor {

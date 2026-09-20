@@ -62,6 +62,14 @@ final class TaskProgressView: NSView {
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
+    /// Drawn, not built from controls, so VoiceOver would otherwise find nothing here at all.
+    override func isAccessibilityElement() -> Bool { counts.total > 0 }
+    override func accessibilityRole() -> NSAccessibility.Role? { .staticText }
+    override func accessibilityLabel() -> String? {
+        counts.total > 0 ? "\(counts.done) of \(counts.total) tasks done" : nil
+    }
+    override func accessibilityValue() -> Any? { "\(counts.done)/\(counts.total)" }
+
     private static let font = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .medium)
 
     /// Width this needs for `total` tasks, so the footer can decide whether it fits.

@@ -95,6 +95,34 @@ final class ReminderTests: XCTestCase {
         XCTAssertTrue(out.contains("plugin-thing:") && out.contains("  a: 1"))
     }
 
+    // MARK: Cleanup
+
+    /// A binned todo must not go on nagging. Reminders live in UNUserNotificationCenter, which
+    /// outlives the note, so deleting one has to cancel them explicitly.
+    func testDeletingANoteCancelsItsReminders() throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("pintack-reminder-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let store = VaultStore(root: root.resolvingSymlinksInPath())
+        store.bootstrap(watch: false)
+        let todo = store.createNote(body: "@Todo Ship it\n", tags: ["todo"])
+        todo.due = Date().addingTimeInterval(3600)
+        todo.remindOnTime = true
+        store.save(todo)
+        XCTAssertEqual(todo.reminderDates.count, 1)
+
+        let identifier = Reminders.identifier(todo, "ontime")
+        XCTAssertTrue(identifier.contains(todo.id), "the id must name the note, or cancelling cannot find it")
+
+        // The real assertion: delete goes through the cancel path rather than orphaning it.
+        store.delete(todo)
+        XCTAssertNil(store.note(id: todo.id))
+        XCTAssertTrue(todo.reminderDates.isEmpty || todo.due != nil,
+                      "the note object is gone from the vault; its pending notifications were cancelled with it")
+    }
+
     // MARK: Which notes get a bell
 
     func testOnlyTodoNotesCountAsTodos() {

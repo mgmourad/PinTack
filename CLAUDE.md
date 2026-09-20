@@ -128,6 +128,16 @@ Sandboxing needs a security-scoped bookmark flow that is deferred.
 **After any change touching windows, the vault, or the plugin API, build and
 launch before reporting back.** Describe what actually happened on screen.
 
+### One command that says whether the build is broken
+
+```bash
+scripts/verify.sh
+```
+
+Unit tests AND the self-test, both of which must pass. **The self-test asserts and exits non-zero**
+(`SelfTest.check`); it is not a report for a human to read and judge. If you add behaviour, add a
+check — a fact that is only logged is a fact nobody will notice going wrong.
+
 ### Seeing what is on screen without Screen Recording permission
 
 An agent cannot screenshot another app. In **Debug builds** the app can render
@@ -138,11 +148,11 @@ PINTACK_VAULT=/tmp/pt/vault PINTACK_SELFTEST_DIR=/tmp/pt/out PINTACK_SELFTEST_QU
   build/Debug/PinTack.app/Contents/MacOS/PinTack
 ```
 
-It writes `report.txt` (activation policy, Dock icon, status item, hotkey
-`OSStatus` per shortcut, a simulated `⌥⌘N`, and a type-through-the-bridge save
-round trip) plus PNGs of the Dock icon, menu-bar icon, every note, All Notes,
-Settings and the shortcut list. The code is `Support/SelfTest.swift`, compiled
-out of Release. Other env vars: `PINTACK_NO_HOTKEYS`, `PINTACK_NO_TOAST`.
+It writes `report.txt` — every check as PASS/FAIL, ending in a summary — plus PNGs of the Dock
+icon, menu-bar icon, every note, All Notes, Settings and the shortcut list. It exits 1 if any check
+failed. The code is `Support/SelfTest.swift`, compiled out of Release. Other env vars:
+`PINTACK_NO_HOTKEYS`, `PINTACK_NO_TOAST`, `PINTACK_ALLNOTES_TAB`, `PINTACK_SETTINGS_PANE`,
+`PINTACK_LINKPREVIEW_URL` (opt-in; without it nothing on the network is contacted).
 
 ### The editor is vendored, not bundled
 
