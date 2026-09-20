@@ -507,6 +507,18 @@ enum SelfTest {
         for (let i = 0; i < 40 && !img.complete; i++) await sleep(100);
         const steps = { natural: img.naturalWidth + 'x' + img.naturalHeight };
 
+        // Click through REAL hit testing: whatever is painted on top receives it, exactly as a
+        // mouse would. Dispatching straight at an element hid a bug where the crop shade covered
+        // the tick and cross, so they rendered but could never be clicked.
+        const clickAt = (x, y) => {
+          const el = document.elementFromPoint(x, y);
+          if (!el) return 'nothing';
+          el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: x, clientY: y, button: 0 }));
+          // Name what the click actually LANDED on. An SVG's className is an object, so walk up to
+          // the nearest thing with a real class name.
+          const named = el.closest('.cm-image-tool, .cm-crop-shade, .cm-crop-box, .cm-image-wrap, .cm-line');
+          return named ? named.className : (el.tagName || 'unknown');
+        };
         const press = (el, x, y, type) => el.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0 }));
 
         // 1. One click selects it: handles and the two tools appear.
@@ -547,6 +559,18 @@ enum SelfTest {
         const sleep = ms => new Promise(r => setTimeout(r, ms));
         const view = window.__pintack._view;
         const at = s => document.querySelector(s);
+        // Click through REAL hit testing: whatever is painted on top receives it, exactly as a
+        // mouse would. Dispatching straight at an element hid a bug where the crop shade covered
+        // the tick and cross, so they rendered but could never be clicked.
+        const clickAt = (x, y) => {
+          const el = document.elementFromPoint(x, y);
+          if (!el) return 'nothing';
+          el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: x, clientY: y, button: 0 }));
+          // Name what the click actually LANDED on. An SVG's className is an object, so walk up to
+          // the nearest thing with a real class name.
+          const named = el.closest('.cm-image-tool, .cm-crop-shade, .cm-crop-box, .cm-image-wrap, .cm-line');
+          return named ? named.className : (el.tagName || 'unknown');
+        };
         const press = (el, x, y, type) => el.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0 }));
         const steps = {};
 
@@ -556,7 +580,8 @@ enum SelfTest {
         press(at('.cm-image-wrap'), box.left + box.width / 2, box.top + box.height / 2, 'mousedown');
         await sleep(300);
         const cropButton = [...document.querySelectorAll('.cm-image-tool')][0];
-        press(cropButton, 0, 0, 'mousedown');
+        let r = cropButton.getBoundingClientRect();
+        steps.cropButtonHit = clickAt(r.left + r.width / 2, r.top + r.height / 2);
         await sleep(300);
         steps.cropModeOpen = !!at('.cm-crop-shade');
 
@@ -569,8 +594,12 @@ enum SelfTest {
         document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
         await sleep(200);
 
-        // Apply: the tick is the first tool while cropping.
-        press([...document.querySelectorAll('.cm-image-tool')][0], 0, 0, 'mousedown');
+        // Apply: the tick is the first tool while cropping. Clicked by POSITION, so anything
+        // painted over it fails this test instead of silently eating the click.
+        const tick = [...document.querySelectorAll('.cm-image-tool')][0];
+        r = tick.getBoundingClientRect();
+        steps.tickRect = [Math.round(r.width), Math.round(r.height)];
+        steps.tickHit = clickAt(r.left + r.width / 2, r.top + r.height / 2);
         for (let i = 0; i < 60; i++) {
           await sleep(100);
           const line = view.state.doc.toString().split('\\n').find(l => l.startsWith('!['));
@@ -585,6 +614,38 @@ enum SelfTest {
             switch result {
             case .success(let v): log("image edit — crop: \(v as? String ?? "nil")")
             case .failure(let e): log("image edit — crop: FAILED \(e)")
+            }
+            // Second crop, applied with the RETURN key rather than the tick, to prove the keyboard
+            // path reaches Swift too (closing crop mode alone would not: Escape closes it as well).
+            let enterJS = """
+            const sleep = ms => new Promise(r => setTimeout(r, ms));
+            const at = s => document.querySelector(s);
+            const before = window.__pintack._view.state.doc.toString().split('\\n').find(l => l.startsWith('!['));
+            let img = at('.cm-image');
+            let b = img.getBoundingClientRect();
+            at('.cm-image-wrap').dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: b.left + b.width / 2, clientY: b.top + b.height / 2, button: 0 }));
+            await sleep(300);
+            const cropBtn = [...document.querySelectorAll('.cm-image-tool')][0].getBoundingClientRect();
+            document.elementFromPoint(cropBtn.left + cropBtn.width / 2, cropBtn.top + cropBtn.height / 2)
+              .dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: cropBtn.left + 2, clientY: cropBtn.top + 2, button: 0 }));
+            await sleep(300);
+            img = at('.cm-image'); b = img.getBoundingClientRect();
+            const shade = at('.cm-crop-shade');
+            shade.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: b.left + 4, clientY: b.top + 4, button: 0 }));
+            document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: b.left + b.width / 2, clientY: b.bottom - 4 }));
+            document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+            await sleep(200);
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+            for (let i = 0; i < 60; i++) {
+              await sleep(100);
+              const now = window.__pintack._view.state.doc.toString().split('\\n').find(l => l.startsWith('!['));
+              if (now !== before) return JSON.stringify({ appliedByReturn: true, before, after: now });
+            }
+            return JSON.stringify({ appliedByReturn: false, before });
+            """
+            panel.card.editor.callAsyncJavaScript(enterJS, arguments: [:], in: nil, in: .page) { r in
+                if case .success(let v) = r { log("image edit — crop applied with Return: \(v as? String ?? "nil")") }
+                if case .failure(let e) = r { log("image edit — crop applied with Return: FAILED \(e)") }
             }
             // What actually landed in the vault: the crop must be the BLUE half, half as wide.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
@@ -614,6 +675,18 @@ enum SelfTest {
         const sleep = ms => new Promise(r => setTimeout(r, ms));
         const view = window.__pintack._view;
         const at = s => document.querySelector(s);
+        // Click through REAL hit testing: whatever is painted on top receives it, exactly as a
+        // mouse would. Dispatching straight at an element hid a bug where the crop shade covered
+        // the tick and cross, so they rendered but could never be clicked.
+        const clickAt = (x, y) => {
+          const el = document.elementFromPoint(x, y);
+          if (!el) return 'nothing';
+          el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: x, clientY: y, button: 0 }));
+          // Name what the click actually LANDED on. An SVG's className is an object, so walk up to
+          // the nearest thing with a real class name.
+          const named = el.closest('.cm-image-tool, .cm-crop-shade, .cm-crop-box, .cm-image-wrap, .cm-line');
+          return named ? named.className : (el.tagName || 'unknown');
+        };
         const press = (el, x, y, type) => el.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0 }));
         const img = at('.cm-image');
         if (!img) return JSON.stringify({ error: 'no image to delete' });
@@ -621,9 +694,10 @@ enum SelfTest {
         press(at('.cm-image-wrap'), box.left + box.width / 2, box.top + box.height / 2, 'mousedown');
         await sleep(300);
         const tools = [...document.querySelectorAll('.cm-image-tool')];
-        press(tools[tools.length - 1], 0, 0, 'mousedown');
+        const bin = tools[tools.length - 1].getBoundingClientRect();
+        const hit = clickAt(bin.left + bin.width / 2, bin.top + bin.height / 2);
         await sleep(400);
-        return JSON.stringify({ imageGone: !at('.cm-image'), markdownHasImage: view.state.doc.toString().includes('![') });
+        return JSON.stringify({ binHit: hit, imageGone: !at('.cm-image'), markdownHasImage: view.state.doc.toString().includes('![') });
         """
         panel.card.editor.callAsyncJavaScript(js, arguments: [:], in: nil, in: .page) { result in
             switch result {

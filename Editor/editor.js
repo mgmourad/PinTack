@@ -375,6 +375,15 @@ class ImageWidget extends WidgetType {
     button("crop", "Crop", () => this.startCrop(view, wrap, img, bar));
     button("trash", "Delete image", () => deleteImage(view, this.position(view, wrap)));
     wrap.appendChild(bar);
+
+    // The bar sits above the picture. For an image at the very top of a note there is nothing
+    // above to sit in and the scroller would clip it, so in that case it goes underneath instead.
+    requestAnimationFrame(() => {
+      const scroller = wrap.closest(".cm-scroller");
+      if (!scroller) return;
+      const room = wrap.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+      if (room < bar.getBoundingClientRect().height + 6) wrap.classList.add("cm-tools-below");
+    });
   }
 
   // MARK: crop, framed on the picture itself
@@ -383,12 +392,18 @@ class ImageWidget extends WidgetType {
     wrap.classList.add("cm-image-cropping");
     bar.innerHTML = "";
 
+    // The shade and box live in their own layer, INSERTED BEFORE the toolbar. The dimming is an
+    // oversized shadow that has to be clipped to the picture, and a full-size shade appended after
+    // the toolbar covered it: the tick and cross drew fine and could not be clicked.
+    const layer = document.createElement("span");
+    layer.className = "cm-crop-layer";
     const shade = document.createElement("span");
     shade.className = "cm-crop-shade";
     const box = document.createElement("span");
     box.className = "cm-crop-box";
-    wrap.appendChild(shade);
-    wrap.appendChild(box);
+    layer.appendChild(shade);
+    layer.appendChild(box);
+    wrap.insertBefore(layer, bar);
 
     // Start with a rectangle inset from the edges, so there is something to drag straight away.
     const area = () => img.getBoundingClientRect();
@@ -439,9 +454,18 @@ class ImageWidget extends WidgetType {
         });
       }
       wrap.classList.remove("cm-image-cropping");
-      shade.remove(); box.remove();
+      layer.remove();
+      document.removeEventListener("keydown", onKey, true);
       if (viewRef) viewRef.dispatch({ effects: refresh.of(null) });
     };
+
+    // Return applies, Escape cancels. Capture phase, because the note's editor would otherwise
+    // swallow Return as a newline before this ever sees it.
+    const onKey = (e) => {
+      if (e.key === "Enter") { e.preventDefault(); e.stopPropagation(); finish(true); }
+      else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); finish(false); }
+    };
+    document.addEventListener("keydown", onKey, true);
 
     const button = (name, title, run) => {
       const b = document.createElement("button");

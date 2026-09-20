@@ -246,8 +246,13 @@ Owner decisions added after the rebuild (2026-09-19):
 - Tag pill colours come from a **djb2 hash of the tag text**, never `hashValue` (seeded per process,
   so colours would change every launch). Pills are washed out to always take dark text.
 - Pasting an image inserts it straight away. Cropping and resizing happen IN the note: click the
-  image and it grows four corner handles, a crop tool and a bin (`Editor/editor.js`). There is no
-  dialog and nothing to type. The display width is written into the link as `![alt|320](path)`, the
+  image and it grows four corner handles, plus a crop tool and a bin that sit OUTSIDE the picture,
+  above its top-right corner (an owner decision, 2026-09-20), falling below it when the image is at
+  the very top of a note. Return applies a crop, Escape cancels. There is no dialog and nothing to
+  type. The crop shade and box live in `.cm-crop-layer` UNDER the toolbar in both DOM order and
+  z-index: appending a full-size shade after the toolbar drew the tick and cross fine but ate every
+  click on them. Drive the self-test's clicks through `document.elementFromPoint`, never straight
+  at an element, or that whole class of bug is invisible. The display width is written into the link as `![alt|320](path)`, the
   Obsidian convention, so the file stays ordinary Markdown. Cropping asks Swift for the pixels;
   Swift writes a NEW attachment and the link is repointed, so the original is never overwritten.
 - `ImageEditing.png` takes crop rects in IMAGE PIXELS with a bottom-left origin, but `draw(in:from:)`
