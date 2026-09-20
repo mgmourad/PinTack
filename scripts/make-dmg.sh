@@ -32,5 +32,8 @@ EOF
 rm -f "dist/PinTack-$VERSION.dmg"
 hdiutil create -volname "PinTack" -srcfolder "$STAGE" -ov -format UDZO "dist/PinTack-$VERSION.dmg" >/dev/null
 rm -rf "$STAGE"
+# The Release app must not stay in build/: LaunchServices would register it and Spotlight would list PinTack twice.
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u "$APP" || true
+rm -rf build/Release
 hdiutil verify "dist/PinTack-$VERSION.dmg" | tail -1
 ls -lh "dist/PinTack-$VERSION.dmg"
