@@ -85,16 +85,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// not the active app and its menu bar is not shown: menu key equivalents alone
     /// would never fire. A local monitor sees keys sent to any of our windows.
     private func installKeyMonitor() {
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            // Let the shortcut recorder see the raw key.
-            if NSApp.keyWindow?.firstResponder is ShortcutRecorder.RecorderButton { return event }
-            guard let action = ShortcutStore.shared.action(for: event) else { return event }
-            // Carbon already handles global actions system-wide, so don't run them twice.
-            if action.isGlobal && GlobalHotKeyCenter.shared.lastStatus[action] == noErr { return event }
-            if ActionRouter.needsFocusedNote(action) && WindowManager.shared.focusedPanel == nil { return event }
-            ActionRouter.perform(action)
-            return nil
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            self?.handleShortcut(event) ?? event
         }
+    }
+
+    /// Returns nil when the event was a shortcut and has been handled (or deliberately swallowed),
+    /// otherwise the event unchanged. Internal so the self-test can drive it with synthetic keys.
+    func handleShortcut(_ event: NSEvent) -> NSEvent? {
+        // Let the shortcut recorder see the raw key.
+        if NSApp.keyWindow?.firstResponder is ShortcutRecorder.RecorderButton { return event }
+        guard let action = ShortcutStore.shared.action(for: event) else { return event }
+
+        // A held key sends auto-repeat presses. Swallow them: they must not act again (holding
+        // ⌥⌘N used to keep making notes) and must not leak into the editor as stray characters.
+        // Opacity is the exception, because holding it to fade a note is natural.
+        if event.isARepeat { return (action == .lessOpaque || action == .moreOpaque) ? handle(action) : nil }
+        return handle(action)
+    }
+
+    private func handle(_ action: ShortcutAction) -> NSEvent? {
+        // Global actions may ALSO arrive here (if Carbon did not consume the press, or in a pass-through
+        // case), and Carbon may deliver the same press too. ActionRouter runs a given action once per
+        // press regardless of which path gets there first.
+        ActionRouter.perform(action)
+        return nil
     }
 
     @objc private func shortcutsChanged() {

@@ -206,6 +206,14 @@ Owner decisions added after the rebuild (2026-09-19):
 - Titles are draggable; double-click renames. The bottom strip is called the **action bar**.
 - Settings use a sidebar (the TabView overflowed into a "»" menu and looked cheap).
 - The menu-bar item takes the system's default position (left end); do not seed one.
+- The pinned pushpin is the owner's PNG (`Assets.xcassets/Pushpin`), anchored by its crack; the
+  pinned glow is the note's own color. App chrome (Settings, All Notes, popovers) uses the fixed
+  `Brand.accentNS`, NEVER the user's outline color: a dark outline once made Settings unreadable.
+- Every note-scoped action runs through `NoteCardView.perform`, from the key monitor, both menus and
+  the right-click menu. `ActionRouter` runs an action once per 250 ms, because a press can arrive by
+  two paths (Carbon + key monitor) and a toggle then cancels itself. Key auto-repeats are swallowed.
+- Colored text uses `<span style="color:…">`, but its tags are always hidden in the editor and
+  Tab leaves the span. `/red`, `/blue`... are the slash commands (no `color-` prefix).
 
 Choices that differ from SPEC.md or the prototype, made deliberately:
 - Only New note, New todo, All Notes and Auto-arrange are **global** hotkeys.

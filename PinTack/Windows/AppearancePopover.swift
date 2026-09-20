@@ -45,7 +45,7 @@ struct AppearancePopoverView: View {
                             .fill(Color(nsColor: NSColor(hex: swatch.hex) ?? .yellow))
                             .frame(width: 22, height: 22)
                             .overlay(Circle().strokeBorder(.black.opacity(0.2), lineWidth: 1))
-                            .overlay(Circle().strokeBorder(Color(nsColor: AppSettings.shared.outlineColor), lineWidth: colorHex.caseInsensitiveCompare(swatch.hex) == .orderedSame ? 2.5 : 0).padding(-3))
+                            .overlay(Circle().strokeBorder(Color(nsColor: Brand.accentNS), lineWidth: colorHex.caseInsensitiveCompare(swatch.hex) == .orderedSame ? 2.5 : 0).padding(-3))
                             .help(swatch.name)
                             .onTapGesture { apply(hex: swatch.hex) }
                     }
@@ -71,7 +71,7 @@ struct AppearancePopoverView: View {
         }
         .padding(14)
         .frame(width: 248)
-        .tint(Color(nsColor: AppSettings.shared.outlineColor))
+        .tint(Color(nsColor: Brand.accentNS))
     }
 
     private func switchMode(to new: String) {
@@ -144,7 +144,7 @@ struct TagsPopoverView: View {
         }
         .padding(14)
         .frame(width: 240)
-        .tint(Color(nsColor: AppSettings.shared.outlineColor))
+        .tint(Color(nsColor: Brand.accentNS))
     }
 
     private func add(_ raw: String) {

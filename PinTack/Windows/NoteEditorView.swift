@@ -118,6 +118,19 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
     /// A click on a note that isn't focused should both focus and place the caret.
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
+    /// The note supplies its own right-click menu (Cut/Copy/Paste, the Note menu, All Notes, note
+    /// management). WebKit's default menu offers things a code-mirror editor cannot act on (Fonts,
+    /// Speech...) and choosing them did nothing, so the click is taken here and WebKit never sees it.
+    var contextMenuItems: (() -> [NSMenuItem])?
+
+    override func rightMouseDown(with event: NSEvent) {
+        guard let items = contextMenuItems?(), !items.isEmpty else { super.rightMouseDown(with: event); return }
+        window?.makeKey()                       // so Paste and friends reach this note's editor
+        let menu = NSMenu()
+        items.forEach { menu.addItem($0) }
+        NSMenu.popUpContextMenu(menu, with: event, for: self)
+    }
+
     // MARK: Swift → JS
 
     func send(_ type: String, _ payload: [String: Any] = [:]) {
@@ -173,7 +186,8 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
             : "\"\(s.fontFamily.replacingOccurrences(of: "\"", with: ""))\", \"Comic Sans MS\", -apple-system, system-ui, sans-serif"
         return [
             "fg": fg.css(),
-            "fgDim": fg.css(alpha: 0.45),
+            "fgDim": fg.css(alpha: 0.55),
+            "fgHint": fg.css(alpha: 0.62),         // placeholders and the @Todo hint: readable on any note color
             "accent": accentForNote().css(),
             "surface": dark ? "rgba(0, 0, 0, 0.14)" : "rgba(255, 255, 255, 0.16)",
             "rule": dark ? "rgba(0, 0, 0, 0.22)" : "rgba(255, 255, 255, 0.28)",

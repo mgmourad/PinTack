@@ -38,7 +38,9 @@ struct SettingsView: View {
         }
     }
 
-    @State private var selection: Pane = .appearance
+    /// The pane shown first. A variable so the self-test can render the others.
+    static var initialPane: Pane = .appearance
+    @State private var selection: Pane = SettingsView.initialPane
     @ObservedObject private var settings = AppSettings.shared
 
     var body: some View {
@@ -57,7 +59,7 @@ struct SettingsView: View {
             .background(Color(nsColor: .windowBackgroundColor))      // fills under the transparent title bar
         }
         .frame(width: 780, height: 540)
-        .tint(Color(nsColor: settings.outlineColor))
+        .tint(Color(nsColor: Brand.accentNS))
     }
 
     private var sidebar: some View {
@@ -75,7 +77,7 @@ struct SettingsView: View {
                 }
                 .padding(.horizontal, 8).padding(.vertical, 5)
                 .foregroundStyle(selected ? Color.white : Color.primary)
-                .background(RoundedRectangle(cornerRadius: 8).fill(selected ? Color(nsColor: settings.outlineColor) : .clear))
+                .background(RoundedRectangle(cornerRadius: 8).fill(selected ? Color(nsColor: Brand.accentNS) : .clear))
                 .contentShape(Rectangle())
                 .onTapGesture { selection = p }
             }
@@ -103,6 +105,20 @@ struct SettingsView: View {
 private struct AppearancePane: View {
     @ObservedObject var s = AppSettings.shared
     @State private var custom = Color(nsColor: NSColor(hex: AppSettings.shared.defaultColorHex) ?? .yellow)
+    @State private var launchAtLogin = LoginItem.isEnabled
+    @State private var loginMessage: String? = LoginItem.needsApproval ? "Approve PinTack in System Settings → Login Items to finish." : nil
+
+    private func setLaunchAtLogin(_ on: Bool) {
+        do {
+            try LoginItem.set(on)
+            launchAtLogin = LoginItem.isEnabled || (on && LoginItem.needsApproval)
+            loginMessage = LoginItem.needsApproval ? "Approve PinTack in System Settings → Login Items to finish." : nil
+        } catch {
+            // e.g. a build that is not properly signed can be refused. Say so rather than pretend.
+            launchAtLogin = LoginItem.isEnabled
+            loginMessage = "macOS would not allow it: \(error.localizedDescription)"
+        }
+    }
 
     var body: some View {
         Form {
@@ -110,6 +126,15 @@ private struct AppearancePane: View {
                 Text("System").tag("system"); Text("Light").tag("light"); Text("Dark").tag("dark")
             }
             .pickerStyle(.segmented)
+
+            Toggle("Open PinTack at login", isOn: Binding(get: { launchAtLogin }, set: { setLaunchAtLogin($0) }))
+            if let loginMessage {
+                HStack {
+                    Text(loginMessage).font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    if LoginItem.needsApproval { Button("Open Login Items") { LoginItem.openLoginItemsSettings() } }
+                }
+            }
 
             Picker("New notes get", selection: $s.newNoteColor) {
                 Text("The default color").tag("default")
@@ -122,7 +147,7 @@ private struct AppearancePane: View {
                     ForEach(NotePalette.presets, id: \.hex) { p in
                         Circle().fill(Color(nsColor: NSColor(hex: p.hex) ?? .yellow)).frame(width: 20, height: 20)
                             .overlay(Circle().strokeBorder(.black.opacity(0.2)))
-                            .overlay(Circle().strokeBorder(Color(nsColor: AppSettings.shared.outlineColor), lineWidth: s.defaultColorHex.uppercased() == p.hex ? 2.5 : 0).padding(-3))
+                            .overlay(Circle().strokeBorder(Color(nsColor: Brand.accentNS), lineWidth: s.defaultColorHex.uppercased() == p.hex ? 2.5 : 0).padding(-3))
                             .onTapGesture { s.defaultColorHex = p.hex; custom = Color(nsColor: NSColor(hex: p.hex) ?? .yellow) }
                             .help(p.name)
                     }

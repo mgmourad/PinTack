@@ -1,6 +1,7 @@
 #if DEBUG
 import AppKit
 import WebKit
+import Carbon.HIToolbox
 
 /// Debug-only verification hook. Set PINTACK_SELFTEST_DIR and the app writes a
 /// report and PNG renders of its own windows there, then (with
@@ -14,9 +15,11 @@ import WebKit
 enum SelfTest {
 
     private static var lines: [String] = []
+    private static weak var app: AppDelegate?
 
     static func runIfRequested(appDelegate: AppDelegate, statusItem: StatusItemController?) {
         guard let dir = ProcessInfo.processInfo.environment["PINTACK_SELFTEST_DIR"] else { return }
+        app = appDelegate
         let out = URL(fileURLWithPath: dir, isDirectory: true)
         try? FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { run(out: out, statusItem: statusItem) }
@@ -88,7 +91,7 @@ enum SelfTest {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
             let onDisk = (try? String(contentsOf: target.note.fileURL, encoding: .utf8)) ?? ""
             log("bridge round trip (type → JS → Swift → atomic save): file contains edit = \(onDisk.contains("BRIDGE-TEST-OK")); inline #tag merged into frontmatter = \(onDisk.contains("selftest"))")
-            interactionTest(out: out)
+            shortcutTest(out: out) { interactionTest(out: out) }
         }
     }
 
@@ -123,6 +126,42 @@ enum SelfTest {
         log("double-click on title: renaming = \(p1.card.debugIsRenaming)")
         p1.makeFirstResponder(p1.card.editor)
         log("after leaving the field: renaming = \(p1.card.debugIsRenaming) (false = solid again, draggable)")
+
+        // 2b. Footer: empty space drags the note and does NOT open the tag editor; the tag ICON does.
+        let empty = p1.card.debugFooterEmptyPoint
+        let posBefore = p1.frame.origin
+        if let d = mouse(.leftMouseDown, empty, in: p1), let m = mouse(.leftMouseDragged, NSPoint(x: empty.x + 30, y: empty.y - 20), in: p1),
+           let u = mouse(.leftMouseUp, NSPoint(x: empty.x + 30, y: empty.y - 20), in: p1) { p1.sendEvent(d); p1.sendEvent(m); p1.sendEvent(u) }
+        log("drag from EMPTY footer space: window moved by (\(Int(p1.frame.origin.x - posBefore.x)), \(Int(p1.frame.origin.y - posBefore.y))) (expected 30, -20); tag editor opened = \(p1.card.debugHasPopover) (must be false)")
+        let icon = p1.card.debugTagsButtonFrame
+        let iconPoint = NSPoint(x: icon.midX, y: icon.midY)
+        if let d = mouse(.leftMouseDown, iconPoint, in: p1), let u = mouse(.leftMouseUp, iconPoint, in: p1) { p1.sendEvent(d); p1.sendEvent(u) }
+        log("click on the tag ICON: tag editor opened = \(p1.card.debugHasPopover) (must be true); icon is \(Int(icon.width))x\(Int(icon.height)) pt wide, not a full-width strip")
+        p1.card.debugClosePopover()
+
+        // 2c. Right-click menu: contents, and does choosing an item run it?
+        let p2m = panels.count > 1 ? panels[1] : p1
+        log("right-click menu inside a note: \(p2m.card.debugMenuTitles(editing: true).joined(separator: " | "))")
+        log("right-click menu on the header: \(p2m.card.debugMenuTitles(editing: false).joined(separator: " | "))")
+        let pinTitle = p2m.note.pinned ? "Unpin from Top" : "Pin on Top"
+        if let item = p2m.card.debugMenuItem(pinTitle, editing: true), let action = item.action {
+            let was = p2m.note.pinned
+            NSApp.sendAction(action, to: item.target, from: item)
+            log("menu item '\(pinTitle)' chosen: pinned \(was) -> \(p2m.note.pinned)")
+            NSApp.sendAction(action, to: item.target, from: item)    // put it back
+        }
+        // Paste through the responder chain, with the user's clipboard saved and restored.
+        let general = NSPasteboard.general
+        let saved = general.string(forType: .string)
+        general.clearContents(); general.setString("PASTE-OK", forType: .string)
+        p2m.makeKeyAndOrderFront(nil); p2m.makeFirstResponder(p2m.card.editor)
+        let handled = NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: nil)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            p2m.card.editor.evaluateJavaScript("window.__pintack._view.state.doc.toString().includes('PASTE-OK')") { r, _ in
+                log("Paste from the context menu path: sendAction handled = \(handled), text arrived in the note = \(String(describing: r))")
+                general.clearContents(); if let saved { general.setString(saved, forType: .string) }
+            }
+        }
 
         // 3. New todo note: "@Todo " with the hint, tagged #todo.
         let before3 = VaultStore.shared.notes.count
@@ -184,6 +223,63 @@ enum SelfTest {
         } else { renderWindows(out: out) }
     }
 
+    // MARK: Shortcuts: synthetic key presses through the same handler the key monitor uses
+
+    private static func key(_ combo: KeyCombo, repeat isRepeat: Bool = false, in panel: NSWindow) -> NSEvent? {
+        var flags: NSEvent.ModifierFlags = []
+        if combo.modifiers & UInt32(cmdKey) != 0 { flags.insert(.command) }
+        if combo.modifiers & UInt32(optionKey) != 0 { flags.insert(.option) }
+        return NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
+                                windowNumber: panel.windowNumber, context: nil, characters: "", charactersIgnoringModifiers: "",
+                                isARepeat: isRepeat, keyCode: UInt16(combo.keyCode))
+    }
+
+    private static func shortcutTest(out: URL, then next: @escaping () -> Void) {
+        let panels = WindowManager.shared.openPanels.sorted { $0.note.created < $1.note.created }
+        guard let app, let p = panels.dropFirst().first else { next(); return }
+        p.makeKeyAndOrderFront(nil)
+        let n = p.note
+        ActionRouter.dedupeInterval = 0          // the checks below press the same key back to back on purpose
+        func press(_ a: ShortcutAction, rep: Bool = false) {
+            if let e = key(ShortcutStore.shared.combo(for: a), repeat: rep, in: p) { _ = app.handleShortcut(e) }
+        }
+        let pinned0 = n.pinned; press(.pin);  log("shortcut ⌥⌘P: pinned \(pinned0) -> \(n.pinned)")
+        press(.pin)
+        let col0 = n.collapsed; press(.collapse); log("shortcut ⌥⌘K: collapsed \(col0) -> \(n.collapsed)"); press(.collapse)
+        let mode0 = p.card.editor.mode; press(.toggleMode); log("shortcut ⌥⌘M: mode \(mode0) -> \(p.card.editor.mode)"); press(.toggleMode)
+        press(.color3); log("shortcut ⌥⌘3: color = \(n.colorHex) (expected Mint \(NotePalette.set(for: n.theme)[2].hex))")
+        let op0 = n.opacity; press(.lessOpaque); log("shortcut ⌥⌘,: opacity \(op0) -> \(n.opacity)"); press(.moreOpaque)
+
+        // Key repeat: a held ⌥⌘P must act once, not flip back and forth.
+        let before = n.pinned
+        press(.pin); press(.pin, rep: true); press(.pin, rep: true); press(.pin, rep: true)
+        log("held ⌥⌘P (1 press + 3 auto-repeats): pinned \(before) -> \(n.pinned) (must have toggled exactly once)")
+        press(.pin, rep: false)
+
+        // The same press arriving by two paths (Carbon + key monitor) must act ONCE.
+        ActionRouter.dedupeInterval = 0.25
+        ActionRouter.resetDedupeMemory()
+        let beforeDup = n.pinned
+        press(.pin); press(.pin)
+        log("one press delivered twice (two paths): pinned \(beforeDup) -> \(n.pinned) (must have toggled exactly once)")
+        ActionRouter.dedupeInterval = 0
+        press(.pin)
+
+        // Hold ⌥⌘N: Carbon path (simulated) fired in quick succession must make ONE note.
+        let notesBefore = VaultStore.shared.notes.count
+        for _ in 0..<5 { GlobalHotKeyCenter.shared.simulatePress(of: .newNote) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            log("5 rapid ⌥⌘N presses: notes \(notesBefore) -> \(VaultStore.shared.notes.count) (must be +1)")
+            // Active note when the key window is something else (All Notes): falls back to the last focused note.
+            AllNotesWindowController.shared.show()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                let target = WindowManager.shared.focusedPanel
+                log("with All Notes key, shortcut target = \(target?.note.title.debugDescription ?? "NONE (would toast 'Click a note first')")")
+                next()
+            }
+        }
+    }
+
     private static let sampleBody = """
     # Sprint blockers
 
@@ -226,6 +322,10 @@ enum SelfTest {
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            // Reproduce the reported bug: a DARK outline color used to tint Settings' labels and buttons
+            // the same dark red on a dark window, making them unreadable.
+            AppSettings.shared.outlineColorHex = "#5A1F1A"
+            SettingsView.initialPane = .notes
             AllNotesWindowController.shared.show()
             SettingsWindowController.shared.show()
             ShortcutsOverlay.shared.show()

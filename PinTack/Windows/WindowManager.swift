@@ -45,8 +45,13 @@ final class WindowManager {
     }
 
     /// New note at the configured placement, ready to type in. SPEC.md §5.5.
+    private var lastNewNote = Date.distantPast
+
     @discardableResult
     func newNote(body: String = "", folder: String? = nil, tags: [String] = []) -> Note {
+        // A held or double-tapped shortcut must not spray empty notes across the desktop.
+        if Date().timeIntervalSince(lastNewNote) < 0.35, let existing = VaultStore.shared.notes.last { return existing }
+        lastNewNote = Date()
         let settings = AppSettings.shared
         let defaults = settings.noteDefaults
         let frame = nextCardFrame(size: defaults.size)
@@ -58,6 +63,25 @@ final class WindowManager {
     /// A todo note starts as "@Todo " with a greyed "todo title" hint after it; Enter after the
     /// title creates the first checkbox (the editor does that). Tagged #todo from the start.
     func newTodo() { newNote(body: "@Todo ", tags: ["todo"]) }
+
+    /// Rename from anywhere (All Notes, the header): rewrites the title line, saves, and refreshes the
+    /// note's window if it is open.
+    func rename(_ note: Note, to title: String) {
+        SaveCoordinator.shared.flush(noteID: note.id)
+        note.retitle(to: title)
+        VaultStore.shared.save(note)
+        panels[note.id]?.card.editor.reloadBody()
+        NotificationCenter.default.post(name: .noteBodyDidChange, object: note)
+        NotificationCenter.default.post(name: .vaultDidChange, object: nil)
+    }
+
+    /// Moves notes to the Trash (recoverable), closing any open windows first.
+    func delete(_ notes: [Note]) {
+        for note in notes {
+            close(noteID: note.id)
+            VaultStore.shared.delete(note)
+        }
+    }
 
     /// Hide the window but keep the note ("Minimize to All Notes"). SPEC.md §8.
     func close(noteID: String) {
@@ -88,9 +112,17 @@ final class WindowManager {
 
     func noteBecameFocused(_ note: Note) { lastFocusedID = note.id }
 
-    /// The note that actions like ⌥⌘P apply to: the key window's note, else the last one focused.
+    /// The note that actions like ⌥⌘P apply to, in order of certainty:
+    /// the key window, a note that is key while the app is inactive, the note under the pointer,
+    /// then the one focused last.
     var focusedPanel: NotePanel? {
         if let key = NSApp.keyWindow as? NotePanel { return key }
+        // Notes are non-activating panels, so one can be the key window while the APP is inactive.
+        // NSApp.keyWindow is nil then, and shortcuts used to find no target.
+        if let key = panels.values.first(where: { $0.isKeyWindow }) { return key }
+        let mouse = NSEvent.mouseLocation
+        if let hovered = NSApp.orderedWindows.compactMap({ $0 as? NotePanel })
+            .first(where: { NotePanel.cardRect(forWindow: $0.frame).contains(mouse) }) { return hovered }
         if let id = lastFocusedID, let p = panels[id] { return p }
         return nil
     }

@@ -247,6 +247,32 @@ final class Note {
         if other.id != id { id = other.id }
     }
 
+    // MARK: - Renaming
+
+    /// Renames the note by rewriting its title line, exactly as double-clicking the header does in
+    /// the editor: a heading keeps its level, an `@Todo` note keeps its marker, and a note whose
+    /// first line is plain text gets a heading ABOVE it (nothing the user wrote is deleted).
+    func retitle(to raw: String) {
+        let title = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { return }
+        var lines = body.components(separatedBy: "\n")
+        guard let i = lines.firstIndex(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) else {
+            body = "# \(title)\n"
+            return
+        }
+        let line = lines[i]
+        if line == "@Todo" || line.hasPrefix("@Todo ") || line.hasPrefix("@Todo\t") {
+            var rest = title
+            if rest.hasPrefix("@Todo") { rest = String(rest.dropFirst(5)).trimmingCharacters(in: .whitespaces) }
+            lines[i] = "@Todo " + rest
+        } else if let m = line.range(of: #"^#{1,6}\s"#, options: .regularExpression) {
+            lines[i] = String(line[m]).trimmingCharacters(in: .whitespaces) + " " + title
+        } else {
+            lines.insert(contentsOf: ["# \(title)", ""], at: i)
+        }
+        body = lines.joined(separator: "\n")
+    }
+
     // MARK: - Tags
 
     /// Inline `#tag` in the body is merged into the frontmatter array on save.

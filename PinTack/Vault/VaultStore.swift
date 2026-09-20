@@ -157,6 +157,32 @@ final class VaultStore {
         return out.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
     }
 
+    /// Creates a folder, nested with "/" ("Work/2026"). The name is made filesystem-safe and may
+    /// not use the app's reserved names. Returns the relative path, or nil if nothing usable was given.
+    @discardableResult
+    func createFolder(_ raw: String) -> String? {
+        let parts = raw.split(separator: "/").map { VaultStore.sanitizeFolderName(String($0)) }.filter { !$0.isEmpty }
+        guard let first = parts.first, !["attachments", "plugins"].contains(first.lowercased()) else { return nil }
+        let relative = parts.joined(separator: "/")
+        do {
+            try FileManager.default.createDirectory(at: vaultURL.appendingPathComponent(relative, isDirectory: true),
+                                                    withIntermediateDirectories: true)
+        } catch {
+            NSLog("PinTack: could not create folder \(relative): \(error)")
+            return nil
+        }
+        NotificationCenter.default.post(name: .vaultDidChange, object: nil)
+        return relative
+    }
+
+    static func sanitizeFolderName(_ s: String) -> String {
+        s.replacingOccurrences(of: ":", with: "-")
+            .replacingOccurrences(of: "\\", with: "-")
+            .replacingOccurrences(of: "\0", with: "")
+            .trimmingCharacters(in: .whitespaces)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "."))       // no hidden folders, no ".."
+    }
+
     /// Relative directory of the note; "" for a root-level note.
     func folder(of note: Note) -> String {
         let root = vaultURL.standardizedFileURL.path

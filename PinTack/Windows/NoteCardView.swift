@@ -16,7 +16,8 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     private let collapseButton = ToolButton()
     private let closeButton = ToolButton()
     private let appearanceButton = ToolButton()
-    private let tagsButton = NSButton()
+    private let tagsButton = ToolButton()          // the tag ICON: the only thing that opens the tag editor
+    private let tagsLabel = NSTextField(labelWithString: "")   // shows the tags; ignores the mouse so it drags
     private let grip = ResizeGripView()
     let editor: NoteEditorView
 
@@ -66,10 +67,20 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
                width: cardRect.width, height: NotePanel.headerHeight)
     }
 
-    /// The pushpin overhangs the card's top-left corner, into the margin. SPEC.md §5.4.
-    private var pinRect: NSRect {
-        NSRect(x: cardRect.minX - 12, y: cardRect.maxY - 20, width: 44, height: 44)
+    /// The pushpin art (assets: Pushpin). Its needle enters a crack in the paper, and that crack
+    /// is anchored on the card's top-left corner while the head overhangs into the transparent
+    /// margin. SPEC.md §5.4. The crack sits 74% across and 87% down the trimmed image; the
+    /// height is chosen so the head's top stays inside the 24pt margin (17 + 0.87 × 46 ≈ 23).
+    private var pinImageRect: NSRect {
+        let h: CGFloat = 46
+        let aspect: CGFloat = 188.0 / 285.0
+        let w = h * aspect
+        let crack = CGPoint(x: cardRect.minX + 24, y: cardRect.maxY - 17)
+        return NSRect(x: crack.x - 0.74 * w, y: crack.y - 0.13 * h, width: w, height: h)
     }
+
+    /// Where a click unpins.
+    private var pinRect: NSRect { pinImageRect.insetBy(dx: -2, dy: -2) }
 
     private var cornerRadius: CGFloat { AppSettings.shared.cornerRadius }
 
@@ -100,19 +111,25 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         let rect = cardRect
         let card = NSBezierPath(roundedRect: rect, xRadius: cornerRadius, yRadius: cornerRadius)
 
-        // Pinned glow: outer shadow in the outline color, 10pt blur, 22% alpha. SPEC.md §5.4.
-        if note.pinned && settings.pinnedGlow {
-            ctx.saveGState()
-            ctx.setShadow(offset: .zero, blur: 10, color: settings.outlineColor.withAlphaComponent(0.22).cgColor)
-            note.color.setFill()
-            card.fill()
-            ctx.restoreGState()
+        // Pinned glow, in the NOTE's own color (owner's call; SPEC.md §5.4 said outline color at 22%,
+        // which was too faint to see). Two passes, a wide soft halo and a tight bright one, both
+        // inside the 24pt margin so the window never clips them.
+        let glowing = note.pinned && settings.pinnedGlow
+        if glowing {
+            for (blur, alpha) in [(22.0, 0.62), (9.0, 0.85)] {
+                ctx.saveGState()
+                ctx.setShadow(offset: .zero, blur: CGFloat(blur), color: note.color.withAlphaComponent(alpha).cgColor)
+                note.color.setFill()
+                card.fill()
+                ctx.restoreGState()
+            }
         }
 
-        // Card shadow, drawn by hand because hasShadow is false. SPEC.md §5.2.
+        // Card shadow, drawn by hand because hasShadow is false. SPEC.md §5.2. Lighter while glowing,
+        // or the black shadow muddies the halo.
         ctx.saveGState()
         ctx.setShadow(offset: CGSize(width: 0, height: -3), blur: 12,
-                      color: NSColor.black.withAlphaComponent(0.34).cgColor)
+                      color: NSColor.black.withAlphaComponent(glowing ? 0.16 : 0.34).cgColor)
         note.color.setFill()
         card.fill()
         ctx.restoreGState()
@@ -137,11 +154,12 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         }
         sep.stroke()
 
-        if note.pinned { drawPin(in: ctx) }
+        if note.pinned {
+            if let art = NSImage(named: "Pushpin") { art.draw(in: pinImageRect) } else { drawPin(in: ctx) }
+        }
     }
 
-    /// A vector pushpin: head upper-left, needle driving down-right into the card.
-    /// SPEC.md §5.4 calls for a PNG asset; this stands in until that art is finalized (§18).
+    /// Fallback vector pushpin, used only if the Pushpin asset is missing.
     private func drawPin(in ctx: CGContext) {
         let tip = CGPoint(x: cardRect.minX + 21, y: cardRect.maxY - 12)
         ctx.saveGState()
@@ -222,20 +240,19 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         opacitySlider.toolTip = "Opacity"
         addSubview(opacitySlider)
 
-        tagsButton.isBordered = false
-        tagsButton.font = .systemFont(ofSize: 11)
-        tagsButton.alignment = .left
-        tagsButton.target = self
-        tagsButton.action = #selector(showTags)
-        tagsButton.toolTip = "Edit tags"
-        (tagsButton.cell as? NSButtonCell)?.lineBreakMode = .byTruncatingTail
+        configure(tagsButton, symbol: "tag", tip: "Edit tags", action: #selector(showTags))
         addSubview(tagsButton)
+        tagsLabel.font = .systemFont(ofSize: 11)
+        tagsLabel.lineBreakMode = .byTruncatingTail
+        tagsLabel.isSelectable = false
+        addSubview(tagsLabel)
 
         grip.onDrag = { [weak self] in self?.resizeBegan() }
         grip.panel = panel
         addSubview(grip)
 
         editor.onModeChange = { [weak self] _ in self?.refreshModeGlyph() }
+        editor.contextMenuItems = { [weak self] in self?.contextMenuItems(editing: true) ?? [] }
         addSubview(editor)
 
         applyColors()
@@ -296,21 +313,12 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     }
 
     private func refreshTagsButton() {
-        let color = foreground.withAlphaComponent(note.tags.isEmpty ? 0.38 : 0.6)
-        let text = NSMutableAttributedString()
-        // A tinted SF Symbol, not the 🏷 emoji: an emoji cannot follow the note's text color.
-        if let tag = NSImage(systemSymbolName: note.tags.isEmpty ? "plus" : "tag", accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: 10, weight: .semibold).applying(.init(paletteColors: [color]))) {
-            let attachment = NSTextAttachment()
-            attachment.image = tag
-            text.append(NSAttributedString(attachment: attachment))
-            text.append(NSAttributedString(string: " "))
-        }
-        text.append(NSAttributedString(string: note.tags.isEmpty ? "Tag" : note.tags.joined(separator: ", "), attributes: [
-            .font: NSFont.systemFont(ofSize: 11),
-            .foregroundColor: color,
-        ]))
-        tagsButton.attributedTitle = text
+        let color = foreground.withAlphaComponent(note.tags.isEmpty ? 0.5 : 0.75)
+        tagsButton.image = NSImage(systemSymbolName: note.tags.isEmpty ? "tag" : "tag.fill", accessibilityDescription: "Tags")?
+            .withSymbolConfiguration(.init(pointSize: 11, weight: .semibold))
+        tagsButton.contentTintColor = color
+        tagsLabel.stringValue = note.tags.joined(separator: ", ")
+        tagsLabel.textColor = foreground.withAlphaComponent(0.7)
     }
 
     private func refreshModeGlyph() {
@@ -340,6 +348,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         let open = actionBarExpanded && !note.collapsed
         [bulletButton, boldButton, italicButton, codeButton, opacitySlider].forEach { $0.isHidden = !open }
         tagsButton.isHidden = open || note.collapsed
+        tagsLabel.isHidden = open || note.collapsed
         expandButton.image = symbol(actionBarExpanded ? "chevron.left" : "chevron.right")
         expandButton.toolTip = actionBarExpanded ? "Hide formatting tools" : "Formatting tools"
         needsLayout = true
@@ -382,7 +391,8 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
             opacitySlider.frame = NSRect(x: x + 4, y: c.minY + 7, width: max(0, sliderWidth), height: 16)
             opacitySlider.isHidden = sliderWidth < 36 || note.collapsed          // too narrow to use
         } else {
-            tagsButton.frame = NSRect(x: x, y: y, width: max(20, grip.frame.minX - x - 8), height: 20)
+            tagsButton.frame = NSRect(x: x, y: y, width: 22, height: 20)
+            tagsLabel.frame = NSRect(x: tagsButton.frame.maxX + 2, y: y + 2, width: max(0, grip.frame.minX - tagsButton.frame.maxX - 10), height: 16)
         }
     }
 
@@ -609,7 +619,10 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     override func mouseDown(with event: NSEvent) {
         let local = convert(event.locationInWindow, from: nil)
         if note.pinned && pinRect.contains(local) && !cardRect.contains(local) { togglePin(); return }
-        guard headerRect.contains(local) else { super.mouseDown(with: event); return }
+        // The header and any empty footer space drag the note; controls sit above and take their own clicks.
+        guard headerRect.contains(local) || (footerRect.contains(local) && !note.collapsed) else {
+            super.mouseDown(with: event); return
+        }
         if note.pinned && pinRect.contains(local) { togglePin(); return }
         if event.clickCount == 2 && titleField.frame.contains(local) { dragOrigin = nil; beginRename(); return }
         dragOrigin = event.locationInWindow
@@ -636,22 +649,79 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let local = convert(event.locationInWindow, from: nil)
-        guard headerRect.contains(local) || (note.pinned && pinRect.contains(local)) else { return nil }
-        return noteMenu()
+        guard headerRect.contains(local) || footerRect.contains(local) || (note.pinned && pinRect.contains(local)) else { return nil }
+        return noteMenu(editing: false)
     }
 
-    func noteMenu() -> NSMenu {
+    func noteMenu(editing: Bool) -> NSMenu {
         let menu = NSMenu()
-        func add(_ title: String, _ action: Selector, key: ShortcutAction? = nil) {
-            let item = menu.addItem(withTitle: title, action: action, keyEquivalent: "")
-            item.target = self
-            if let key { item.title = title + "    " + ShortcutStore.shared.combo(for: key).display }
+        contextMenuItems(editing: editing).forEach { menu.addItem($0) }
+        return menu
+    }
+
+    /// One menu for the whole note, whether you right-click the header, the footer or the text:
+    /// everything from the menu bar's Note menu, All Notes from Window, and note management.
+    /// `editing` adds Cut / Copy / Paste / Select All for right-clicks inside the text.
+    func contextMenuItems(editing: Bool) -> [NSMenuItem] {
+        var items: [NSMenuItem] = []
+
+        // Items that run one of the app's shortcut actions on THIS note, showing its key binding.
+        func action(_ title: String, _ a: ShortcutAction) -> NSMenuItem {
+            let i = NSMenuItem(title: title, action: #selector(menuPerform(_:)), keyEquivalent: "")
+            i.target = self
+            i.representedObject = a.rawValue
+            MainMenuBuilder.apply(ShortcutStore.shared.combo(for: a), to: i)
+            return i
         }
-        add(note.pinned ? "Unpin from Top" : "Pin on Top", #selector(togglePin), key: .pin)
-        add(note.collapsed ? "Expand" : "Collapse", #selector(toggleCollapse), key: .collapse)
-        add("Minimize to All Notes", #selector(closeNote))
-        menu.addItem(.separator())
-        add("Duplicate", #selector(duplicateNote))
+        func plain(_ title: String, _ sel: Selector) -> NSMenuItem {
+            let i = NSMenuItem(title: title, action: sel, keyEquivalent: "")
+            i.target = self
+            return i
+        }
+
+        if editing {
+            // No target: these go to the first responder, the editor's web view.
+            items.append(NSMenuItem(title: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x"))
+            items.append(NSMenuItem(title: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c"))
+            items.append(NSMenuItem(title: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v"))
+            items.append(NSMenuItem(title: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"))
+            items.append(.separator())
+        }
+
+        // The menu bar's Note menu.
+        items.append(action(note.pinned ? "Unpin from Top" : "Pin on Top", .pin))
+        items.append(action(note.collapsed ? "Expand" : "Collapse", .collapse))
+        items.append(action(editor.mode == "live" ? "Switch to Source" : "Switch to Live Preview", .toggleMode))
+        items.append(action("Emoji…", .emoji))
+
+        let colorItem = NSMenuItem(title: "Color", action: nil, keyEquivalent: "")
+        let colorMenu = NSMenu(title: "Color")
+        for (i, a) in [ShortcutAction.color1, .color2, .color3, .color4, .color5, .color6].enumerated() {
+            let swatch = NotePalette.set(for: note.theme)[i]
+            let c = action(swatch.name, a)
+            c.state = swatch.hex.caseInsensitiveCompare(note.colorHex) == .orderedSame ? .on : .off
+            c.image = NSImage(size: NSSize(width: 10, height: 10), flipped: false) { r in
+                (NSColor(hex: swatch.hex) ?? .yellow).setFill(); NSBezierPath(ovalIn: r.insetBy(dx: 0.5, dy: 0.5)).fill()
+                NSColor.black.withAlphaComponent(0.25).setStroke(); NSBezierPath(ovalIn: r.insetBy(dx: 0.5, dy: 0.5)).stroke()
+                return true
+            }
+            colorMenu.addItem(c)
+        }
+        colorItem.submenu = colorMenu
+        items.append(colorItem)
+        items.append(action("Less Opaque", .lessOpaque))
+        items.append(action("More Opaque", .moreOpaque))
+        items.append(action("Round / Square Corners", .toggleCorners))
+        items.append(.separator())
+
+        // From the menu bar's Window menu.
+        items.append(action("All Notes", .toggleAllNotes))
+        items.append(action("Auto-Arrange Notes", .autoArrange))
+        items.append(.separator())
+
+        // Managing this note.
+        items.append(plain("Minimize to All Notes", #selector(closeNote)))
+        items.append(plain("Duplicate", #selector(duplicateNote)))
 
         let move = NSMenuItem(title: "Move to Folder…", action: nil, keyEquivalent: "")
         let sub = NSMenu()
@@ -663,15 +733,36 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
             item.target = self; item.representedObject = f; item.state = f == current ? .on : .off
         }
         sub.addItem(.separator())
-        let new = sub.addItem(withTitle: "New Folder…", action: #selector(moveToNewFolder), keyEquivalent: "")
-        new.target = self
+        sub.addItem(plain("New Folder…", #selector(moveToNewFolder)))
         move.submenu = sub
-        menu.addItem(move)
+        items.append(move)
 
-        menu.addItem(.separator())
-        add("Close Note", #selector(closeNote), key: .close)
-        add("Delete Note", #selector(deleteNote))
-        return menu
+        items.append(.separator())
+        items.append(action("Close Note", .close))
+        items.append(plain("Delete Note", #selector(deleteNote)))
+        return items
+    }
+
+    @objc private func menuPerform(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let a = ShortcutAction(rawValue: raw) else { return }
+        perform(a)
+    }
+
+    /// Runs a shortcut action against THIS note. Note-scoped actions land here from the key
+    /// monitor, the menus and the context menu alike, so they cannot disagree.
+    func perform(_ action: ShortcutAction) {
+        switch action {
+        case .pin:        togglePin()
+        case .collapse:   toggleCollapse()
+        case .close:      closeNote()
+        case .toggleMode: toggleMode()
+        case .emoji:      openEmoji()
+        case .lessOpaque: nudgeOpacity(by: -0.1)
+        case .moreOpaque: nudgeOpacity(by: 0.1)
+        case .color1, .color2, .color3, .color4, .color5, .color6:
+            if let i = [ShortcutAction.color1, .color2, .color3, .color4, .color5, .color6].firstIndex(of: action) { setColor(index: i) }
+        default:          ActionRouter.perform(action)          // app-wide actions
+        }
     }
 
     @objc private func moveToFolder(_ sender: NSMenuItem) {
@@ -786,5 +877,12 @@ extension NoteCardView {
     }
     var debugActionBarExpanded: Bool { actionBarExpanded }
     var debugBulletTitle: String { bulletButton.title }
+    func debugMenuTitles(editing: Bool) -> [String] { contextMenuItems(editing: editing).map { $0.isSeparatorItem ? "—" : $0.title } }
+    func debugMenuItem(_ title: String, editing: Bool) -> NSMenuItem? { contextMenuItems(editing: editing).first { $0.title == title } }
+    var debugTagsButtonFrame: NSRect { tagsButton.frame }
+    var debugFooterEmptyPoint: NSPoint { NSPoint(x: cardRect.midX + 20, y: cardRect.minY + 12) }
+    func debugShowTags() { showTags() }
+    func debugClosePopover() { popover?.close() }
+    var debugHasPopover: Bool { popover?.isShown == true }
 }
 #endif

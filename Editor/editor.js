@@ -167,6 +167,7 @@ function inlineHTML(s) {
 
 // Decoration builder -----------------------------------------------------
 
+const COLOR_SPAN = /(<span\s+style="color:\s*([^";]+?)\s*;?">)(.*?)(<\/span>)/g;
 const SAFE_COLOR = /^(#[0-9a-fA-F]{3,8}|[a-zA-Z]{3,20}|rgba?\([\d\s,.%]+\))$/;
 const EMOJI_LEAD = /^(\s*)((?:\p{Extended_Pictographic}[\u{1F3FB}-\u{1F3FF}️‍]*)+)\s+\S/u;
 
@@ -320,15 +321,17 @@ function build(state) {
       else { hide(f, f + 2); hide(tEnd - 2, tEnd); }
     }
 
-    for (const m of text.matchAll(/(<span\s+style="color:\s*([^";]+?)\s*;?">)(.+?)(<\/span>)/g)) {
+    // Colored text. The <span> tags are presentation only, so they stay hidden even on the
+    // cursor line: you see the colored text, never the markup. Tab leaves the span (below).
+    for (const m of text.matchAll(COLOR_SPAN)) {
       const color = m[2];
       if (!SAFE_COLOR.test(color)) continue;
       const f = l.from + m.index;
       const openEnd = f + m[1].length, closeStart = openEnd + m[3].length, tEnd = closeStart + m[4].length;
       if (inlineCode.some(([a, b]) => f >= a && f <= b)) continue;
       mark(openEnd, closeStart, "cm-colored", { style: `color:${color}` });
-      if (lineTouched(f, tEnd)) { mark(f, openEnd, "cm-syntax"); mark(closeStart, tEnd, "cm-syntax"); }
-      else { hide(f, openEnd); hide(closeStart, tEnd); }
+      hide(f, openEnd);
+      hide(closeStart, tEnd);
     }
 
     for (const m of text.matchAll(/(^|[\s(])(#[A-Za-z][\w/-]*)/g)) {
@@ -432,7 +435,7 @@ const commands = [
   ["emoji", "Emoji picker", (v, _c, f, to) => { edit(v, f, to, ""); openEmoji(v); }],
 ];
 for (const [name, hex] of COLORS) {
-  commands.push([`color-${name}`, `Text color: ${name}`,
+  commands.push([name, `${name[0].toUpperCase() + name.slice(1)} text`,
     (v, _c, f, to) => edit(v, f, to, `<span style="color:${hex}"></span>`, `<span style="color:${hex}">`.length)]);
 }
 for (const lang of LANGS) {
@@ -465,11 +468,12 @@ function tagSource(ctx) {
 /* --------------------------------------------------------------- emoji UI */
 
 const EMOJI = {
-  Bullets: ["🔹", "🔸", "🔺", "⭐️", "✅", "👉", "➡️", "▶️"],
-  Frequent: ["✅", "⭐️", "🔥", "📌", "⚡️", "💡", "🎯", "📝"],
-  Status: ["🟢", "🟡", "🔴", "🔵", "⏳", "🚧", "✔️", "❌"],
-  Work: ["💼", "📊", "🗂", "📅", "☎️", "🖥", "🔧", "🧪"],
-  Life: ["🏠", "🍎", "🚗", "✈️", "🎂", "☕️", "🏋️", "🌙"],
+  Bullets: ["🔹", "🔸", "🔺", "🔻", "⭐️", "✅", "❌", "➡️", "▶️", "👉", "✔️", "➕", "🔷", "🔶", "🟢", "🟡"],
+  Frequent: ["✅", "⭐️", "🔥", "📌", "⚡️", "💡", "🎯", "📝", "❤️", "👍", "🎉", "🚀", "✨", "📎", "🔔", "⏰"],
+  Status: ["🟢", "🟡", "🔴", "🔵", "🟣", "🟠", "⚪️", "⚫️", "⏳", "🚧", "✔️", "❌", "⚠️", "🚫", "✅", "❓"],
+  Work: ["💼", "📊", "🗂", "📅", "☎️", "🖥", "🔧", "🧪", "📈", "📉", "🧾", "📧", "🔑", "🛠", "🔒", "📦"],
+  Life: ["🏠", "🍎", "🚗", "✈️", "🎂", "☕️", "🏋️", "🌙", "🛒", "🍕", "🎁", "💊", "📚", "🎵", "🐶", "🌳"],
+  Faces: ["😀", "😂", "😍", "🤔", "😎", "😴", "😡", "😭", "🙂", "😉", "🥳", "🤯", "😅", "🙌", "🙏", "💪"],
 };
 let emojiMode = "insert";
 const emojiEl = document.getElementById("emoji");
@@ -515,7 +519,8 @@ function openEmoji(view, opts = {}) {
   emojiEl.classList.remove("hidden");
   const w = emojiEl.offsetWidth, h = emojiEl.offsetHeight;
   emojiEl.style.left = Math.max(4, Math.min(c.left, window.innerWidth - w - 4)) + "px";
-  emojiEl.style.top = Math.max(4, Math.min(pick ? window.innerHeight - h - 6 : c.bottom + 4, window.innerHeight - h - 4)) + "px";
+  emojiEl.style.top = Math.max(6, Math.min(pick ? window.innerHeight - h - 6 : c.bottom + 4, window.innerHeight - h - 4)) + "px";
+  emojiEl.scrollTop = 0;
 }
 document.addEventListener("mousedown", (e) => { if (!e.target.closest("#emoji")) closeEmoji(); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeEmoji(); });
@@ -609,6 +614,23 @@ function toggleBullet(view) {
 
 const applyFormat = { bold: (v) => toggleInline(v, "**"), italic: (v) => toggleInline(v, "*"), code: (v) => toggleInline(v, "`"), bullet: toggleBullet };
 
+// Tab inside a colored span jumps past its closing tag, so typing continues in the normal color.
+function tabOutOfSpan(view) {
+  const st = view.state;
+  const sel = st.selection.main;
+  if (!sel.empty) return false;
+  const line = st.doc.lineAt(sel.head);
+  for (const m of line.text.matchAll(COLOR_SPAN)) {
+    const openEnd = line.from + m.index + m[1].length;
+    const closeStart = openEnd + m[3].length;
+    if (sel.head >= openEnd && sel.head <= closeStart) {
+      view.dispatch({ selection: { anchor: closeStart + m[4].length }, scrollIntoView: true });
+      return true;
+    }
+  }
+  return false;
+}
+
 // Enter: start a todo list from the "@Todo <title>" line, and keep emoji bullets going.
 function enterHandler(view) {
   const st = view.state;
@@ -676,7 +698,19 @@ const view = new EditorView({
       spellCompartment.of(EditorView.contentAttributes.of({ spellcheck: "false", autocorrect: "off", autocapitalize: "off" })),
       placeholder("Start typing…  ( / for commands )"),
       autocompletion({ override: [slashSource, tagSource], icons: false, defaultKeymap: true }),
-      Prec.highest(keymap.of([{ key: "Enter", run: enterHandler }])),
+      Prec.highest(keymap.of([{ key: "Enter", run: enterHandler }, { key: "Tab", run: tabOutOfSpan }])),
+      // With an emoji bullet chosen, typing "- " at the start of a line produces that emoji instead.
+      EditorView.inputHandler.of((view, from, to, text) => {
+        const bullet = noteState.settings && noteState.settings.bullet;
+        if (!bullet || text !== " " || from !== to) return false;
+        const line = view.state.doc.lineAt(from);
+        const m = /^(\s*)[-*]$/.exec(view.state.sliceDoc(line.from, from));
+        if (!m) return false;
+        for (let n = syntaxTree(view.state).resolveInner(from, -1); n; n = n.parent) if (n.name === "FencedCode" || n.name === "CodeBlock") return false;
+        const start = line.from + m[1].length;
+        view.dispatch({ changes: { from: start, to: from, insert: bullet + " " }, selection: { anchor: start + bullet.length + 1 }, userEvent: "input.type" });
+        return true;
+      }),
       keymap.of([
         { key: "Mod-b", run: wrapSelection("**") },
         { key: "Mod-i", run: wrapSelection("*") },
@@ -724,7 +758,7 @@ function setBody(body, keepSelection) {
 
 function applySettings(s) {
   const root = document.documentElement.style;
-  const map = { fg: "--fg", fgDim: "--fg-dim", accent: "--accent", surface: "--surface", rule: "--rule", highlight: "--highlight", font: "--font", size: "--size" };
+  const map = { fg: "--fg", fgDim: "--fg-dim", fgHint: "--fg-hint", accent: "--accent", surface: "--surface", rule: "--rule", highlight: "--highlight", font: "--font", size: "--size" };
   for (const [k, cssVar] of Object.entries(map)) if (s[k] != null) root.setProperty(cssVar, k === "size" ? s[k] + "px" : s[k]);
   noteState.settings = { ...noteState.settings, ...(s.bullet !== undefined ? { bullet: s.bullet } : {}) };
   if (s.spellcheck != null) {

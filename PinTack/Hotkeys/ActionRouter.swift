@@ -5,7 +5,19 @@ import AppKit
 /// and its menu entry can never drift apart.
 enum ActionRouter {
 
+    /// The same action arriving twice inside this window is one key press seen by two paths (the
+    /// Carbon global hotkey AND the in-app key monitor or menu key equivalent), or a double-fire. It
+    /// must run once: run twice, a toggle like ⌥⌘H cancels itself and looks like "sometimes it works".
+    static var dedupeInterval: TimeInterval = 0.25
+    private static var lastPerformed: [ShortcutAction: Date] = [:]
+    static func resetDedupeMemory() { lastPerformed = [:] }      // for the self-test
+
     static func perform(_ action: ShortcutAction) {
+        if action != .lessOpaque && action != .moreOpaque {          // opacity is meant to repeat
+            let now = Date()
+            if let last = lastPerformed[action], now.timeIntervalSince(last) < dedupeInterval { return }
+            lastPerformed[action] = now
+        }
         let windows = WindowManager.shared
         let focused = windows.focusedPanel?.card
 
@@ -19,17 +31,9 @@ enum ActionRouter {
         case .exportAll:      ArchiveIO.exportAll()
         case .importArchive:  ArchiveIO.importArchive()
 
-        case .pin:            focused?.togglePin()
-        case .collapse:       focused?.toggleCollapse()
-        case .close:          focused?.closeNote()
-        case .toggleMode:     focused?.toggleMode()
-        case .emoji:          focused?.openEmoji()
-        case .lessOpaque:     focused?.nudgeOpacity(by: -0.1)
-        case .moreOpaque:     focused?.nudgeOpacity(by: 0.1)
-        case .color1, .color2, .color3, .color4, .color5, .color6:
-            if let i = [ShortcutAction.color1, .color2, .color3, .color4, .color5, .color6].firstIndex(of: action) {
-                focused?.setColor(index: i)
-            }
+        case .pin, .collapse, .close, .toggleMode, .emoji, .lessOpaque, .moreOpaque,
+             .color1, .color2, .color3, .color4, .color5, .color6:
+            if let focused { focused.perform(action) } else { Toast.show("Click a note first") }
         }
     }
 

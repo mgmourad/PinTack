@@ -52,10 +52,11 @@ final class FeatureTests: VaultTestCase {
         XCTAssertEqual((0..<20).map { _ in s.noteDefaults.colorHex }, Array(repeating: "#A3D5FF", count: 20))
 
         s.newNoteColor = "random"
-        let pastels = Set(NotePalette.auto.prefix(5).map(\.hex))
         let draws = (0..<200).map { _ in s.noteDefaults.colorHex }
-        XCTAssertTrue(draws.allSatisfy { pastels.contains($0) }, "random never picks graphite or a custom color")
-        XCTAssertGreaterThan(Set(draws).count, 1, "random must actually vary")
+        XCTAssertGreaterThan(Set(draws).count, 20, "random must actually vary (it is no longer a pick from five fixed colors)")
+        XCTAssertFalse(draws.contains("#2C2C32"), "random never picks graphite")
+        let n = Note(fileURL: URL(fileURLWithPath: "/tmp/x.md"))
+        XCTAssertTrue(draws.allSatisfy { n.colorHex = $0; return n.isDarkText }, "random colors always take dark text")
     }
 
     // MARK: Todo notes
@@ -110,5 +111,96 @@ final class FeatureTests: VaultTestCase {
         try JSONSerialization.data(withJSONObject: ["fontFamily": ""]).write(to: store.metaURL.appendingPathComponent("settings.json"))
         let s = AppSettings(); s.load(from: store.metaURL)
         XCTAssertEqual(s.fontFamily, "", "'System' must stay selectable")
+    }
+}
+
+/// Renaming, folders and random colors (second round of owner feedback).
+final class RenameFolderColorTests: VaultTestCase {
+
+    // MARK: Renaming (All Notes pencil and the header both rewrite the title line)
+
+    private func note(_ body: String) -> Note { Note(fileURL: URL(fileURLWithPath: "/tmp/x.md"), body: body) }
+
+    func testRenameKeepsTheHeadingLevel() {
+        let n = note("## Old title\n\nbody\n"); n.retitle(to: "  New title ")
+        XCTAssertEqual(n.body, "## New title\n\nbody\n")
+        XCTAssertEqual(n.title, "New title")
+    }
+
+    func testRenameAToDoKeepsItsMarker() {
+        let n = note("@Todo Groceries\n\n- [ ] milk\n"); n.retitle(to: "Weekend shop")
+        XCTAssertEqual(n.body, "@Todo Weekend shop\n\n- [ ] milk\n")
+        n.retitle(to: "@Todo Again"); XCTAssertEqual(n.body.components(separatedBy: "\n")[0], "@Todo Again", "no doubled marker")
+    }
+
+    func testRenamingAPlainFirstLineNeverDeletesUserText() {
+        let n = note("buy milk\n- eggs\n"); n.retitle(to: "Shopping")
+        XCTAssertEqual(n.body, "# Shopping\n\nbuy milk\n- eggs\n")
+    }
+
+    func testRenameSkipsLeadingBlankLinesAndHandlesEmptyNotes() {
+        let n = note("\n\n# Real title\nx"); n.retitle(to: "Changed"); XCTAssertEqual(n.body, "\n\n# Changed\nx")
+        let e = note(""); e.retitle(to: "First"); XCTAssertEqual(e.body, "# First\n")
+        let blank = note("Keep"); blank.retitle(to: "   "); XCTAssertEqual(blank.body, "Keep", "an empty name changes nothing")
+    }
+
+    func testRenameThroughTheStoreSurvivesAReload() throws {
+        let n = store.createNote(body: "# Before\n\ntext")
+        n.retitle(to: "After"); store.save(n)
+        let fresh = VaultStore(root: root); fresh.loadAll()
+        XCTAssertEqual(try XCTUnwrap(fresh.note(id: n.id)).title, "After")
+        XCTAssertTrue(n.fileURL.lastPathComponent.hasSuffix("-before.md"), "the file name is frozen at creation. SPEC.md §3.4")
+    }
+
+    // MARK: Folders
+
+    func testCreateFolderMakesADirectoryThatIsListedEvenWhenEmpty() throws {
+        XCTAssertEqual(store.createFolder("Work"), "Work")
+        XCTAssertEqual(store.createFolder("Work/2026"), "Work/2026")
+        XCTAssertEqual(store.folders(), ["Work", "Work/2026"])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("Work/2026").path))
+    }
+
+    func testFolderNamesAreSanitizedAndReservedNamesRefused() {
+        XCTAssertEqual(store.createFolder("a:b\\c"), "a-b-c")
+        XCTAssertEqual(store.createFolder("  ..hidden.. "), "hidden")
+        XCTAssertNil(store.createFolder("attachments"))
+        XCTAssertNil(store.createFolder("Plugins/x"), "reserved names are refused case-insensitively")
+        XCTAssertNil(store.createFolder("   "))
+        XCTAssertNil(store.createFolder("../.."))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.deletingLastPathComponent().appendingPathComponent("escape").path))
+    }
+
+    func testAddSelectionToAFolderMovesEveryFile() throws {
+        let a = store.createNote(body: "# A"), b = store.createNote(body: "# B"), c = store.createNote(body: "# C")
+        let folder = try XCTUnwrap(store.createFolder("Project"))
+        [a, b].forEach { store.move($0, toFolder: folder) }
+        XCTAssertEqual([a, b, c].map { store.folder(of: $0) }, ["Project", "Project", ""])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: a.fileURL.path) && FileManager.default.fileExists(atPath: b.fileURL.path))
+    }
+
+    // MARK: Random colors
+
+    private func hue(of hex: String) -> Double {
+        var h: CGFloat = 0
+        NSColor(hex: hex)!.usingColorSpace(.sRGB)!.getHue(&h, saturation: nil, brightness: nil, alpha: nil)
+        return Double(h)
+    }
+
+    func testRandomColorsAreVariedNeverSimilarTwiceInARowAndAlwaysReadable() {
+        var previous: String?
+        var seen = Set<String>()
+        for _ in 0..<400 {
+            let hex = NotePalette.randomPastel
+            seen.insert(hex)
+            let n = Note(fileURL: URL(fileURLWithPath: "/tmp/x.md")); n.colorHex = hex
+            XCTAssertTrue(n.isDarkText, "\(hex) is a pastel and must take dark text")
+            if let previous {
+                let d = abs(hue(of: hex) - hue(of: previous)), wheel = min(d, 1 - d)
+                XCTAssertGreaterThan(wheel, 50.0 / 360.0, "\(previous) then \(hex) are too alike")
+            }
+            previous = hex
+        }
+        XCTAssertGreaterThan(seen.count, 100, "random must not be a handful of fixed colors (was 5)")
     }
 }

@@ -101,6 +101,38 @@ enum NotePalette {
         return nil
     }
 
-    /// Random new-note colors come from the five pastels (the prototype excluded graphite).
-    static var randomPastel: String { auto.prefix(5).randomElement()!.hex }
+    private static var lastHue: Double?
+
+    /// A random pastel: any hue on the wheel, fixed soft saturation and high brightness (so the
+    /// automatic text color is always dark and readable). Consecutive notes are forced at least
+    /// 60° apart on the color wheel, so you never get two near-identical notes in a row, which a
+    /// pick from five fixed colors did constantly.
+    static var randomPastel: String {
+        var hue = Double.random(in: 0..<1)
+        if let last = lastHue {
+            var tries = 0
+            while tries < 20, min(abs(hue - last), 1 - abs(hue - last)) < 60.0 / 360.0 {
+                hue = Double.random(in: 0..<1); tries += 1
+            }
+        }
+        lastHue = hue
+        var saturation = Double.random(in: 0.28...0.42)
+        let brightness = Double.random(in: 0.94...1.0)
+        var color = NSColor(hue: hue, saturation: saturation, brightness: brightness, alpha: 1)
+        // Blues and purples are darker at the same saturation. Wash them out until the note takes
+        // dark text (luminance above the 0.45 rule in Note.isDarkText), so a random note is never
+        // white text on a mid-tone.
+        while color.relativeLuminance < 0.5 && saturation > 0.08 {
+            saturation *= 0.88
+            color = NSColor(hue: hue, saturation: saturation, brightness: brightness, alpha: 1)
+        }
+        return color.hexString
+    }
+}
+
+/// PinTack's own accent for its app chrome (Settings, All Notes, popovers). Deliberately NOT the
+/// user's note-outline color: choosing a dark outline used to turn labels and buttons in Settings
+/// dark red on a dark window. Orange reads on both light and dark windows.
+enum Brand {
+    static let accentNS = NSColor(srgbRed: 1.0, green: 0.62, blue: 0.04, alpha: 1)      // #FF9F0A
 }

@@ -16,7 +16,7 @@ struct ShortcutsOverlayView: View {
                       alignment: .leading, spacing: 18) {
                 ForEach(groups, id: \.self) { group in
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(group.uppercased()).font(.system(size: 10.5, weight: .bold)).foregroundStyle(Color(nsColor: AppSettings.shared.outlineColor))
+                        Text(group.uppercased()).font(.system(size: 10.5, weight: .bold)).foregroundStyle(Color(nsColor: Brand.accentNS))
                         ForEach(ShortcutAction.allCases.filter { $0.group == group }, id: \.self) { a in
                             HStack(alignment: .firstTextBaseline, spacing: 9) {
                                 Text(ShortcutStore.shared.combo(for: a).display)
