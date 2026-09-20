@@ -764,7 +764,15 @@ enum SelfTest {
     /// The reminder bell: it appears on todo notes only, and its popover writes the date into the
     /// note. Notification delivery itself is the system's business and is not simulated here.
     private static func reminderTest(out: URL, then next: @escaping () -> Void) {
-        let todo = VaultStore.shared.createNote(body: "@Todo Ship the pilot\n\n- [ ] one\n- [x] two\n", tags: ["todo"],
+        // A second todo with a longer list, so the todo tab has something with real progress in it.
+        let other = VaultStore.shared.createNote(
+            body: "@Todo Cert rotation\n\nRenew before the audit\n\n- [x] export\n- [x] sign\n- [x] stage\n- [ ] deploy\n- [ ] verify\n",
+            tags: ["todo"], frame: WindowManager.shared.nextCardFrame(size: NSSize(width: 300, height: 220)))
+        other.due = Date().addingTimeInterval(7200)
+        other.remindOnTime = true
+        VaultStore.shared.save(other)
+
+        let todo = VaultStore.shared.createNote(body: "@Todo Ship the pilot\n\nFirst ring goes out Monday\n\n- [ ] one\n- [x] two\n", tags: ["todo"],
                                                 frame: WindowManager.shared.nextCardFrame(size: NSSize(width: 330, height: 240)))
         let plain = WindowManager.shared.openPanels.first { !$0.note.isTodo }
         let panel = WindowManager.shared.open(todo, focus: false)

@@ -4,15 +4,34 @@ import AppKit
 /// Drives the All Notes window. Reloads whenever the vault changes.
 final class AllNotesModel: ObservableObject {
 
-    enum Mode: String { case folders = "Folders", tags = "Tags" }
+    enum Mode: String { case folders = "Folders", tags = "Tags", todo = "Todo" }
     enum Selection: Hashable { case all, folder(String), tag(String) }
 
-    @Published var mode: Mode = .folders { didSet { selection = .all } }
+    /// How the todo tab is ordered. SPEC.md §6.
+    enum TodoSort: String, CaseIterable, Identifiable {
+        case created = "Date created"
+        case mostDone = "Most done first"
+        case leastDone = "Least done first"
+        case due = "Due date (urgent first)"
+        var id: String { rawValue }
+    }
+
+    /// Which tab opens first. Resolved lazily on first use so it does not depend on when the
+    /// self-test happens to run relative to the window being built.
+    static var debugInitialMode: Mode = {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["PINTACK_ALLNOTES_TAB"] == "todo" { return .todo }
+        #endif
+        return .folders
+    }()
+    @Published var mode: Mode = AllNotesModel.debugInitialMode { didSet { selection = .all } }
     @Published var selection: Selection = .all
     @Published var query = ""
     @Published private(set) var revision = 0          // bumped on vault change to refresh derived data
     @Published var selected = Set<String>()           // ids of the checked notes
     @Published var renamingID: String?
+    @Published var todoSort: TodoSort = .created
+    @Published var showDoneTodos = false
 
     private var observer: NSObjectProtocol?
 
@@ -32,6 +51,42 @@ final class AllNotesModel: ObservableObject {
     var tags: [(tag: String, count: Int)] { _ = revision; return VaultStore.shared.tagCounts() }
 
     var selectedNotes: [Note] { VaultStore.shared.notes.filter { selected.contains($0.id) } }
+
+    /// Todo notes for the todo tab, filtered and ordered. Finished ones are hidden unless asked
+    /// for, and when shown they are struck through rather than removed.
+    var todoNotes: [Note] {
+        _ = revision
+        var notes = VaultStore.shared.notes.filter(\.isTodo)
+        if !query.isEmpty {
+            let q = query.lowercased()
+            notes = notes.filter { $0.title.lowercased().contains(q) || $0.body.lowercased().contains(q) }
+        }
+        if !showDoneTodos { notes = notes.filter { !$0.isDone } }
+
+        switch todoSort {
+        case .created:
+            return notes.sorted { $0.created < $1.created }
+        case .mostDone:
+            return notes.sorted { fraction($0) > fraction($1) }
+        case .leastDone:
+            return notes.sorted { fraction($0) < fraction($1) }
+        case .due:
+            // Soonest first; anything with no date sits at the end rather than pretending to be urgent.
+            return notes.sorted {
+                switch ($0.due, $1.due) {
+                case let (a?, b?): return a < b
+                case (nil, _?):    return false
+                case (_?, nil):    return true
+                default:           return $0.created < $1.created
+                }
+            }
+        }
+    }
+
+    private func fraction(_ note: Note) -> Double {
+        let counts = note.taskCounts
+        return counts.total == 0 ? 0 : Double(counts.done) / Double(counts.total)
+    }
 
     func toggle(_ note: Note) {
         if selected.contains(note.id) { selected.remove(note.id) } else { selected.insert(note.id) }
@@ -83,14 +138,20 @@ struct AllNotesView: View {
 
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 8) {
+            // Glyphs rather than words: three labelled tabs crowded the sidebar.
             Picker("", selection: $model.mode) {
-                Text("Folders").tag(AllNotesModel.Mode.folders)
-                Text("Tags").tag(AllNotesModel.Mode.tags)
+                Image(systemName: "folder").tag(AllNotesModel.Mode.folders)
+                Image(systemName: "number").tag(AllNotesModel.Mode.tags)
+                Text("@").tag(AllNotesModel.Mode.todo)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
             .padding(.horizontal, 10).padding(.top, 10)
+            .help("Folders, tags, or todo notes")
 
+            if model.mode == .todo { todoControls }
+
+            if model.mode == .todo { Spacer() } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 1) {
                     row(icon: "note.text", title: "All notes", sel: .all, indent: 0)
@@ -124,7 +185,23 @@ struct AllNotesView: View {
                 }
                 .padding(.horizontal, 6)
             }
+            }
         }
+    }
+
+    /// The todo tab's ordering, and whether finished todos are shown at all.
+    private var todoControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Picker("", selection: $model.todoSort) {
+                ForEach(AllNotesModel.TodoSort.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .labelsHidden()
+            Toggle("Show done todos", isOn: $model.showDoneTodos)
+                .font(.system(size: 12))
+            Text("\(model.todoNotes.count) todo\(model.todoNotes.count == 1 ? "" : "s")")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 10)
     }
 
     private func row(icon: String, title: String, sel: AllNotesModel.Selection, indent: Int) -> some View {
@@ -157,6 +234,32 @@ struct AllNotesView: View {
             .background(RoundedRectangle(cornerRadius: 7).fill(.quaternary))
             .padding(.horizontal, 10).padding(.top, 10).padding(.bottom, 4)
 
+            if model.mode == .todo { todoList } else { folderAndTagList }
+        }
+    }
+
+    /// The todo tab's body: every todo note with its own progress, newest ordering rules applied
+    /// in the sidebar. SPEC.md §6.
+    @ViewBuilder private var todoList: some View {
+        let todos = model.todoNotes
+        if todos.isEmpty {
+            Spacer()
+            Text(model.showDoneTodos ? "No todo notes yet. Press \(ShortcutStore.shared.combo(for: .newTodo).display) to start one."
+                                     : "Nothing left to do. Turn on “Show done todos” to see finished ones.")
+                .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center).padding()
+            Spacer()
+        } else {
+            ScrollView {
+                LazyVStack(spacing: 2) {
+                    ForEach(todos, id: \.id) { note in TodoRow(note: note, model: model) }
+                }
+                .padding(.horizontal, 8).padding(.bottom, 8)
+            }
+        }
+    }
+
+    @ViewBuilder private var folderAndTagList: some View {
+        VStack(spacing: 0) {
             let notes = model.notes
             HStack {
                 Button(model.selected.isEmpty ? "Select all" : "Clear selection") {
@@ -252,6 +355,80 @@ struct AllNotesView: View {
         WindowManager.shared.delete(notes)
         model.selected = []
         Toast.show("Moved \(n) to Trash")
+    }
+}
+
+/// One todo note in the todo tab: a checkbox that finishes the whole note, its title, a one-line
+/// preview, and its progress as squares with a count. SPEC.md §6.
+private struct TodoRow: View {
+
+    let note: Note
+    @ObservedObject var model: AllNotesModel
+    @State private var hovering = false
+
+    private var counts: (done: Int, total: Int) { note.taskCounts }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            // Ticks or unticks every box in the note at once.
+            Button { setAllDone(!note.isDone) } label: {
+                Image(systemName: note.isDone ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 15))
+                    .foregroundStyle(note.isDone ? Color(nsColor: Brand.accentNS) : .secondary)
+            }
+            .buttonStyle(.plain)
+            .help(note.isDone ? "Mark everything as not done" : "Mark everything as done")
+            .padding(.top, 1)
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text(note.title)
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .strikethrough(note.isDone)
+                        .lineLimit(1)
+                    if let due = note.due {
+                        Text(due.formatted(date: .abbreviated, time: .shortened))
+                            .font(.caption2)
+                            .foregroundStyle(due < Date() ? .red : .secondary)
+                    }
+                    if note.frozen { Image(systemName: "snowflake").font(.caption2).foregroundStyle(.secondary) }
+                }
+                if !note.previewLine.isEmpty {
+                    Text(note.previewLine)
+                        .font(.system(size: 11.5)).foregroundStyle(.secondary).lineLimit(1)
+                }
+                if counts.total > 0 {
+                    TaskProgressBar(done: counts.done, total: counts.total)
+                } else {
+                    Text("No tasks yet").font(.caption2).foregroundStyle(.tertiary)
+                }
+            }
+            // The title area opens the note; the checkbox above keeps its own click.
+            .contentShape(Rectangle())
+            .onTapGesture { WindowManager.shared.reveal(note) }
+
+            Spacer(minLength: 0)
+        }
+        .opacity(note.isDone ? 0.55 : 1)
+        .padding(.vertical, 7).padding(.horizontal, 10)
+        .background(RoundedRectangle(cornerRadius: 8).fill(hovering ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear)))
+        .onHover { hovering = $0 }
+        .contextMenu {
+            Button("Open") { WindowManager.shared.reveal(note) }
+            Button(note.isDone ? "Mark as not done" : "Mark all done") { setAllDone(!note.isDone) }
+            Divider()
+            Button("Move to Trash", role: .destructive) { WindowManager.shared.delete([note]) }
+        }
+    }
+
+    private func setAllDone(_ done: Bool) {
+        // Flush first: the open window may hold edits this would otherwise overwrite.
+        SaveCoordinator.shared.flush(noteID: note.id)
+        note.markAllTasks(done: done)
+        VaultStore.shared.save(note)
+        WindowManager.shared.panel(for: note.id)?.card.editor.reloadBody()
+        NotificationCenter.default.post(name: .noteBodyDidChange, object: note)
+        NotificationCenter.default.post(name: .vaultDidChange, object: nil)
     }
 }
 

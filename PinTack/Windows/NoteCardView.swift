@@ -18,6 +18,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     private let appearanceButton = ToolButton()
     private let tagsButton = ToolButton()          // the tag ICON: the only thing that opens the tag editor
     private let bellButton = ToolButton()          // reminders; todo notes only
+    private let taskProgress = TaskProgressView()  // 3/7 squares; todo notes only
     private let tagPills = TagPillsView()                      // shows the tags; ignores the mouse so it drags
     private let grip = ResizeGripView()
     private let freezeButton = ToolButton()      // snowflake, beside the grip
@@ -248,6 +249,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         addSubview(tagsButton)
         configure(bellButton, symbol: "bell", tip: "Due date and reminders", action: #selector(showReminders))
         addSubview(bellButton)
+        addSubview(taskProgress)
         addSubview(tagPills)
 
         configure(freezeButton, symbol: "snowflake", tip: "Freeze (click-through)", action: #selector(toggleFreeze))
@@ -358,6 +360,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         tagsButton.isHidden = open || note.collapsed
         tagPills.isHidden = open || note.collapsed
         bellButton.isHidden = open || note.collapsed || !note.isTodo
+        taskProgress.isHidden = bellButton.isHidden || note.taskCounts.total == 0
         expandButton.image = symbol(actionBarExpanded ? "chevron.left" : "chevron.right")
         expandButton.toolTip = actionBarExpanded ? "Hide formatting tools" : "Formatting tools"
         needsLayout = true
@@ -411,7 +414,18 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
                 bellButton.frame = .zero
                 pillsStart = tagsButton.frame.maxX + 2
             }
-            tagPills.frame = NSRect(x: pillsStart, y: y + 2, width: max(0, freezeButton.frame.minX - pillsStart - 6), height: 16)
+            // This note's own progress, between the bell and the tags. It only takes the room it
+            // needs, and gives way to the tag pills when the note is too narrow for both.
+            let counts = note.taskCounts
+            taskProgress.counts = counts
+            taskProgress.foreground = foreground
+            let wanted = TaskProgressView.width(for: counts.total)
+            let available = freezeButton.frame.minX - pillsStart - 6
+            let progressWidth = (counts.total > 0 && wanted <= available) ? wanted : 0
+            taskProgress.frame = NSRect(x: pillsStart, y: y, width: progressWidth, height: 20)
+            taskProgress.isHidden = taskProgress.isHidden || progressWidth == 0
+            let afterProgress = progressWidth > 0 ? pillsStart + progressWidth + 8 : pillsStart
+            tagPills.frame = NSRect(x: afterProgress, y: y + 2, width: max(0, freezeButton.frame.minX - afterProgress - 6), height: 16)
         }
     }
 
@@ -435,6 +449,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     }
 
     @objc private func bodyChanged(_ n: Notification) {
+        needsLayout = true
         if titleField.currentEditor() == nil { titleField.stringValue = note.title }
         refreshTagsButton()
     }

@@ -115,6 +115,60 @@ final class Note {
         return out.filter { $0.1 > Date() }
     }
 
+    /// Done and total checkboxes in the body. A todo note with no boxes has no progress to show.
+    var taskCounts: (done: Int, total: Int) {
+        var done = 0, total = 0
+        for line in body.components(separatedBy: "\n") {
+            let trimmed = line.drop(while: { $0 == " " || $0 == "\t" })
+            // "- [ ] ", "* [x] ", "+ [X] " — the forms CommonMark task lists allow.
+            guard let marker = trimmed.first, marker == "-" || marker == "*" || marker == "+" else { continue }
+            let rest = trimmed.dropFirst().drop(while: { $0 == " " })
+            guard rest.hasPrefix("[") , rest.count >= 3 else { continue }
+            let state = rest[rest.index(rest.startIndex, offsetBy: 1)]
+            guard rest[rest.index(rest.startIndex, offsetBy: 2)] == "]" else { continue }
+            total += 1
+            if state == "x" || state == "X" { done += 1 }
+        }
+        return (done, total)
+    }
+
+    /// Finished: it has tasks and every one of them is ticked.
+    var isDone: Bool {
+        let counts = taskCounts
+        return counts.total > 0 && counts.done == counts.total
+    }
+
+    /// Ticks or unticks every box in the note, which is what the todo list's own checkbox does.
+    func markAllTasks(done: Bool) {
+        body = body.components(separatedBy: "\n").map { line -> String in
+            let indent = line.prefix(while: { $0 == " " || $0 == "\t" })
+            let trimmed = line.dropFirst(indent.count)
+            guard let marker = trimmed.first, marker == "-" || marker == "*" || marker == "+" else { return line }
+            let afterMarker = trimmed.dropFirst()
+            let spaces = afterMarker.prefix(while: { $0 == " " })
+            let rest = afterMarker.dropFirst(spaces.count)
+            guard rest.hasPrefix("["), rest.count >= 3,
+                  rest[rest.index(rest.startIndex, offsetBy: 2)] == "]" else { return line }
+            let tail = rest.dropFirst(3)
+            return indent + String(marker) + spaces + (done ? "[x]" : "[ ]") + tail
+        }.joined(separator: "\n")
+    }
+
+    /// The first line of real content after the title, for a one-line preview in a list.
+    var previewLine: String {
+        var lines = body.components(separatedBy: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
+        // Drop the title line itself: a heading, or an @Todo marker, or just the first line.
+        if let first = lines.firstIndex(where: { !$0.isEmpty }) { lines.removeFirst(first + 1) }
+        for line in lines where !line.isEmpty {
+            let cleaned = line
+                .replacingOccurrences(of: #"^[-*+]\s+\[[ xX]\]\s*"#, with: "", options: .regularExpression)
+                .replacingOccurrences(of: #"^[-*+]\s+"#, with: "", options: .regularExpression)
+                .replacingOccurrences(of: #"^#{1,6}\s+"#, with: "", options: .regularExpression)
+            if !cleaned.isEmpty { return String(cleaned.prefix(120)) }
+        }
+        return ""
+    }
+
     var color: NSColor { NSColor(hex: colorHex) ?? NSColor(hex: "#FFE38A")! }
 
     /// Text is always automatic: dark text on light paper, light text on dark. Never a user
