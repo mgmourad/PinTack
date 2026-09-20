@@ -226,6 +226,13 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
 
     /// Colors are decided natively so contrast is always right for the note color.
     /// SPEC.md §4.3, §9.
+    /// Pushes one freshly fetched preview to the page.
+    private func sendPreview(_ url: String) {
+        guard !LinkPreviewStore.shared.isDismissed(noteID: note.id, url: url) else { return }
+        if let data = LinkPreviewStore.shared.cached(url) { send("linkpreview.result", ["previews": [data]]) }
+        else { send("linkpreview.failed", ["url": url]) }
+    }
+
     private func settingsPayload() -> [String: Any] {
         let s = AppSettings.shared
         let dark = note.isDarkText
@@ -248,6 +255,7 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
             "bullet": s.bulletEmoji,
             "spellcheck": s.spellcheck,
             "slashCommands": s.slashCommands,
+            "linkPreviews": s.linkPreviews,
         ]
     }
 
@@ -286,6 +294,23 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
 
         case "focus.changed":
             onFocusChange?(payload["focused"] as? Bool ?? false)
+
+        // Link previews. The page asks; Swift is the only side that may touch the network, and only
+        // while the setting is on. SPEC.md §4.4, PinTack/Vault/LinkPreview.swift.
+        case "linkpreview.request":
+            guard AppSettings.shared.linkPreviews, let urls = payload["urls"] as? [String] else { return }
+            let store = LinkPreviewStore.shared
+            var known: [[String: Any]] = []
+            for url in urls where !store.isDismissed(noteID: note.id, url: url) {
+                if let data = store.cached(url) { known.append(data) }
+                else { store.fetch(url) { [weak self] fetched in self?.sendPreview(fetched) } }
+            }
+            if !known.isEmpty { send("linkpreview.result", ["previews": known]) }
+
+        case "linkpreview.dismiss":
+            guard let url = payload["url"] as? String else { return }
+            LinkPreviewStore.shared.dismiss(noteID: note.id, url: url)
+            send("linkpreview.dismissed", ["url": url])
 
         case "plugin.host":
             PluginBridge.shared.handle(payload, from: PluginBridge.Sender(owner: self, noteID: note.id,

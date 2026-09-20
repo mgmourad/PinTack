@@ -39,6 +39,9 @@ final class AppSettings: ObservableObject {
     @Published var slashCommands = true
     @Published var imagePaste = "copy"            // copy | link
     @Published var bulletEmoji = ""               // "" = the ordinary "- " bullet
+    /// Fetch a title, summary and thumbnail for a URL pasted on its own line. OFF by default: it
+    /// is the only thing in PinTack that contacts a website. See PinTack/Vault/LinkPreview.swift.
+    @Published var linkPreviews = false
 
     // Plugins. Which are switched on; each plugin's own values live under its id in `extra`.
     @Published var enabledPlugins: [String: Bool] = [:]
@@ -49,7 +52,7 @@ final class AppSettings: ObservableObject {
         "appTheme", "defaultColor", "newNoteColor", "cornerStyle", "defaultOpacity", "fontFamily", "fontSize",
         "outlineEnabled", "outlineColor", "outlineWidth", "pinnedGlow", "defaultNoteWidth", "defaultNoteHeight",
         "placement", "autosaveSeconds", "actionBarAutoCollapse", "actionBarCollapseSeconds", "defaultMode",
-        "spellcheck", "slashCommands", "imagePaste", "bulletEmoji", "enabledPlugins", "plugins",
+        "spellcheck", "slashCommands", "imagePaste", "bulletEmoji", "enabledPlugins", "plugins", "linkPreviews",
     ]
 
     private var fileURL: URL?
@@ -110,13 +113,14 @@ final class AppSettings: ObservableObject {
         slashCommands = b("slashCommands") ?? slashCommands
         imagePaste = s("imagePaste") ?? imagePaste
         bulletEmoji = s("bulletEmoji") ?? bulletEmoji
+        linkPreviews = b("linkPreviews") ?? linkPreviews
         enabledPlugins = (dict["enabledPlugins"] as? [String: Bool]) ?? enabledPlugins
 
         let known: Set<String> = ["appTheme", "defaultColor", "cornerStyle", "defaultOpacity", "fontFamily", "fontSize",
                                   "outlineEnabled", "outlineColor", "outlineWidth", "pinnedGlow", "defaultNoteWidth",
                                   "defaultNoteHeight", "placement", "autosaveSeconds", "defaultMode", "spellcheck",
                                   "slashCommands", "imagePaste", "newNoteColor", "actionBarAutoCollapse",
-                                  "actionBarCollapseSeconds", "bulletEmoji", "enabledPlugins"]
+                                  "actionBarCollapseSeconds", "bulletEmoji", "enabledPlugins", "linkPreviews"]
         extra = dict.filter { !known.contains($0.key) }
         applyRuntimeEffects()
     }
@@ -174,6 +178,7 @@ final class AppSettings: ObservableObject {
         dict["slashCommands"] = slashCommands
         dict["imagePaste"] = imagePaste
         dict["bulletEmoji"] = bulletEmoji
+        dict["linkPreviews"] = linkPreviews
         dict["enabledPlugins"] = enabledPlugins
         guard let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted, .sortedKeys]) else { return }
         do { try AtomicWriter.write(data, to: fileURL) }

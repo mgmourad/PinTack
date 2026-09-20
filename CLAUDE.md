@@ -45,8 +45,13 @@ This changes how you must work:
 2. **No dependencies without asking.** Every added package is a maintenance
    burden on a project that expects to change owners. CodeMirror 6 and Sparkle
    are pre-approved. Nothing else is.
-3. **No network access from the app**, ever, except Sparkle update checks.
-   The webview CSP forbids remote resource loading and this will not be relaxed.
+3. **No network access from the app**, except Sparkle update checks and **link
+   previews** (owner-approved 2026-09-19, `PinTack/Vault/LinkPreview.swift`).
+   The webview CSP forbids remote resource loading and this will not be relaxed:
+   link previews are fetched in **Swift**, never in the page, and the thumbnail is
+   written into the vault and loaded from disk. The feature is **off by default**;
+   while it is off nothing is requested. Any other network access still needs
+   explicit approval, and no new one may be added inside the webview.
 4. **Unknown frontmatter keys must survive a write.** Plugins own them. Dropping
    them is user data loss.
 5. **Vault writes must be atomic** (temp file in the same directory, then
@@ -230,6 +235,15 @@ Owner decisions added after the rebuild (2026-09-19):
   two paths (Carbon + key monitor) and a toggle then cancels itself. Key auto-repeats are swallowed.
 - Colored text uses `<span style="color:…">`, but its tags are always hidden in the editor and
   Tab leaves the span. `/red`, `/blue`... are the slash commands (no `color-` prefix).
+- Renaming a note writes `title:` into the frontmatter and NEVER rewrites the body. A note with no
+  `title:` follows its first line; once renamed, the two are independent both ways.
+- Every language CodeMirror ships is vendored, but `Editor/languages.js` loads a parser only when a
+  note actually contains a block in that language. Do not import them eagerly: that is ~3.5 MB per
+  note window. A fenced block that names a language also gets a glyph + name badge.
+- Tag pill colours come from a **djb2 hash of the tag text**, never `hashValue` (seeded per process,
+  so colours would change every launch). Pills are washed out to always take dark text.
+- Link previews are off by default and fetched only in Swift. A dismissed preview is remembered in
+  `.pintack/linkpreviews.json`, not in the note, so notes stay plain Markdown.
 
 ### Plugins (docs/PLUGINS.md is the author's guide)
 

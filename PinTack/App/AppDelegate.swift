@@ -31,6 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         vault.bootstrap()
         AppSettings.shared.load(from: vault.metaURL)
         ShortcutStore.shared.load(from: vault.metaURL)
+        LinkPreviewStore.shared.load(from: vault.metaURL)
         // Plugins must be known BEFORE the first note window loads, because each page asks for its plugins.
         PluginManager.shared.installBundledPlugins()
         PluginManager.shared.reload()

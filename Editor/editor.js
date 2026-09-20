@@ -132,6 +132,98 @@ function updateBlockSource(view, el, text) {
   view.dispatch({ changes: inner.empty ? { from: inner.first.to, insert: "\n" + text } : { from: inner.from, to: inner.to, insert: text } });
 }
 
+/* ------------------------------------------------------- link previews (§4.4)
+ * A URL alone on its own line is drawn as a card: thumbnail, title, summary, domain. The page
+ * never fetches anything — Swift does, only while Settings → Editor → Link previews is on, and
+ * hands back a thumbnail already saved in the vault. `linkPreviews` holds what Swift has sent.
+ * Hovering the card shows a ✕ that reverts that URL to plain text for good. */
+const linkPreviews = new Map();      // url -> {title, summary, domain, image} | "failed"
+const dismissedLinks = new Set();
+let previewsEnabled = false;
+
+class LinkPreviewWidget extends WidgetType {
+  constructor(url, data) { super(); this.url = url; this.data = data; }
+  eq(o) { return o.url === this.url && JSON.stringify(o.data) === JSON.stringify(this.data); }
+
+  toDOM() {
+    const card = document.createElement("div");
+    card.className = "cm-link-card";
+
+    if (this.data.image) {
+      const img = document.createElement("img");
+      img.className = "cm-link-thumb";
+      img.src = resolveImage(this.data.image);
+      img.alt = "";
+      img.addEventListener("error", () => img.remove());
+      card.appendChild(img);
+    }
+
+    const text = document.createElement("div");
+    text.className = "cm-link-text";
+    const title = document.createElement("div");
+    title.className = "cm-link-title";
+    title.textContent = this.data.title || this.url;
+    text.appendChild(title);
+    if (this.data.summary) {
+      const summary = document.createElement("div");
+      summary.className = "cm-link-summary";
+      summary.textContent = this.data.summary;
+      text.appendChild(summary);
+    }
+    const domain = document.createElement("div");
+    domain.className = "cm-link-domain";
+    domain.textContent = this.data.domain || "";
+    text.appendChild(domain);
+    card.appendChild(text);
+
+    // Shown only on hover (CSS): cancels the embed and leaves the URL as written.
+    const close = document.createElement("button");
+    close.className = "cm-link-close";
+    close.type = "button";
+    close.textContent = "✕";
+    close.title = "Show the plain link instead";
+    close.setAttribute("aria-label", "Show the plain link instead");
+    close.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dismissedLinks.add(this.url);
+      post("linkpreview.dismiss", { url: this.url });
+      if (viewRef) viewRef.dispatch({ effects: refresh.of(null) });
+    });
+    card.appendChild(close);
+
+    // Swift decides what may open; the web view itself never navigates. SPEC.md §4.4
+    card.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      post("link.open", { url: this.url });
+    });
+    return card;
+  }
+
+  ignoreEvent() { return true; }
+}
+
+/** A line that is nothing but one http(s) URL is the only thing that becomes a card. */
+function bareLinkURL(text) {
+  const t = text.trim();
+  if (!/^https?:\/\/\S+$/i.test(t)) return null;
+  return t;
+}
+
+// Asking is batched and asked once per URL: the decoration builder runs on every keystroke.
+const requestedPreviews = new Set();
+let previewRequestTimer = null;
+function requestPreview(url) {
+  if (requestedPreviews.has(url)) return;
+  requestedPreviews.add(url);
+  clearTimeout(previewRequestTimer);
+  previewRequestTimer = setTimeout(() => {
+    const pending = [...requestedPreviews].filter((u) => !linkPreviews.has(u));
+    if (pending.length) post("linkpreview.request", { urls: pending });
+  }, 250);
+}
+
 class ImageWidget extends WidgetType {
   constructor(src, alt) { super(); this.src = src; this.alt = alt; }
   eq(o) { return o.src === this.src && o.alt === this.alt; }
@@ -379,6 +471,20 @@ function build(state) {
     const text = l.text;
 
     if (EMOJI_LEAD.test(text)) line(l.from, "cm-ebullet");
+
+    // A line that is just a URL becomes a preview card, unless the caret is on it (so it stays
+    // editable) or the user dismissed it. Anything not yet known is asked of Swift, once.
+    if (previewsEnabled) {
+      const linkURL = bareLinkURL(text);
+      if (linkURL && !dismissedLinks.has(linkURL)) {
+        const data = linkPreviews.get(linkURL);
+        if (data === undefined) requestPreview(linkURL);
+        else if (data !== "failed" && !touched(l.from, l.to)) {
+          swap(l.from, l.to, new LinkPreviewWidget(linkURL, data), true);
+          continue;
+        }
+      }
+    }
 
     for (const m of text.matchAll(/==([^=\n]+?)==/g)) {
       const f = l.from + m.index, tEnd = f + m[0].length;
@@ -886,6 +992,11 @@ function applySettings(s) {
     view.dispatch({ effects: spellCompartment.reconfigure(EditorView.contentAttributes.of({ spellcheck: String(s.spellcheck), autocorrect: "off", autocapitalize: "off" })) });
   }
   if (s.slashCommands === false) { /* handled by Swift filtering; kept for future use */ }
+  if (s.linkPreviews != null && s.linkPreviews !== previewsEnabled) {
+    previewsEnabled = s.linkPreviews;
+    // Turning the setting off must drop the cards immediately, not at the next keystroke.
+    if (viewRef) viewRef.dispatch({ effects: refresh.of(null) });
+  }
 }
 
 function setMode(mode) {
@@ -908,6 +1019,19 @@ window.__pintack = {
       case "note.reload": setBody(p.body || "", true); break;
       case "settings.changed": applySettings(p); break;
       case "tags.changed": noteState.tags = p.tags || []; break;
+
+      // Link previews arriving from Swift (it alone fetches them). SPEC.md §4.4.
+      case "linkpreview.result":
+        for (const preview of p.previews || []) linkPreviews.set(preview.url, preview);
+        if (viewRef) viewRef.dispatch({ effects: refresh.of(null) });
+        break;
+      case "linkpreview.failed":
+        linkPreviews.set(p.url, "failed");
+        break;
+      case "linkpreview.dismissed":
+        dismissedLinks.add(p.url);
+        if (viewRef) viewRef.dispatch({ effects: refresh.of(null) });
+        break;
       case "mode.set": setMode(p.mode); break;
       case "emoji.open": view.focus(); openEmoji(view); break;
       case "bullet.pick": openEmoji(view, { pick: "bullet" }); break;

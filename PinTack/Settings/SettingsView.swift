@@ -350,6 +350,23 @@ private struct EditorPane: View {
             }
             Text("Right-click the bullet button in a note's action bar to choose an emoji bullet.")
                 .font(.caption).foregroundStyle(.secondary)
+
+            Section {
+                Toggle("Link previews", isOn: $s.linkPreviews)
+                Text("""
+                     A web address pasted on a line of its own is shown as a card with the page's \
+                     title, description and picture. Hover the card and click ✕ to go back to the \
+                     plain address.
+
+                     This is the only feature that contacts a website. While it is on, pasting a \
+                     link asks that site for the page, so the site can see your IP address and that \
+                     you saved the link. Everything it sends back is stored in your vault and \
+                     nothing else about you is sent. Off by default.
+                     """)
+                    .font(.caption).foregroundStyle(.secondary)
+                Button("Clear saved previews") { LinkPreviewStore.shared.clearCache() }
+                    .disabled(!s.linkPreviews)
+            }
         }
         .formStyle(.grouped)
     }

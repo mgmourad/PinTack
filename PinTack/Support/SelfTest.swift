@@ -400,7 +400,71 @@ enum SelfTest {
         }
     }
 
-    private static func renderWindows(out: URL) { runnerTest(out: out) { renderWindowsNow(out: out) } }
+    /// End to end for link previews, opt-in via PINTACK_LINKPREVIEW_URL so the self-test never
+    /// contacts anything on its own. Point it at a local server to exercise the whole path: Swift
+    /// fetches, parses the og: tags, saves the thumbnail into the vault, and the card renders from
+    /// that file with the page's CSP still refusing anything remote.
+    private static func linkPreviewTest(out: URL, then next: @escaping () -> Void) {
+        guard let url = ProcessInfo.processInfo.environment["PINTACK_LINKPREVIEW_URL"], !url.isEmpty else { return next() }
+        // Turn the setting on FIRST and let the settings change settle: it reloads open editors,
+        // which would tear down the JS context this test is waiting in.
+        AppSettings.shared.linkPreviews = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { linkPreviewTestBody(url: url, out: out, then: next) }
+    }
+
+    private static func linkPreviewTestBody(url: String, out: URL, then next: @escaping () -> Void) {
+        let note = VaultStore.shared.createNote(body: "# Link preview\n\n\(url)\n",
+                                                frame: WindowManager.shared.nextCardFrame(size: NSSize(width: 380, height: 300)))
+        let panel = WindowManager.shared.open(note, focus: false)
+        let js = """
+        const sleep = ms => new Promise(r => setTimeout(r, ms));
+        for (let i = 0; i < 120 && !document.querySelector('.cm-link-card'); i++) await sleep(100);
+        const card = document.querySelector('.cm-link-card');
+        if (!card) return JSON.stringify({ card: false, text: document.querySelector('.cm-content').textContent.slice(0, 120) });
+        const img = card.querySelector('.cm-link-thumb');
+        const pick = s => { const e = card.querySelector(s); return e ? e.textContent : null; };
+        return JSON.stringify({
+          card: true,
+          title: pick('.cm-link-title'),
+          summary: pick('.cm-link-summary'),
+          domain: pick('.cm-link-domain'),
+          thumb: img ? img.getAttribute('src') : null,
+          thumbLoaded: img ? (img.complete && img.naturalWidth > 0) : false,
+          closeHidden: getComputedStyle(card.querySelector('.cm-link-close')).opacity,
+        });
+        """
+        // The page is still loading right after open(); calling into it now would have the context
+        // replaced under the waiting promise ("completion handler is no longer reachable").
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+        panel.card.editor.callAsyncJavaScript(js, arguments: [:], in: nil, in: .page) { result in
+            switch result {
+            case .success(let value): log("link preview card: \(value as? String ?? "nil")")
+            case .failure(let error): log("link preview card: FAILED \(error)")
+            }
+            // Dismissing must leave the plain URL behind, and must stick.
+            let dismissJS = """
+            const card = document.querySelector('.cm-link-card');
+            const close = card && card.querySelector('.cm-link-close');
+            const steps = { hasCard: !!card, hasClose: !!close };
+            if (close) {
+              try { close.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true })); steps.dispatched = true; }
+              catch (e) { steps.error = String(e); }
+            }
+            await new Promise(r => setTimeout(r, 700));
+            steps.cardGone = !document.querySelector('.cm-link-card');
+            steps.showsURL = document.querySelector('.cm-content').textContent.includes('\(url)');
+            return JSON.stringify(steps);
+            """
+            panel.card.editor.callAsyncJavaScript(dismissJS, arguments: [:], in: nil, in: .page) { r2 in
+                if case .success(let v) = r2 { log("link preview ✕ dismiss: \(v as? String ?? "nil")") }
+                log("dismissal recorded in Swift = \(LinkPreviewStore.shared.isDismissed(noteID: note.id, url: url))")
+                snapshot(window: panel, to: out.appendingPathComponent("link-preview.png")) { next() }
+            }
+        }
+        }
+    }
+
+    private static func renderWindows(out: URL) { runnerTest(out: out) { linkPreviewTest(out: out) { renderWindowsNow(out: out) } } }
 
     private static func renderWindowsNow(out: URL) {
         // Put some realistic content in a note so the Live Preview render is visible.
