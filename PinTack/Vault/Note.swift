@@ -25,6 +25,13 @@ final class Note {
     /// Only the snowflake corner stays live, so it can always be thawed where you left it.
     var frozen: Bool
 
+    /// When this todo is due, and how it should nag. Todo notes only (SPEC.md §6). Kept in the
+    /// frontmatter so a reminder travels with the note through sync, not in app state.
+    var due: Date?
+    var remindOnTime: Bool
+    /// "" is off; otherwise a count and a unit, e.g. "30m", "2h", "1d".
+    var remindAhead: String
+
     /// The EXPANDED card rect in screen coordinates. Never the window rect
     /// (SPEC.md §5.2), and never the collapsed height.
     var cardFrame: NSRect
@@ -71,6 +78,43 @@ final class Note {
         return "Untitled"
     }
 
+    /// A todo note: either tagged `todo` (how New Todo makes one) or written as an @Todo list.
+    /// Only these get the reminder bell and appear under All Notes' todo tab.
+    var isTodo: Bool {
+        tags.contains { $0.caseInsensitiveCompare("todo") == .orderedSame }
+            || body.hasPrefix("@Todo")
+    }
+
+    /// "30m" -> 30 minutes before `due`. Anything unparseable means no early reminder at all,
+    /// rather than a guess that fires at the wrong time.
+    static func normalizedAhead(_ raw: String) -> String {
+        let text = raw.trimmingCharacters(in: .whitespaces).lowercased()
+        guard let match = text.range(of: #"^(\d{1,5})\s*(m|h|d)"#, options: .regularExpression) else { return "" }
+        let value = text[match].filter(\.isNumber)
+        guard let unit = text[match].last, let n = Int(value), n > 0 else { return "" }
+        return "\(n)\(unit)"
+    }
+
+    /// Seconds that `remindAhead` stands for, or nil when it is off.
+    var remindAheadInterval: TimeInterval? {
+        guard let unit = remindAhead.last, let n = Double(remindAhead.dropLast()), n > 0 else { return nil }
+        switch unit {
+        case "m": return n * 60
+        case "h": return n * 3600
+        case "d": return n * 86400
+        default:  return nil
+        }
+    }
+
+    /// Every moment this note should fire a notification, in the future only.
+    var reminderDates: [(id: String, date: Date)] {
+        guard let due else { return [] }
+        var out: [(String, Date)] = []
+        if remindOnTime { out.append(("ontime", due)) }
+        if let ahead = remindAheadInterval { out.append(("ahead", due.addingTimeInterval(-ahead))) }
+        return out.filter { $0.1 > Date() }
+    }
+
     var color: NSColor { NSColor(hex: colorHex) ?? NSColor(hex: "#FFE38A")! }
 
     /// Text is always automatic: dark text on light paper, light text on dark. Never a user
@@ -91,6 +135,9 @@ final class Note {
         self.collapsed = false
         self.visible = true
         self.frozen = false
+        self.due = nil
+        self.remindOnTime = false
+        self.remindAhead = ""
         self.cardFrame = cardFrame
         self.hasFrame = false
         self.body = body
@@ -199,6 +246,9 @@ final class Note {
             case "pinned":    pinned = (value == "true")
             case "collapsed": collapsed = (value == "true")
             case "frozen":    frozen = (value == "true")
+            case "due":       due = value.isEmpty ? nil : Note.iso.date(from: value)
+            case "remindOnTime": remindOnTime = (value == "true")
+            case "remindAhead":  remindAhead = Note.normalizedAhead(value)
             case "visible":   visible = (value != "false")
             case "color":     if !value.isEmpty { colorHex = value }
             case "theme":     if !value.isEmpty { theme = value }
@@ -262,6 +312,11 @@ final class Note {
         out += "opacity: \(String(format: "%.2f", opacity))\n"
         out += "collapsed: \(collapsed)\n"
         out += "frozen: \(frozen)\n"
+        if let due {
+            out += "due: \(Note.iso.string(from: due))\n"
+            out += "remindOnTime: \(remindOnTime)\n"
+            if !remindAhead.isEmpty { out += "remindAhead: \(remindAhead)\n" }
+        }
         out += "visible: \(visible)\n"
         out += "frame:\n"
         out += "  x: \(Int(cardFrame.origin.x.rounded()))\n"
@@ -281,6 +336,7 @@ final class Note {
         pinned = other.pinned; colorHex = other.colorHex; theme = other.theme
         opacity = other.opacity; collapsed = other.collapsed; visible = other.visible
         frozen = other.frozen
+        due = other.due; remindOnTime = other.remindOnTime; remindAhead = other.remindAhead
         customTitle = other.customTitle
         cardFrame = other.cardFrame; hasFrame = other.hasFrame
         body = other.body; unknownBlocks = other.unknownBlocks; usesCRLF = other.usesCRLF

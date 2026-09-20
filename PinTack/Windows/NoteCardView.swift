@@ -17,6 +17,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     private let closeButton = ToolButton()
     private let appearanceButton = ToolButton()
     private let tagsButton = ToolButton()          // the tag ICON: the only thing that opens the tag editor
+    private let bellButton = ToolButton()          // reminders; todo notes only
     private let tagPills = TagPillsView()                      // shows the tags; ignores the mouse so it drags
     private let grip = ResizeGripView()
     private let freezeButton = ToolButton()      // snowflake, beside the grip
@@ -245,6 +246,8 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
 
         configure(tagsButton, symbol: "tag", tip: "Edit tags", action: #selector(showTags))
         addSubview(tagsButton)
+        configure(bellButton, symbol: "bell", tip: "Due date and reminders", action: #selector(showReminders))
+        addSubview(bellButton)
         addSubview(tagPills)
 
         configure(freezeButton, symbol: "snowflake", tip: "Freeze (click-through)", action: #selector(toggleFreeze))
@@ -262,6 +265,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         refreshModeGlyph()
         updateCollapsedState()
         updateFrozenState()
+        updateReminderGlyph()
     }
 
     private func configure(_ b: NSButton, symbol: String, tip: String, action: Selector) {
@@ -353,6 +357,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         [bulletButton, boldButton, italicButton, codeButton, opacitySlider].forEach { $0.isHidden = !open }
         tagsButton.isHidden = open || note.collapsed
         tagPills.isHidden = open || note.collapsed
+        bellButton.isHidden = open || note.collapsed || !note.isTodo
         expandButton.image = symbol(actionBarExpanded ? "chevron.left" : "chevron.right")
         expandButton.toolTip = actionBarExpanded ? "Hide formatting tools" : "Formatting tools"
         needsLayout = true
@@ -397,7 +402,16 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
             opacitySlider.isHidden = sliderWidth < 36 || note.collapsed          // too narrow to use
         } else {
             tagsButton.frame = NSRect(x: x, y: y, width: 22, height: 20)
-            tagPills.frame = NSRect(x: tagsButton.frame.maxX + 2, y: y + 2, width: max(0, freezeButton.frame.minX - tagsButton.frame.maxX - 8), height: 16)
+            // The bell sits next to the tag glyph, and only on a todo note.
+            let pillsStart: CGFloat
+            if note.isTodo {
+                bellButton.frame = NSRect(x: tagsButton.frame.maxX + 1, y: y, width: 22, height: 20)
+                pillsStart = bellButton.frame.maxX + 2
+            } else {
+                bellButton.frame = .zero
+                pillsStart = tagsButton.frame.maxX + 2
+            }
+            tagPills.frame = NSRect(x: pillsStart, y: y + 2, width: max(0, freezeButton.frame.minX - pillsStart - 6), height: 16)
         }
     }
 
@@ -448,6 +462,24 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         VaultStore.shared.save(note)
         NotificationCenter.default.post(name: .vaultDidChange, object: nil)
         Toast.show(note.frozen ? "Frozen — clicks pass through" : "Thawed")
+    }
+
+    /// The bell carries a dot once something is actually scheduled, so a note with a live
+    /// reminder is obvious without opening anything.
+    func updateReminderGlyph() {
+        let armed = note.due != nil && (note.remindOnTime || !note.remindAhead.isEmpty)
+        bellButton.image = symbol(armed ? "bell.badge.fill" : (note.due != nil ? "bell.fill" : "bell"))
+        bellButton.contentTintColor = note.due != nil ? Brand.accentNS : foreground.withAlphaComponent(0.55)
+        bellButton.toolTip = note.due.map { "Due \($0.formatted(date: .abbreviated, time: .shortened))" }
+            ?? "Due date and reminders"
+    }
+
+    @objc private func showReminders() {
+        let view = ReminderPopoverView(note: note) { [weak self] in
+            self?.updateReminderGlyph()
+            NotificationCenter.default.post(name: .vaultDidChange, object: nil)
+        }
+        present(view, from: bellButton)
     }
 
     func updateFrozenState() {
@@ -908,6 +940,10 @@ extension NoteCardView {
     func debugMenuTitles(editing: Bool) -> [String] { contextMenuItems(editing: editing).map { $0.isSeparatorItem ? "—" : $0.title } }
     func debugMenuItem(_ title: String, editing: Bool) -> NSMenuItem? { contextMenuItems(editing: editing).first { $0.title == title } }
     var debugTagsButtonFrame: NSRect { tagsButton.frame }
+    var debugBellHidden: Bool { bellButton.isHidden }
+    func debugShowReminderPopover() { showReminders() }
+    func debugDismissPopover() { popover?.close() }
+    func debugCollapseActionBar() { if actionBarExpanded { toggleActionBar() } }
     var debugFooterEmptyPoint: NSPoint { NSPoint(x: cardRect.midX + 20, y: cardRect.minY + 12) }
     func debugShowTags() { showTags() }
     func debugClosePopover() { popover?.close() }

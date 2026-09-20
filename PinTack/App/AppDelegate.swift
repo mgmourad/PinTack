@@ -32,6 +32,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppSettings.shared.load(from: vault.metaURL)
         ShortcutStore.shared.load(from: vault.metaURL)
         LinkPreviewStore.shared.load(from: vault.metaURL)
+        // Re-arm due reminders: anything still in the future goes back on the schedule, and
+        // anything that no longer exists is cleared out.
+        Reminders.shared.start()
+        Reminders.shared.rescheduleAll(vault.notes)
         // Plugins must be known BEFORE the first note window loads, because each page asks for its plugins.
         PluginManager.shared.installBundledPlugins()
         PluginManager.shared.reload()

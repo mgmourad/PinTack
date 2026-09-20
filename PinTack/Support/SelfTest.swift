@@ -761,8 +761,49 @@ enum SelfTest {
         next()
     }
 
+    /// The reminder bell: it appears on todo notes only, and its popover writes the date into the
+    /// note. Notification delivery itself is the system's business and is not simulated here.
+    private static func reminderTest(out: URL, then next: @escaping () -> Void) {
+        let todo = VaultStore.shared.createNote(body: "@Todo Ship the pilot\n\n- [ ] one\n- [x] two\n", tags: ["todo"],
+                                                frame: WindowManager.shared.nextCardFrame(size: NSSize(width: 330, height: 240)))
+        let plain = WindowManager.shared.openPanels.first { !$0.note.isTodo }
+        let panel = WindowManager.shared.open(todo, focus: false)
+        panel.card.debugCollapseActionBar()
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
+            log("reminder bell: shown on a todo note = \(!panel.card.debugBellHidden), "
+                + "on a plain note = \(plain.map { !$0.card.debugBellHidden } ?? false) (must be true, false)")
+
+            // Set a date the way the popover does, then check what reached the file.
+            todo.due = Date().addingTimeInterval(3600)
+            todo.remindOnTime = true
+            todo.remindAhead = Note.normalizedAhead("30m")
+            VaultStore.shared.save(todo)
+            panel.card.updateReminderGlyph()
+            SaveCoordinator.shared.flush(noteID: todo.id)
+            let onDisk = (try? String(contentsOf: todo.fileURL, encoding: .utf8)) ?? ""
+            log("reminder written to the note: due = \(onDisk.contains("due:")), onTime = \(onDisk.contains("remindOnTime: true")), "
+                + "ahead = \(onDisk.contains("remindAhead: 30m")); scheduled moments = \(todo.reminderDates.map(\.id))")
+
+            // Close anything already up, or the snapshot below catches the wrong popover.
+            panel.card.debugDismissPopover()
+            WindowManager.shared.openPanels.forEach { $0.card.debugDismissPopover() }
+            panel.card.debugShowReminderPopover()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                if let popover = panel.card.debugPopoverWindow, popover.isVisible {
+                    snapshot(window: popover, to: out.appendingPathComponent("reminder-popover.png")) {
+                        panel.card.debugDismissPopover(); next()
+                    }
+                } else {
+                    log("reminder popover: NOT SHOWN")
+                    next()
+                }
+            }
+        }
+    }
+
     private static func renderWindows(out: URL) {
-        runnerTest(out: out) { linkPreviewTest(out: out) { imageEditTest(out: out) { freezeTest { renderWindowsNow(out: out) } } } }
+        runnerTest(out: out) { linkPreviewTest(out: out) { imageEditTest(out: out) { freezeTest { reminderTest(out: out) { renderWindowsNow(out: out) } } } } }
     }
 
     private static func renderWindowsNow(out: URL) {
