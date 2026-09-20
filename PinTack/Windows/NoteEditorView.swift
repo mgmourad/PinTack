@@ -336,6 +336,26 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
         case "image.pick":
             pickImage()
 
+        // /find asked for something to search. Titles and a short preview only: the whole vault's
+        // text would be a lot to hand a web view, and the overlay matches on these.
+        case "notes.list":
+            let list = VaultStore.shared.notes.map { other -> [String: Any] in
+                ["id": other.id, "title": other.title,
+                 "folder": VaultStore.shared.folder(of: other),
+                 "preview": String(other.previewLine.prefix(90))]
+            }
+            send("notes.list", ["notes": list])
+
+        // Opening from /find deliberately does NOT take you there: the note appears, but the caret
+        // stays where the search started, which the page restores on its side.
+        case "note.open":
+            guard let id = payload["id"] as? String, let target = VaultStore.shared.note(id: id) else { return }
+            if target.id == note.id { return }
+            let panel = WindowManager.shared.open(target, focus: false)
+            panel.orderFront(nil)
+            panel.pulse()
+            window?.makeKeyAndOrderFront(nil)
+
         // A slash command asking for something the note itself does (e.g. /freeze).
         case "note.action":
             if let raw = payload["action"] as? String, let action = ShortcutAction(rawValue: raw) {

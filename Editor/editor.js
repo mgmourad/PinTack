@@ -16,6 +16,7 @@ import { autocompletion, completionKeymap, startCompletion } from "@codemirror/a
 import { tags as t } from "@lezer/highlight";
 import { codeLanguages, badgeFor } from "./languages.js";
 import { htmlToMarkdown } from "./html-to-markdown.js";
+import { openFind } from "./find-overlay.js";
 import { createRuntime } from "./plugin-runtime.js";
 
 /* ------------------------------------------------------------------ bridge */
@@ -887,6 +888,7 @@ const commands = [
   ["tag", "Tag", (v, _c, f, to) => { edit(v, f, to, "#"); startCompletion(v); }],
   // Native actions: the slash menu is just another way to reach what the note's own controls do.
   ["freeze", "Freeze / thaw (click-through)", (v, _c, f, to) => { edit(v, f, to, ""); post("note.action", { action: "freeze" }); }],
+  ["find", "Find a note…", (v, _c, f, to) => { edit(v, f, to, ""); post("notes.list"); }],
   ["image", "Image from Finder…", (v, _c, f, to) => { edit(v, f, to, ""); post("image.pick"); }],
   ["emoji", "Emoji picker", (v, _c, f, to) => { edit(v, f, to, ""); openEmoji(v); }],
 ];
@@ -1296,6 +1298,11 @@ window.__pintack = {
       case "note.reload": setBody(p.body || "", true); break;
       case "settings.changed": applySettings(p); break;
       case "tags.changed": noteState.tags = p.tags || []; break;
+
+      // Swift answered /find with the vault's notes; put the quick-open overlay up. SPEC.md §8.
+      case "notes.list":
+        if (viewRef) openFind({ view: viewRef, post, notes: p.notes || [] });
+        break;
 
       // Link previews arriving from Swift (it alone fetches them). SPEC.md §4.4.
       case "linkpreview.result":

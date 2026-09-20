@@ -810,8 +810,62 @@ enum SelfTest {
         }
     }
 
+    /// /find: the quick-open overlay. The point of it is that opening another note does NOT take
+    /// you there — the caret has to come back to where the search started.
+    private static func findTest(out: URL, then next: @escaping () -> Void) {
+        let panels = WindowManager.shared.openPanels.sorted { $0.note.created < $1.note.created }
+        guard let home = panels.first, panels.count > 1 else { return next() }
+        home.makeKeyAndOrderFront(nil)
+
+        let js = """
+        const sleep = ms => new Promise(r => setTimeout(r, ms));
+        const view = window.__pintack._view;
+        view.focus();
+        view.dispatch({ selection: { anchor: 5 } });
+        const steps = { caretBefore: view.state.selection.main.anchor };
+
+        // Ask for the list exactly as the /find slash command does.
+        window.__pintack.receive({ type: "notes.list", noteId: null, payload: { notes: [] } });
+        await sleep(100);
+        window.webkit.messageHandlers.pintack.postMessage({ type: "notes.list", noteId: null, payload: {} });
+        for (let i = 0; i < 40 && !document.querySelector('.cm-find-row'); i++) await sleep(100);
+
+        const rows = [...document.querySelectorAll('.cm-find-title')].map(e => e.textContent);
+        steps.rowsOffered = rows.length;
+        steps.firstRows = rows.slice(0, 3);
+        steps.searchBoxHasFocus = document.activeElement === document.querySelector('.cm-find-input');
+
+        // Type something that should narrow it down, then open the top hit.
+        const input = document.querySelector('.cm-find-input');
+        input.value = 'runner';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        await sleep(150);
+        steps.afterTyping = [...document.querySelectorAll('.cm-find-title')].map(e => e.textContent);
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        await sleep(400);
+        steps.overlayClosed = !document.querySelector('.cm-find');
+        steps.caretAfter = view.state.selection.main.anchor;
+        return JSON.stringify(steps);
+        """
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            home.card.editor.callAsyncJavaScript(js, arguments: [:], in: nil, in: .page) { result in
+                switch result {
+                case .success(let v): log("/find overlay: \(v as? String ?? "nil")")
+                case .failure(let e): log("/find overlay: FAILED \(e)")
+                }
+                // The note it opened must be on screen, but the CARET must still be in this note.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                    let key = NSApp.keyWindow as? NotePanel
+                    log("/find: key window is still the note the search started in = \(key === home) "
+                        + "(it opened '\(key?.note.title ?? "?")')")
+                    next()
+                }
+            }
+        }
+    }
+
     private static func renderWindows(out: URL) {
-        runnerTest(out: out) { linkPreviewTest(out: out) { imageEditTest(out: out) { freezeTest { reminderTest(out: out) { renderWindowsNow(out: out) } } } } }
+        runnerTest(out: out) { linkPreviewTest(out: out) { imageEditTest(out: out) { freezeTest { reminderTest(out: out) { findTest(out: out) { renderWindowsNow(out: out) } } } } } }
     }
 
     private static func renderWindowsNow(out: URL) {
