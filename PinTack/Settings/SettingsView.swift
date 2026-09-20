@@ -399,7 +399,8 @@ private struct EditorPane: View {
 // MARK: - Vault
 
 private struct VaultPane: View {
-    @State private var orphans: [URL] = []
+    @State private var orphans: [VaultStore.Orphan] = []
+    @State private var scannedNotes = 0
     @State private var showOrphans = false
 
     var body: some View {
@@ -420,10 +421,17 @@ private struct VaultPane: View {
                 Button("Import archive…") { ArchiveIO.importArchive() }
             }
             Divider()
-            Button("Find unused attachments…") { orphans = VaultStore.shared.orphanedAttachments(); showOrphans = true }
+            Button("Find unused attachments…") {
+                let result = VaultStore.shared.orphanedAttachments()
+                orphans = result.orphans
+                scannedNotes = result.scannedNotes
+                showOrphans = true
+            }
+            Text("Editing a picture writes a new file and keeps the original, so spare copies build up over time.")
+                .font(.caption).foregroundStyle(.secondary)
         }
         .formStyle(.grouped)
-        .sheet(isPresented: $showOrphans) { OrphanSheet(orphans: $orphans, isPresented: $showOrphans) }
+        .sheet(isPresented: $showOrphans) { OrphanSheet(orphans: $orphans, scannedNotes: scannedNotes, isPresented: $showOrphans) }
     }
 
     /// Moves the files, then relaunches so the new location is used everywhere. SPEC.md §9.
@@ -459,31 +467,64 @@ private struct VaultPane: View {
 }
 
 private struct OrphanSheet: View {
-    @Binding var orphans: [URL]
+    @Binding var orphans: [VaultStore.Orphan]
+    let scannedNotes: Int
     @Binding var isPresented: Bool
-    @State private var selected = Set<URL>()
+    @State private var selected = Set<VaultStore.Orphan>()
+
+    private var totalBytes: Int { orphans.filter { selected.contains($0) }.reduce(0) { $0 + $1.bytes } }
+    private static let formatter: ByteCountFormatter = {
+        let f = ByteCountFormatter(); f.countStyle = .file; return f
+    }()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Unused attachments").font(.headline)
-            if orphans.isEmpty {
+
+            if scannedNotes == 0 {
+                // Never offer to delete pictures when the scan read no notes at all: with nothing to
+                // compare against, EVERY attachment looks unreferenced.
+                Label("No notes could be read, so nothing can be called unused. Nothing will be deleted.",
+                      systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout).foregroundStyle(.orange)
+            } else if orphans.isEmpty {
                 Text("Every file in attachments/ is referenced by a note.").foregroundStyle(.secondary)
             } else {
-                Text("These files are not referenced by any note. Nothing is deleted until you choose.").font(.caption).foregroundStyle(.secondary)
-                List(orphans, id: \.self, selection: $selected) { Text($0.lastPathComponent).font(.system(.body, design: .monospaced)) }
-                    .frame(height: 180)
+                Text("Checked against \(scannedNotes) notes. These files are not mentioned by any of them. "
+                     + "Nothing is deleted until you choose, and deleting moves them to the Trash.")
+                    .font(.caption).foregroundStyle(.secondary)
+                List(orphans, id: \.self, selection: $selected) { orphan in
+                    HStack {
+                        Text(orphan.name).font(.system(.body, design: .monospaced))
+                        Spacer()
+                        Text(OrphanSheet.formatter.string(fromByteCount: Int64(orphan.bytes)))
+                            .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                    }
+                }
+                .frame(height: 200)
+                HStack {
+                    Button(selected.count == orphans.count ? "Select None" : "Select All") {
+                        selected = selected.count == orphans.count ? [] : Set(orphans)
+                    }
+                    Text(selected.isEmpty
+                         ? "\(orphans.count) unused, \(OrphanSheet.formatter.string(fromByteCount: Int64(orphans.reduce(0) { $0 + $1.bytes }))) in total"
+                         : "\(selected.count) selected, \(OrphanSheet.formatter.string(fromByteCount: Int64(totalBytes)))")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
+
             HStack {
                 Spacer()
                 Button("Move Selected to Trash") {
-                    selected.forEach { try? FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
-                    orphans.removeAll { selected.contains($0) }; selected = []
+                    for orphan in selected { try? FileManager.default.trashItem(at: orphan.url, resultingItemURL: nil) }
+                    orphans.removeAll { selected.contains($0) }
+                    selected = []
                 }
-                .disabled(selected.isEmpty)
+                .disabled(selected.isEmpty || scannedNotes == 0)
                 Button("Done") { isPresented = false }.keyboardShortcut(.defaultAction)
             }
         }
-        .padding(18).frame(width: 420)
+        .padding(18).frame(width: 460)
     }
 }
 

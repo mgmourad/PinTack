@@ -210,7 +210,7 @@ final class VaultStoreTests: VaultTestCase {
         XCTAssertNotEqual(path, second, "two attachments in the same second must not collide")
 
         _ = store.createNote(body: "![](\(path))")
-        let orphans = store.orphanedAttachments().map(\.lastPathComponent)
+        let orphans = store.orphanedAttachments().orphans.map(\.name)
         XCTAssertEqual(orphans, [String(second.dropFirst("attachments/".count))])
         XCTAssertTrue(FileManager.default.fileExists(atPath: store.attachmentsURL.appendingPathComponent(orphans[0]).path), "never deleted automatically")
     }

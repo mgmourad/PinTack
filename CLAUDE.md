@@ -263,6 +263,16 @@ Owner decisions added after the rebuild (2026-09-19):
   `.pintack/linkpreviews.json`, not in the note, so notes stay plain Markdown, and it is forgotten
   once the link leaves the note: the ✕ hides the card that is there, not that address for ever.
 
+### Scope: a sticky-note app, not a note-taking app
+
+The owner turned these down by name (2026-09-20) as scope creep. **Do not propose them again**
+without new reasoning; the goal is concentrated, important information that takes little screen
+space and can be referenced fast. Obsidian already exists for the rest.
+
+- **`[[wikilinks]]` and backlinks.** Notes referencing each other turns this into a knowledge base.
+- **Note version history / snapshots.** Defeats the point of a sticky note.
+- **Sync conflict resolution.** Sync is the user's job; this is personal, not collaborative.
+
 ### Plugins (docs/PLUGINS.md is the author's guide)
 
 - The core has NO private hooks for Runner. `Plugins/runner/` uses only the public API, and it must stay that way.

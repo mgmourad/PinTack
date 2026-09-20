@@ -436,10 +436,42 @@ final class VaultStore {
 
     /// Attachment files no note references. Listed for the user to delete; never
     /// deleted automatically. SPEC.md §7.
-    func orphanedAttachments() -> [URL] {
-        let files = (try? FileManager.default.contentsOfDirectory(at: attachmentsURL, includingPropertiesForKeys: nil,
+    struct Orphan: Hashable {
+        var url: URL
+        var bytes: Int
+        var name: String { url.lastPathComponent }
+    }
+
+    /// Attachments no note refers to. Editing an image writes a NEW file and leaves the old one
+    /// (that is the only undo), so these accumulate and this is how they are reclaimed.
+    ///
+    /// The text is read from the .md files ON DISK, not from the notes held in memory: a note that
+    /// failed to load, or one whose latest edit has not been flushed yet, would otherwise make its
+    /// pictures look unreferenced and offer them for deletion. `scannedNotes` is returned so the
+    /// caller can refuse to act when nothing was read — a bug that scanned zero notes would
+    /// otherwise present every attachment in the vault as rubbish.
+    func orphanedAttachments() -> (orphans: [Orphan], scannedNotes: Int) {
+        let files = (try? FileManager.default.contentsOfDirectory(at: attachmentsURL,
+                                                                  includingPropertiesForKeys: [.fileSizeKey],
                                                                   options: [.skipsHiddenFiles])) ?? []
-        let allText = notes.map(\.body).joined(separator: "\n")
-        return files.filter { !allText.contains($0.lastPathComponent) }
+        var haystack = ""
+        var scanned = 0
+        for file in markdownFiles() {
+            guard let text = try? String(contentsOf: file, encoding: .utf8) else { continue }
+            haystack += text
+            haystack += "\n"
+            scanned += 1
+        }
+        // Unsaved edits live only in memory, so fold those in too. Being over-cautious here means
+        // keeping a file that is not needed; being under-cautious means deleting one that is.
+        for note in notes { haystack += note.body + "\n" }
+
+        let orphans = files.compactMap { url -> Orphan? in
+            let name = url.lastPathComponent
+            guard !name.isEmpty, !haystack.contains(name) else { return nil }
+            let bytes = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+            return Orphan(url: url, bytes: bytes)
+        }
+        return (orphans.sorted { $0.bytes > $1.bytes }, scanned)
     }
 }
