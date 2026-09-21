@@ -26,8 +26,8 @@ final class AppSettings: ObservableObject {
     @Published var outlineColorHex = "#FF9F0A"    // also the accent for plugin UI. SPEC.md §9
     @Published var outlineWidth = 1.5
     @Published var pinnedGlow = true
-    @Published var defaultNoteWidth = 280.0
-    @Published var defaultNoteHeight = 210.0
+    @Published var defaultNoteWidth = 300.0
+    @Published var defaultNoteHeight = 250.0
     @Published var placement = "cascade"          // cursor | centered | cascade
     @Published var autosaveSeconds = 0.8
     @Published var actionBarAutoCollapse = true   // re-collapse the note's bottom action bar

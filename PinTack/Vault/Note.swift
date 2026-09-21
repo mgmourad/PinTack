@@ -65,7 +65,7 @@ final class Note {
     /// its own writes from external edits. SPEC.md §3.7.
     var lastWrittenHash: Int = 0
 
-    static let defaultCardSize = NSSize(width: 280, height: 210)
+    static let defaultCardSize = NSSize(width: 300, height: 250)
 
     var title: String {
         if let customTitle, !customTitle.isEmpty { return customTitle }

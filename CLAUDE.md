@@ -328,6 +328,16 @@ Owner decisions added after the rebuild (2026-09-19):
   half-typed entry ("37" became "7") and moves first responder off the field. Do not "tidy" it back
   into `@State`, and do not push a value into the picker while the panel is open. Done closes the
   popover; the panel commits on `onDisappear` too, so clicking away still saves.
+- The first launch shows `OnboardingWindow` — one card, OK dismisses it. "Once" is the empty
+  `.pintack/onboarded` file, written when it is SHOWN, and its words live in `OnboardingContent`
+  apart from the view: SwiftUI puts none of its own views into the accessibility tree an NSView
+  hands out, so text only inside the view is text no test can read. The self-test skips it at
+  launch (`SelfTest.isRequested`) and drives it deliberately later, because a modal panel taking
+  key status at launch breaks every check that types into a note.
+- Default new-note size is 300 × 250 (owner decision, 2026-09-20). 300 is the narrowest width where
+  a todo's bar fits six squares, the count and a tag pill together; below it the count goes first.
+- The self-test calls `NSApp.activate` before anything else. Several checks read the KEY window, and
+  an installed copy of PinTack or the terminal being in front makes them measure nothing.
 - `/find` is quick open. Opening a note from it deliberately does NOT move focus: the key window and
   the caret stay where the search started.
 - Link previews are off by default and fetched only in Swift. A dismissed preview is remembered in

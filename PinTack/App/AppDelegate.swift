@@ -55,8 +55,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NotificationCenter.default.addObserver(self, selector: #selector(shortcutsChanged),
                                                name: .shortcutsDidChange, object: nil)
 
+        // The first-run card. Skipped under the self-test, which drives it deliberately later on:
+        // a modal panel taking key status at launch would break every check that types into a note.
         #if DEBUG
+        if !SelfTest.isRequested { OnboardingWindow.showIfFirstRun() }
         SelfTest.runIfRequested(appDelegate: self, statusItem: statusItemController)
+        #else
+        OnboardingWindow.showIfFirstRun()
         #endif
     }
 

@@ -109,8 +109,20 @@ are reserved: `attachments/` and `plugins/`. App state lives in `.pintack/`.
 └── .pintack/
     ├── settings.json     hotkeys.json   index.sqlite
     ├── trust.json        approved commands, HMAC-signed
-    └── linkpreviews.json cached previews and dismissals
+    ├── linkpreviews.json cached previews and dismissals
+    └── welcomed, onboarded   first-run markers, empty files
 ```
+
+### 3.0 First run
+
+The very first launch shows one **welcome card** — a centred dark panel with the icon, six things
+worth knowing, the four shortcuts to start with (read from the live bindings), and an **OK** button
+that puts it away. Escape does the same. No pages and no "next": it is read once and dismissed.
+
+"Once" is the empty `.pintack/onboarded` file, written when the card is *shown* rather than when it
+is dismissed, so a crash before OK does not mean being greeted all over again. It is a file in the
+vault, not a preference, for the same reason the welcome note's `welcomed` marker is: the vault is
+what the app treats as its own state, and resetting defaults must not bring it back.
 
 ### 3.1 A note is a file
 
@@ -259,6 +271,10 @@ Three consequences, all mandatory:
 ### 5.3 Chrome
 
 **Header:** title (drag to move, double-click to rename), pin, mode, collapse, close.
+
+New notes are **300 × 250 pt** by default, adjustable in Settings. 300 is not arbitrary: it is the
+narrowest width at which a todo note's bar can show six progress squares, the `5/14` count and a
+tag pill all at once (§5.3).
 
 **Footer — the "action bar":** a palette button, a `>` that opens the formatting tools, and then
 either the tools (bullet, bold, italic, code, opacity) or the tag side (tag icon, reminder bell,

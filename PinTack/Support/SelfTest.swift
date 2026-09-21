@@ -17,6 +17,10 @@ enum SelfTest {
     private static var lines: [String] = []
     private static weak var app: AppDelegate?
 
+    /// Whether this launch is a self-test run, so the app can leave out anything that would take
+    /// the keyboard away from it.
+    static var isRequested: Bool { ProcessInfo.processInfo.environment["PINTACK_SELFTEST_DIR"] != nil }
+
     static func runIfRequested(appDelegate: AppDelegate, statusItem: StatusItemController?) {
         guard let dir = ProcessInfo.processInfo.environment["PINTACK_SELFTEST_DIR"] else { return }
         app = appDelegate
@@ -62,6 +66,11 @@ enum SelfTest {
     static func text(_ json: String?, _ key: String) -> String { field(json, key) as? String ?? "" }
 
     private static func run(out: URL, statusItem: StatusItemController?) {
+        // Take the foreground first. Several checks read the KEY window — whether /find gave focus
+        // back, what a paste landed in — and they measure nothing at all if some other app (an
+        // installed copy of PinTack, the terminal that started this) is in front.
+        NSApp.activate(ignoringOtherApps: true)
+
         check("Dock icon shown (activation policy is regular)", NSApp.activationPolicy() == .regular)
         log("vault = \(VaultStore.shared.vaultURL.path)")
         log("notes in vault = \(VaultStore.shared.notes.count), open panels = \(WindowManager.shared.openPanels.count)")
@@ -1283,6 +1292,77 @@ enum SelfTest {
         }
     }
 
+    /// The first-run card. Driven through the real entry point, marker and all, because "shown
+    /// once, ever" is the whole contract and a `show()` that skipped the marker would prove none
+    /// of it.
+    private static func onboardingTest(out: URL, then next: @escaping () -> Void) {
+        let marker = VaultStore.shared.metaURL.appendingPathComponent("onboarded")
+        try? FileManager.default.removeItem(at: marker)
+
+        OnboardingWindow.showIfFirstRun()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
+            check("the first run is greeted", OnboardingWindow.isShowing)
+            check("being greeted is remembered in the vault, not in defaults",
+                  FileManager.default.fileExists(atPath: marker.path))
+
+            guard let window = OnboardingWindow.panelForTesting else {
+                check("the greeting has a window to render", false)
+                return next()
+            }
+            // The words, read from the model rather than the rendered card: SwiftUI puts none of
+            // its views into the accessibility tree an NSView hands out, so there is nothing to
+            // read back off the window itself.
+            let words = ([OnboardingContent.title, OnboardingContent.subtitle, OnboardingContent.footnote,
+                          OnboardingContent.dismiss]
+                         + OnboardingContent.features.flatMap { [$0.title, $0.detail] }).joined(separator: " ")
+            check("the greeting names the app, the vault and the way out",
+                  words.contains("PinTack") && words.contains("~/Documents/PinTack") && words.contains("OK"),
+                  "\(OnboardingContent.features.count) features, \(words.count) characters")
+            check("every feature it lists has an icon that exists",
+                  OnboardingContent.features.allSatisfy { NSImage(systemSymbolName: $0.symbol, accessibilityDescription: nil) != nil },
+                  OnboardingContent.features.map(\.symbol).joined(separator: " "))
+            check("the shortcuts it shows are the live bindings, not hard-coded text",
+                  OnboardingContent.shortcuts.allSatisfy { !ShortcutStore.shared.combo(for: $0).display.isEmpty },
+                  OnboardingContent.shortcuts.map { ShortcutStore.shared.combo(for: $0).display }.joined(separator: " "))
+
+            // And the card really drew: a window that laid out to nothing, or came up blank, would
+            // pass every check above.
+            let size = window.frame.size
+            check("the card is a card, not a sliver", size.width > 600 && size.height > 380,
+                  "\(Int(size.width))×\(Int(size.height))")
+            let painted = paintedFraction(of: window)
+            check("the card actually painted itself", painted > 0.5,
+                  String(format: "%.0f%% of it is drawn", painted * 100))
+
+            snapshot(window: window, to: out.appendingPathComponent("onboarding.png")) {
+                OnboardingWindow.dismiss()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                    check("OK puts the greeting away", !OnboardingWindow.isShowing)
+                    // The second launch: the marker is there now, so nothing should appear.
+                    OnboardingWindow.showIfFirstRun()
+                    check("it never greets the same vault twice", !OnboardingWindow.isShowing)
+                    next()
+                }
+            }
+        }
+    }
+
+    /// How much of a window's content is actually painted. A view that laid out but never drew
+    /// comes back transparent, which every other kind of check would sail straight past.
+    private static func paintedFraction(of window: NSWindow) -> Double {
+        guard let view = window.contentView,
+              let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return 0 }
+        view.cacheDisplay(in: view.bounds, to: rep)
+        var opaque = 0, sampled = 0
+        for x in stride(from: 4, to: Int(rep.pixelsWide), by: 7) {
+            for y in stride(from: 4, to: Int(rep.pixelsHigh), by: 7) {
+                sampled += 1
+                if (rep.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.05 { opaque += 1 }
+            }
+        }
+        return sampled == 0 ? 0 : Double(opaque) / Double(sampled)
+    }
+
     /// The reminder popover, from the same tester: Done left it on screen, and a two-digit minute
     /// came out as its second digit alone.
     private static func reminderPopoverTest(out: URL, panel: NotePanel, then next: @escaping () -> Void) {
@@ -1361,7 +1441,7 @@ enum SelfTest {
     }
 
     private static func renderWindows(out: URL) {
-        runnerTest(out: out) { linkPreviewTest(out: out) { imageEditTest(out: out) { freezeTest { reminderTest(out: out) { findTest(out: out) { quickCaptureTest { templateTest { actionBarTest { testerBugsTest { todoBarTest(out: out) { renderWindowsNow(out: out) } } } } } } } } } } }
+        runnerTest(out: out) { linkPreviewTest(out: out) { imageEditTest(out: out) { freezeTest { reminderTest(out: out) { findTest(out: out) { quickCaptureTest { templateTest { actionBarTest { testerBugsTest { todoBarTest(out: out) { onboardingTest(out: out) { renderWindowsNow(out: out) } } } } } } } } } } } }
     }
 
     private static func renderWindowsNow(out: URL) {
