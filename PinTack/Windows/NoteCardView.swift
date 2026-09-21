@@ -741,11 +741,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         Toast.show("Hidden · still in All Notes")
     }
 
-    @objc func deleteNote() {
-        WindowManager.shared.close(noteID: note.id)
-        VaultStore.shared.delete(note)
-        Toast.show("Moved to Trash")
-    }
+    @objc func deleteNote() { WindowManager.shared.delete([note]) }
 
     @objc func duplicateNote() {
         let copy = VaultStore.shared.duplicate(note)

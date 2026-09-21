@@ -1643,7 +1643,34 @@ enum SelfTest {
                     check("unticking a box undoes all of it",
                           !card.debugTitleText.string.hasPrefix("✓") && abs(panel.alphaValue - before) < 0.02,
                           String(format: "%@, %.2f", card.debugTitleText.string, panel.alphaValue))
-                    hoverRevealTest(panel: panel, then: next)
+                    windowTweenTest(panel: panel) { hoverRevealTest(panel: panel, then: next) }
+                }
+            }
+        }
+    }
+
+    /// Window fades have to RUN, not just arrive, while PinTack is not the active app — which is
+    /// how notes are normally used. AppKit's own window animator did not run at all in that case.
+    private static func windowTweenTest(panel: NotePanel, then next: @escaping () -> Void) {
+        let active = NSApp.isActive
+        panel.alphaValue = 0.2
+        Motion.fade(panel, to: 1, duration: 0.4, curve: Motion.Curve.easeInOut)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            let midway = panel.alphaValue
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                check("a window fade is under way halfway through, and lands on its value",
+                      midway > 0.3 && midway < 0.95 && abs(panel.alphaValue - 1) < 0.01,
+                      String(format: "0.20 → %.2f at half time → %.2f (app active: %@)", midway, panel.alphaValue,
+                             active ? "yes" : "no"))
+                let start = panel.frame
+                var target = start; target.size.height += 60; target.origin.y -= 60
+                Motion.springFrame(panel, to: target)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                    check("a window frame animation runs to its exact end", panel.frame == target,
+                          "\(Int(start.height)) → \(Int(panel.frame.height)), wanted \(Int(target.height))")
+                    panel.setFrame(start, display: true)
+                    panel.applyOpacity()
+                    next()
                 }
             }
         }
@@ -1663,15 +1690,24 @@ enum SelfTest {
               String(format: "%.2f", whileOff))
 
         AppSettings.shared.hoverRevealsNote = true
+        // The REAL pointer is live now that hover does something: if it happens to rest over this
+        // note, the window server's own enter/exit events join in. Park the note away from it.
+        let pointer = NSEvent.mouseLocation
+        if panel.frame.insetBy(dx: -40, dy: -40).contains(pointer), let screen = NSScreen.main?.visibleFrame {
+            let x = pointer.x < screen.midX ? screen.maxX - panel.frame.width : screen.minX
+            panel.setFrameOrigin(NSPoint(x: x, y: panel.frame.minY))
+        }
+        let pointerWasOver = panel.frame.contains(NSEvent.mouseLocation)
         card.setHovered(true)
         // The fade animates; wait it out, then read what is on screen now.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
             let revealed = panel.alphaValue
             card.setHovered(false)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            waitFor(0.45, on: panel, started: Date()) { settledAfter in
                 check("with the option on, hovering shows the note fully, and leaving fades it back",
                       abs(revealed - 1) < 0.02 && abs(panel.alphaValue - 0.45) < 0.02,
-                      String(format: "0.45 → %.2f → %.2f", revealed, panel.alphaValue))
+                      String(format: "0.45 → %.2f → %.2f, settled in %.2fs, pointer over it: %@", revealed,
+                             panel.alphaValue, settledAfter, pointerWasOver ? "yes" : "no"))
                 check("hovering never rewrites the opacity the user chose", abs(note.opacity - 0.45) < 0.001)
                 note.opacity = 1
                 AppSettings.shared.hoverRevealsNote = wasOn
@@ -1702,8 +1738,46 @@ enum SelfTest {
         }
     }
 
+    /// ⌥⌘D offers Undo for five seconds, and Undo puts back the same note (owner, 2026-09-21).
+    private static func undoDeleteTest(then next: @escaping () -> Void) {
+        let note = VaultStore.shared.createNote(body: "Undo me\n\nstill here",
+                                                frame: WindowManager.shared.nextCardFrame(size: NSSize(width: 300, height: 250)))
+        let panel = WindowManager.shared.open(note, focus: false)
+        let path = note.fileURL.path, id = note.id, frame = note.cardFrame
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            panel.card.deleteNote()
+            let gone = !FileManager.default.fileExists(atPath: path) && VaultStore.shared.note(id: id) == nil
+            check("deleting moves the note away", gone)
+            check("the Moved to Trash toast offers Undo", Toast.debugOffersAction)
+            if let clicks = Toast.debugTakesClicks {
+                check("the toast takes the click on Undo instead of letting it through", clicks)
+            }
+            Toast.debugPerformAction()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                let back = VaultStore.shared.note(id: id)
+                check("Undo puts the SAME note back where it was, window and all",
+                      FileManager.default.fileExists(atPath: path) && back === note
+                          && back?.cardFrame == frame && WindowManager.shared.panel(for: id) != nil,
+                      "file \(FileManager.default.fileExists(atPath: path)), same note \(back === note)")
+                check("the words came back with it",
+                      ((try? String(contentsOfFile: path, encoding: .utf8)) ?? "").contains("still here"))
+                check("Undo is spent once used", !Toast.debugOffersAction)
+                next()
+            }
+        }
+    }
+
+    /// Polls a window's opacity until it reaches `target` or two seconds pass, and reports how
+    /// long it took. A fixed wait conflated "never fades" with "fades slowly".
+    private static func waitFor(_ target: CGFloat, on window: NSWindow, started: Date,
+                                then done: @escaping (TimeInterval) -> Void) {
+        let elapsed = Date().timeIntervalSince(started)
+        if abs(window.alphaValue - target) < 0.02 || elapsed > 2 { return done(elapsed) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { waitFor(target, on: window, started: started, then: done) }
+    }
+
     private static func renderWindows(out: URL) {
-        runnerTest(out: out) { linkPreviewTest(out: out) { imageEditTest(out: out) { freezeTest { reminderTest(out: out) { findTest(out: out) { quickCaptureTest { templateTest { actionBarTest { testerBugsTest { todoBarTest(out: out) { onboardingTest(out: out) { strandedNotesTest { collapsedTodoTest(out: out) { blankCloseTest { renderWindowsNow(out: out) } } } } } } } } } } } } } } }
+        runnerTest(out: out) { linkPreviewTest(out: out) { imageEditTest(out: out) { freezeTest { reminderTest(out: out) { findTest(out: out) { quickCaptureTest { templateTest { actionBarTest { testerBugsTest { todoBarTest(out: out) { onboardingTest(out: out) { strandedNotesTest { collapsedTodoTest(out: out) { blankCloseTest { undoDeleteTest { renderWindowsNow(out: out) } } } } } } } } } } } } } } } }
     }
 
     private static func renderWindowsNow(out: URL) {

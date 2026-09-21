@@ -123,11 +123,25 @@ final class WindowManager {
         NotificationCenter.default.post(name: .vaultDidChange, object: nil)
     }
 
-    /// Moves notes to the Trash (recoverable), closing any open windows first.
+    /// Moves notes to the Trash, closing any open windows first, and offers Undo for five seconds
+    /// (owner decision, 2026-09-21). The Trash already made a delete recoverable, but only by way
+    /// of Finder; an accidental ⌥⌘D deserves a one-click way back.
     func delete(_ notes: [Note]) {
+        var trashed: [(note: Note, url: URL, wasOpen: Bool)] = []
         for note in notes {
+            let wasOpen = panels[note.id] != nil
             close(noteID: note.id)
-            VaultStore.shared.delete(note)
+            if let url = VaultStore.shared.delete(note) { trashed.append((note, url, wasOpen)) }
+        }
+        guard !trashed.isEmpty else { return }
+        let message = trashed.count == 1 ? "Moved to Trash" : "Moved \(trashed.count) notes to Trash"
+        Toast.show(message, action: "Undo", seconds: 5) { [weak self] in
+            var back = 0
+            for item in trashed where VaultStore.shared.restore(item.note, from: item.url) {
+                back += 1
+                if item.wasOpen { self?.open(item.note, animated: true) }
+            }
+            Toast.show(back == trashed.count ? "Restored" : "Restored \(back) of \(trashed.count)")
         }
     }
 

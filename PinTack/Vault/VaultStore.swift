@@ -302,16 +302,43 @@ final class VaultStore {
         return true
     }
 
-    func delete(_ note: Note) {
+    /// Moves the note's file to the macOS Trash. Returns where it landed there, which is what lets
+    /// the "Moved to Trash" toast offer Undo.
+    @discardableResult
+    func delete(_ note: Note) -> URL? {
         SaveCoordinator.shared.discard(noteID: note.id)
         // Its reminders go with it: otherwise a binned todo still fires a banner pointing at a
         // note that no longer exists.
         Reminders.shared.cancel(note)
-        try? FileManager.default.trashItem(at: note.fileURL, resultingItemURL: nil)
+        var trashed: NSURL?
+        try? FileManager.default.trashItem(at: note.fileURL, resultingItemURL: &trashed)
         notes.removeAll { $0.id == note.id }
         saveFailures.remove(note.id)
         index?.remove(id: note.id)
         NotificationCenter.default.post(name: .vaultDidChange, object: nil)
+        return trashed as URL?
+    }
+
+    /// Undo for `delete`: moves the file back out of the Trash to where it was and puts the SAME
+    /// note back — same id, frame, colour and reminders. Refuses rather than overwrite if something
+    /// new has since taken its name.
+    @discardableResult
+    func restore(_ note: Note, from trashed: URL) -> Bool {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: trashed.path), !fm.fileExists(atPath: note.fileURL.path) else { return false }
+        try? fm.createDirectory(at: note.fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        do { try fm.moveItem(at: trashed, to: note.fileURL) } catch { return false }
+        // Recorded as the app's own write, so the file watcher does not read it back in as a second,
+        // "external" copy of the note it has just been given.
+        note.lastWrittenHash = ((try? String(contentsOf: note.fileURL, encoding: .utf8)) ?? "").hashValue
+        if !notes.contains(where: { $0.id == note.id }) {
+            notes.append(note)
+            notes.sort { $0.created < $1.created }
+        }
+        index?.upsert(note)
+        Reminders.shared.schedule(note, requestPermission: false)
+        NotificationCenter.default.post(name: .vaultDidChange, object: nil)
+        return true
     }
 
     @discardableResult
