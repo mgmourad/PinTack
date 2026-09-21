@@ -433,10 +433,25 @@ the ✕ hides the card that is there, not that address forever.
 
 ## 8. Central window ("All Notes")
 
+### 8.0 One window, two tabs
+
+All Notes and Settings are **one window** with two big tabs across its title bar, **All Notes** and
+**Settings** (owner decision, 2026-09-21). Every shortcut that used to open either window picks
+the tab instead: ⌥⌘H shows All Notes (and closes the window only when All Notes is already in
+front), ⌘, shows Settings, and ⌥⌘T / ⌥⇧T / ⌥⇧2 open All Notes on their own sub-tab. Both tabs stay
+alive underneath, so a search or a chosen Settings pane is still there on the way back.
+
+**The look.** Dark means dark: a deep indigo (`#141128`), not the system's grey, with a slightly
+lighter sidebar and surfaces. Light mode is a warm paper tone. A selection — a tab, a sidebar row, a
+Settings pane, a glyph tab — is a **solid** `Brand.accentNS` orange with dark lettering, and it
+slides to the new choice on a spring. Settings' sidebar glyphs are monochrome SF Symbols, outlined
+at rest and filled when chosen, with no coloured tiles. All of it is in `ChromeTheme`.
+
 ### 8.1 Layout
 
-A sidebar with four **glyph** tabs — folder, `#`, `@` (todos), cube (templates) — a search field, a
-list, and a footer. The Settings gear sits at the sidebar's bottom-left corner.
+A sidebar with four **glyph** tabs — folder, `#`, `@` (todos), cube (templates), a solid orange pill
+sliding between them — a search field, a list, and a footer. The gear at the sidebar's bottom-left
+corner switches to the Settings tab.
 
 ### 8.2 Tabs
 
@@ -464,8 +479,8 @@ dictionaries.
 
 ## 9. Settings
 
-Seven panes in a sidebar (a `TabView` overflowed into a "»" menu and looked unfinished):
-Appearance, Notes, Shortcuts, Editor, Vault, Plugins, About.
+The Settings tab of the one window (§8.0). Seven panes in a sidebar (a `TabView` overflowed into a
+"»" menu and looked unfinished): Appearance, Notes, Shortcuts, Editor, Vault, Plugins, About.
 
 App chrome uses the fixed `Brand.accentNS`, **never** the user's outline colour — a dark outline
 once made Settings unreadable.

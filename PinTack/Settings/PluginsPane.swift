@@ -93,7 +93,7 @@ private struct PluginCard: View {
             if plugin.enabled && canRunCommands { approvals }
         }
         .padding(13)
-        .background(RoundedRectangle(cornerRadius: 10).fill(.quaternary.opacity(0.5)))
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color.chromeSurface))
     }
 
     // MARK: Enable / disable

@@ -139,17 +139,18 @@ struct AllNotesView: View {
 
     @ObservedObject private var model = AllNotesModel.shared
     @ObservedObject private var settings = AppSettings.shared
+    @Namespace private var sidebarPill
 
     var body: some View {
         HStack(spacing: 0) {
             sidebar
-                .frame(width: 176)
-                .background(.thinMaterial)
-            Divider()
+                .frame(width: 208)
+                .background(Color.chromeSidebar)
+            Rectangle().fill(Color.chromeHairline).frame(width: 1)
             main
+                .background(Color.chromeWindow)
         }
-        .frame(minWidth: 860, minHeight: 420)
-        .tint(Color(nsColor: Brand.accentNS))
+        .tint(Color.chromeHighlight)
     }
 
     // MARK: Sidebar
@@ -159,15 +160,13 @@ struct AllNotesView: View {
             // Glyphs rather than words: three labelled tabs crowded the sidebar.
             // Each segment carries its own tip: one .help() on the Picker described all four at
             // once, which told you nothing about the icon under the pointer.
-            Picker("", selection: $model.mode) {
-                Image(systemName: "folder").help("Folders").tag(AllNotesModel.Mode.folders)
-                Image(systemName: "number").help("Tags").tag(AllNotesModel.Mode.tags)
-                Text("@").help("Todos").tag(AllNotesModel.Mode.todo)
-                Image(systemName: "cube.box").help("Templates").tag(AllNotesModel.Mode.templates)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .padding(.horizontal, 10).padding(.top, 10)
+            GlyphTabs(selection: $model.mode, items: [
+                .init(value: .folders, symbol: "folder.fill", text: "", help: "Folders"),
+                .init(value: .tags, symbol: "number", text: "", help: "Tags"),
+                .init(value: .todo, symbol: nil, text: "@", help: "Todos"),
+                .init(value: .templates, symbol: "cube.box.fill", text: "", help: "Templates"),
+            ])
+            .padding(.horizontal, 12).padding(.top, 14).padding(.bottom, 4)
 
             if model.mode == .todo { todoControls }
             if model.mode == .templates { templateControls }
@@ -295,7 +294,7 @@ struct AllNotesView: View {
     /// Shortcut to Settings, in the sidebar's own bottom-left corner so it sits under the folder
     /// list rather than crowding the buttons that act on the notes.
     private var settingsButton: some View {
-        Button { SettingsWindowController.shared.show() } label: {
+        Button { withAnimation(ChromeMotion.spring) { MainWindowModel.shared.tab = .settings } } label: {
             Image(systemName: "gearshape")
                 .font(.system(size: 17, weight: .regular))
                 .frame(width: 34, height: 34)
@@ -307,17 +306,28 @@ struct AllNotesView: View {
     }
 
     private func row(icon: String, title: String, sel: AllNotesModel.Selection, indent: Int) -> some View {
-        HStack(spacing: 7) {
-            Image(systemName: icon).frame(width: 16).foregroundStyle(.secondary)
-            Text(title).lineLimit(1)
+        let chosen = model.selection == sel
+        return HStack(spacing: 9) {
+            Image(systemName: icon).symbolVariant(chosen ? .fill : .none)
+                .font(.system(size: 14, weight: .medium)).frame(width: 18)
+                .foregroundStyle(chosen ? Color.chromeOnHighlight : .secondary)
+            Text(title).lineLimit(1).font(.system(size: 13, weight: chosen ? .semibold : .medium))
             Spacer()
-            Text("\(model.count(for: sel))").font(.caption).foregroundStyle(.tertiary)
+            Text("\(model.count(for: sel))").font(.caption.weight(.medium)).monospacedDigit()
+                .foregroundStyle(chosen ? Color.chromeOnHighlight.opacity(0.7) : Color.secondary.opacity(0.8))
         }
-        .padding(.vertical, 5).padding(.horizontal, 8)
+        .foregroundStyle(chosen ? Color.chromeOnHighlight : Color.primary.opacity(0.85))
+        .padding(.horizontal, 10).frame(height: 32)
         .padding(.leading, CGFloat(indent) * 14)
-        .background(RoundedRectangle(cornerRadius: 6).fill(model.selection == sel ? Color(nsColor: Brand.accentNS).opacity(0.28) : .clear))
+        .background {
+            if chosen {
+                RoundedRectangle(cornerRadius: 9).fill(Color.chromeHighlight)
+                    .matchedGeometryEffect(id: "sidebarRow", in: sidebarPill)
+                    .shadow(color: Color.chromeHighlight.opacity(0.3), radius: 6, y: 1)
+            }
+        }
         .contentShape(Rectangle())
-        .onTapGesture { model.selection = sel }
+        .onTapGesture { withAnimation(ChromeMotion.spring) { model.selection = sel } }
     }
 
     // MARK: Main
@@ -332,9 +342,10 @@ struct AllNotesView: View {
                         .buttonStyle(.plain).foregroundStyle(.secondary)
                 }
             }
-            .padding(8)
-            .background(RoundedRectangle(cornerRadius: 7).fill(.quaternary))
-            .padding(.horizontal, 10).padding(.top, 10).padding(.bottom, 4)
+            .padding(.horizontal, 12).frame(height: 36)
+            .background(RoundedRectangle(cornerRadius: 10).fill(Color.chromeSurface))
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.chromeHairline))
+            .padding(.horizontal, 14).padding(.top, 14).padding(.bottom, 6)
 
             switch model.mode {
             case .todo:      todoList
@@ -471,9 +482,9 @@ struct AllNotesView: View {
         guard Prompt.confirm(title: "Move \(n) note\(n == 1 ? "" : "s") to the Trash?",
                              message: "The files go to the Trash, so you can still get them back from there.",
                              button: "Move to Trash", destructive: true) else { return }
+        // WindowManager.delete shows the toast, with Undo. A second toast here would replace it.
         WindowManager.shared.delete(notes)
         model.selected = []
-        Toast.show("Moved \(n) to Trash")
     }
 }
 
@@ -516,7 +527,7 @@ private struct TemplateRow: View {
             Spacer(minLength: 0)
         }
         .padding(.vertical, 7).padding(.horizontal, 10)
-        .background(RoundedRectangle(cornerRadius: 8).fill(hovering ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear)))
+        .background(RoundedRectangle(cornerRadius: 9).fill(hovering ? Color.chromeSurfaceHover : .clear))
         .onHover { hovering = $0 }
         .contextMenu {
             Button("Open") { WindowManager.shared.reveal(note) }
@@ -586,7 +597,7 @@ private struct TodoRow: View {
         }
         .opacity(note.isDone ? 0.55 : 1)
         .padding(.vertical, 7).padding(.horizontal, 10)
-        .background(RoundedRectangle(cornerRadius: 8).fill(hovering ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear)))
+        .background(RoundedRectangle(cornerRadius: 9).fill(hovering ? Color.chromeSurfaceHover : .clear))
         .onHover { hovering = $0 }
         .contextMenu {
             Button("Open") { WindowManager.shared.reveal(note) }
@@ -669,15 +680,13 @@ private struct NoteRow: View {
                     if note.visible { hide() } else { WindowManager.shared.reveal(note) }
                 }
                 iconButton("pencil", help: "Rename") { beginRename() }
-                iconButton("trash", help: "Move to Trash") {
-                    WindowManager.shared.delete([note])
-                    Toast.show("Moved to Trash")
-                }
+                iconButton("trash", help: "Move to Trash") { WindowManager.shared.delete([note]) }
             }
         }
         .padding(.vertical, 7).padding(.horizontal, 8)
-        .background(RoundedRectangle(cornerRadius: 7).fill(isSelected ? Color(nsColor: Brand.accentNS).opacity(0.16)
-                                                            : hovering ? Color.primary.opacity(0.07) : .clear))
+        .background(RoundedRectangle(cornerRadius: 9).fill(isSelected ? Color.chromeHighlight.opacity(0.2)
+                                                            : hovering ? Color.chromeSurfaceHover : .clear))
+        .animation(.easeOut(duration: 0.12), value: hovering)
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .onTapGesture {
@@ -748,38 +757,30 @@ private struct NoteRow: View {
 }
 
 /// Owns the All Notes window. SPEC.md §8.
+/// The All Notes TAB of the one PinTack window (MainWindow.swift). Kept, with the same calls it
+/// always had, so nothing that opens All Notes — shortcuts, menus, the Dock — had to change.
 final class AllNotesWindowController {
 
     static let shared = AllNotesWindowController()
-    private(set) var window: NSWindow?
+    private var main: MainWindowController { .shared }
 
-    var isVisible: Bool { window?.isVisible == true }
+    var window: NSWindow? { main.window }
+    /// On screen AND showing All Notes. The window open on Settings is not All Notes being visible.
+    var isVisible: Bool { main.isVisible && main.tab == .allNotes }
 
-    func show() {
-        if window == nil {
-            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 880, height: 520),
-                             styleMask: [.titled, .closable, .miniaturizable, .resizable],
-                             backing: .buffered, defer: false)
-            w.title = "All Notes"
-            w.contentViewController = NSHostingController(rootView: AllNotesView())
-            w.isReleasedWhenClosed = false
-            w.setFrameAutosaveName("PinTackAllNotes")
-            w.center()
-            window = w
-        }
-        NSApp.activate(ignoringOtherApps: true)
-        window?.makeKeyAndOrderFront(nil)
-    }
+    func show() { main.show(.allNotes) }
 
+    /// ⌥⌘H. Closes the window only when it is in front showing All Notes; from Settings it switches
+    /// to All Notes, which is what the key is for.
     func toggle() {
-        if isVisible && window?.isKeyWindow == true { window?.close() } else { show() }
+        if isVisible && window?.isKeyWindow == true { main.close() } else { show() }
     }
 
-    /// Opens the window on a particular tab, or switches an open one to it. A second press of the
-    /// same shortcut closes it, so the key that showed your todos also puts them away.
+    /// Opens on a particular All Notes tab, or switches to it. A second press of the same shortcut
+    /// closes the window, so the key that showed your todos also puts them away.
     func show(mode: AllNotesModel.Mode) {
         if isVisible, window?.isKeyWindow == true, AllNotesModel.shared.mode == mode {
-            window?.close()
+            main.close()
             return
         }
         AllNotesModel.shared.mode = mode

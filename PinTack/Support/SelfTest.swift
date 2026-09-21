@@ -1869,6 +1869,20 @@ enum SelfTest {
         next()
     }
 
+    /// The merged window: the shortcuts that used to open two windows now pick a tab of one.
+    private static func mainWindowChecks() {
+        let allNotes = AllNotesWindowController.shared, settings = SettingsWindowController.shared
+        check("All Notes and Settings are one window", allNotes.window != nil && allNotes.window === settings.window)
+        check("the All Notes shortcut shows the All Notes tab", MainWindowModel.shared.tab == .allNotes && allNotes.isVisible)
+        check("every Settings sidebar glyph exists on this macOS",
+              SettingsView.Pane.allCases.allSatisfy { NSImage(systemSymbolName: $0.symbol, accessibilityDescription: nil) != nil },
+              SettingsView.Pane.allCases.map(\.symbol).joined(separator: " "))
+        // Dark means dark: the window is a deep indigo, not the system's grey.
+        let dark = ChromeTheme.window.resolved(for: .darkAqua)
+        check("the dark theme is a deep indigo", dark.relativeLuminance < 0.02 && dark.blueComponent > dark.redComponent * 1.5,
+              dark.hexString)
+    }
+
     private static func renderWindows(out: URL) {
         runnerTest(out: out) { linkPreviewTest(out: out) { imageEditTest(out: out) { freezeTest { reminderTest(out: out) { findTest(out: out) { quickCaptureTest { templateTest { actionBarTest { testerBugsTest { todoBarTest(out: out) { onboardingTest(out: out) { strandedNotesTest { collapsedTodoTest(out: out) { blankCloseTest { undoDeleteTest { tagColourTest(out: out) { glowStrengthTest { renderWindowsNow(out: out) } } } } } } } } } } } } } } } } } }
     }
@@ -1894,16 +1908,56 @@ enum SelfTest {
             // Reproduce the reported bug: a DARK outline color used to tint Settings' labels and buttons
             // the same dark red on a dark window, making them unreadable.
             AppSettings.shared.outlineColorHex = "#5A1F1A"
-            SettingsView.initialPane = ProcessInfo.processInfo.environment["PINTACK_SETTINGS_PANE"].flatMap(SettingsView.Pane.init(rawValue:)) ?? .plugins
+            MainWindowModel.shared.settingsPane = ProcessInfo.processInfo.environment["PINTACK_SETTINGS_PANE"]
+                .flatMap(SettingsView.Pane.init(rawValue:)) ?? .plugins
             AllNotesWindowController.shared.show()
-            SettingsWindowController.shared.show()
-            ShortcutsOverlay.shared.show()
         }
+        // One window now, so the two pictures are the same window on each of its tabs.
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
-            if let w = AllNotesWindowController.shared.window { group.enter(); snapshot(window: w, to: out.appendingPathComponent("all-notes.png")) { group.leave() } }
-            if let w = SettingsWindowController.shared.window { group.enter(); snapshot(window: w, to: out.appendingPathComponent("settings.png")) { group.leave() } }
-            if let w = NSApp.windows.first(where: { String(describing: type(of: $0)).contains("OverlayPanel") }) {
-                group.enter(); snapshot(window: w, to: out.appendingPathComponent("shortcuts.png")) { group.leave() }
+            mainWindowChecks()
+            guard let w = MainWindowController.shared.window else { return group.notify(queue: .main) { finish(out: out) } }
+            group.enter()
+            // ⌥⌘H from the Settings tab switches to All Notes rather than closing the window — and
+            // the window has to DRAW All Notes, not just record it. Each step gets time on screen,
+            // the way a real key press finds Settings already drawn.
+            SettingsWindowController.shared.show()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            AllNotesWindowController.shared.toggle()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            check("⌥⌘H while Settings is showing switches to All Notes instead of closing",
+                  MainWindowController.shared.isVisible && MainWindowModel.shared.tab == .allNotes)
+            snapshot(window: w, to: out.appendingPathComponent("all-notes.png")) {
+                SettingsWindowController.shared.show()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
+                    // Windows that show All Notes or Settings, under the old two titles or the new one.
+                    // A plugin's own settings window (Runner Settings) is a different thing entirely.
+                    let titled = NSApp.windows.filter {
+                        $0.isVisible && $0.styleMask.contains(.titled) && ["PinTack", "All Notes", "PinTack Settings"].contains($0.title)
+                    }
+                    check("Settings opens as a tab of the same window, not a second one",
+                          SettingsWindowController.shared.window === AllNotesWindowController.shared.window
+                              && MainWindowModel.shared.tab == .settings && titled.count == 1,
+                          "tab \(MainWindowModel.shared.tab.rawValue), titled windows: \(titled.map { String(describing: Swift.type(of: $0)) + " '" + $0.title + "'" })")
+                    snapshot(window: w, to: out.appendingPathComponent("settings.png")) {
+                        // The same window in light mode, so the warm palette gets looked at too.
+                        let appearance = w.appearance
+                        w.appearance = NSAppearance(named: .aqua)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        snapshot(window: w, to: out.appendingPathComponent("settings-light.png")) {
+                        w.appearance = appearance
+                        ShortcutsOverlay.shared.show()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                            if let o = NSApp.windows.first(where: { String(describing: type(of: $0)).contains("OverlayPanel") }) {
+                                group.enter(); snapshot(window: o, to: out.appendingPathComponent("shortcuts.png")) { group.leave() }
+                            }
+                            group.leave()
+                        }
+                        }
+                        }
+                    }
+                }
+            }
+            }
             }
             group.notify(queue: .main) { finish(out: out) }
         }

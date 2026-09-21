@@ -13,78 +13,84 @@ struct SettingsView: View {
 
         var id: String { rawValue }
 
+        /// Monochrome glyphs, no coloured tiles (owner decision, 2026-09-21): the tiles made the
+        /// sidebar look like a copy of System Settings. Outline at rest, filled when chosen.
         var symbol: String {
             switch self {
-            case .appearance: return "paintbrush.fill"
+            case .appearance: return "paintpalette"
             case .notes:      return "note.text"
-            case .shortcuts:  return "keyboard.fill"
-            case .editor:     return "pencil.and.list.clipboard"
-            case .vault:      return "externaldrive.fill"
-            case .plugins:    return "puzzlepiece.extension.fill"
-            case .about:      return "info.circle.fill"
-            }
-        }
-
-        var tint: Color {
-            switch self {
-            case .appearance: return Color(red: 0.95, green: 0.45, blue: 0.20)
-            case .notes:      return Color(red: 0.98, green: 0.72, blue: 0.10)
-            case .shortcuts:  return Color(red: 0.36, green: 0.55, blue: 0.95)
-            case .editor:     return Color(red: 0.55, green: 0.42, blue: 0.90)
-            case .vault:      return Color(red: 0.30, green: 0.70, blue: 0.50)
-            case .plugins:    return Color(red: 0.90, green: 0.35, blue: 0.55)
-            case .about:      return Color(red: 0.55, green: 0.58, blue: 0.64)
+            case .shortcuts:  return "command"
+            case .editor:     return "pencil.line"
+            case .vault:      return "archivebox"
+            case .plugins:    return "puzzlepiece.extension"
+            case .about:      return "info.circle"
             }
         }
     }
 
     /// The pane shown first. A variable so the self-test can render the others.
     static var initialPane: Pane = .appearance
-    @State private var selection: Pane = SettingsView.initialPane
+    @ObservedObject private var window = MainWindowModel.shared
     @ObservedObject private var settings = AppSettings.shared
+    @State private var hovered: Pane?
+    @Namespace private var pill
+
+    private var selection: Pane { window.settingsPane }
 
     var body: some View {
         HStack(spacing: 0) {
             sidebar
-                .frame(width: 196)
-                .background(.regularMaterial)
-            Divider()
+                .frame(width: 208)
+                .background(Color.chromeSidebar)
+            Rectangle().fill(Color.chromeHairline).frame(width: 1)
             VStack(alignment: .leading, spacing: 0) {
                 Text(selection.rawValue)
-                    .font(.system(size: 22, weight: .bold))
-                    .padding(.top, 40).padding(.horizontal, 26).padding(.bottom, 6)
+                    .font(.system(size: 24, weight: .bold))
+                    .padding(.top, 22).padding(.horizontal, 26).padding(.bottom, 4)
                 pane
+                    .id(selection)
+                    .transition(.opacity.combined(with: .offset(y: Motion.enabled ? 10 : 0)))
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(Color(nsColor: .windowBackgroundColor))      // fills under the transparent title bar
+            .background(Color.chromeWindow)
+            .animation(ChromeMotion.spring, value: selection)
         }
-        .frame(width: 780, height: 540)
-        .tint(Color(nsColor: Brand.accentNS))
+        .tint(Color.chromeHighlight)
     }
 
     private var sidebar: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 4) {
             ForEach(Pane.allCases) { p in
                 let selected = p == selection
-                HStack(spacing: 10) {
+                HStack(spacing: 12) {
                     Image(systemName: p.symbol)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 24, height: 24)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(p.tint.gradient))
-                    Text(p.rawValue).font(.system(size: 13, weight: selected ? .semibold : .regular))
+                        .symbolVariant(selected ? .fill : .none)
+                        .font(.system(size: 17, weight: .medium))
+                        .frame(width: 24)
+                    Text(p.rawValue).font(.system(size: 13.5, weight: selected ? .semibold : .medium))
                     Spacer()
                 }
-                .padding(.horizontal, 8).padding(.vertical, 5)
-                .foregroundStyle(selected ? Color.white : Color.primary)
-                .background(RoundedRectangle(cornerRadius: 8).fill(selected ? Color(nsColor: Brand.accentNS) : .clear))
+                .padding(.horizontal, 12).frame(height: 36)
+                .foregroundStyle(selected ? Color.chromeOnHighlight : Color.primary.opacity(0.82))
+                .background {
+                    if selected {
+                        RoundedRectangle(cornerRadius: 10).fill(Color.chromeHighlight)
+                            .matchedGeometryEffect(id: "pane", in: pill)
+                            .shadow(color: Color.chromeHighlight.opacity(0.35), radius: 8, y: 2)
+                    } else if hovered == p {
+                        RoundedRectangle(cornerRadius: 10).fill(Color.chromeSurfaceHover)
+                    }
+                }
                 .contentShape(Rectangle())
-                .onTapGesture { selection = p }
+                .onHover { inside in hovered = inside ? p : (hovered == p ? nil : hovered) }
+                .onTapGesture { withAnimation(ChromeMotion.spring) { window.settingsPane = p } }
+                .accessibilityElement(children: .combine)
+                .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
             }
             Spacer()
         }
-        .padding(.horizontal, 10)
-        .padding(.top, 44)          // clears the traffic lights: the sidebar runs under the title bar
+        .padding(.horizontal, 12)
+        .padding(.top, 16)
     }
 
     @ViewBuilder private var pane: some View {
@@ -180,7 +186,7 @@ private struct AppearancePane: View {
             }
             Stepper("Font size: \(Int(s.fontSize)) pt", value: $s.fontSize, in: 9...24)
         }
-        .formStyle(.grouped)
+        .chromeForm()
     }
 }
 
@@ -244,7 +250,7 @@ private struct NotesPane: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
-        .formStyle(.grouped)
+        .chromeForm()
     }
 }
 
@@ -433,7 +439,7 @@ private struct EditorPane: View {
                     .disabled(!s.linkPreviews)
             }
         }
-        .formStyle(.grouped)
+        .chromeForm()
     }
 }
 
@@ -471,7 +477,7 @@ private struct VaultPane: View {
             Text("Editing a picture writes a new file and keeps the original, so spare copies build up over time.")
                 .font(.caption).foregroundStyle(.secondary)
         }
-        .formStyle(.grouped)
+        .chromeForm()
         .sheet(isPresented: $showOrphans) { OrphanSheet(orphans: $orphans, scannedNotes: scannedNotes, isPresented: $showOrphans) }
     }
 
@@ -603,27 +609,11 @@ private struct AboutPane: View {
 
 // MARK: - Window controller
 
+/// The Settings TAB of the one PinTack window (MainWindow.swift), behind the same calls as before.
 final class SettingsWindowController {
     static let shared = SettingsWindowController()
-    private(set) var window: NSWindow?
-
-    func show() {
-        if window == nil {
-            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 780, height: 540),
-                             styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
-                             backing: .buffered, defer: false)
-            w.title = "PinTack Settings"
-            w.titleVisibility = .hidden
-            w.titlebarAppearsTransparent = true
-            w.contentViewController = NSHostingController(rootView: SettingsView())
-            w.setContentSize(NSSize(width: 780, height: 540))
-            w.isReleasedWhenClosed = false
-            w.center()
-            window = w
-        }
-        NSApp.activate(ignoringOtherApps: true)
-        window?.makeKeyAndOrderFront(nil)
-    }
+    var window: NSWindow? { MainWindowController.shared.window }
+    func show() { MainWindowController.shared.show(.settings) }
 }
 
 enum AppRelauncher {

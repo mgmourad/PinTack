@@ -236,6 +236,11 @@ Owner decisions added after the rebuild (2026-09-19):
   after the title creates the first checkbox. The default note font is Comic Sans MS.
 - Titles are draggable; double-click renames. The bottom strip is called the **action bar**.
 - Settings use a sidebar (the TabView overflowed into a "»" menu and looked cheap).
+- All Notes and Settings are ONE window with two tabs (owner decision, 2026-09-21), in
+  `Central/MainWindow.swift`. `AllNotesWindowController` and `SettingsWindowController` are kept as
+  thin fronts that pick a tab, so no shortcut or menu had to change. Its look lives in
+  `ChromeTheme`: dark = deep indigo, never system grey; a selection is SOLID `Brand.accentNS` with
+  dark lettering; Settings glyphs are monochrome with no coloured tiles.
 - The menu-bar item takes the system's default position (left end); do not seed one.
 - The pinned pushpin is the owner's PNG (`Assets.xcassets/Pushpin`), anchored by its crack; the
   pinned glow is the note's own color. App chrome (Settings, All Notes, popovers) uses the fixed
@@ -354,6 +359,16 @@ Owner decisions added after the rebuild (2026-09-19):
   self-test now injects `MemoryReminderStore` (in `AppDelegate`, BEFORE anything can schedule).
   Treat the same way anything else that writes outside the throwaway vault — the notification
   centre, Services, LaunchServices, the pasteboard.
+- AppKit's WINDOW animator (`window.animator().alphaValue` / `.setFrame`) does not run at all in an
+  app that is not the active one — measured, and PinTack is usually not the active app. Window
+  opacity and frame animations go through `Motion.fade` / `Motion.springFrame`, which run on our own
+  timer. Do not go back to `animator()` for a window. Layer and SwiftUI animations are unaffected.
+- Closing a BLANK note discards its file (`Note.isBlank`, deliberately strict); ⌥⌘D and All Notes'
+  delete offer Undo for five seconds through `WindowManager.delete`. Nothing may show a second toast
+  after calling it: that replaced the Undo toast once already.
+- Settings files write only what differs from the defaults (`settingsVersion` 2), so a better
+  default can reach people who never touched it. A v1 file holding a SUPERSEDED default (280/210) is
+  read as not chosen.
 - `/find` is quick open. Opening a note from it deliberately does NOT move focus: the key window and
   the caret stay where the search started.
 - Link previews are off by default and fetched only in Swift. A dismissed preview is remembered in
