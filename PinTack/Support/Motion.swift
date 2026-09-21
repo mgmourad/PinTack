@@ -31,6 +31,103 @@ enum Motion {
     /// Something going away is always quicker than it arrived: waiting to dismiss feels slow.
     static let dismissDuration: TimeInterval = 0.16
 
+    // MARK: - Window animation, on our own clock
+    //
+    // AppKit's window animator — `window.animator().alphaValue`, `window.animator().setFrame` — does
+    // not run at all in an app that is not the active one. Measured 2026-09-21: a 0.3 s fade from
+    // 0.2 still read 0.2 a full second later, and never reached its end value either. Notes are
+    // non-activating panels, so PinTack is usually NOT the active app while you use them, and one
+    // started at login may never have been. Layer animations are unaffected (the system compositor
+    // runs those), so only a window's opacity and frame are driven here, by a timer on the main run
+    // loop in common modes, which ticks whether or not the app is in front and during a drag.
+
+    private final class Tween {
+        let started = CACurrentMediaTime()
+        let duration: TimeInterval
+        let curve: (Double) -> Double
+        let step: (Double) -> Void
+        let completion: (() -> Void)?
+        var timer: Timer?
+        init(duration: TimeInterval, curve: @escaping (Double) -> Double,
+             step: @escaping (Double) -> Void, completion: (() -> Void)?) {
+            self.duration = duration; self.curve = curve; self.step = step; self.completion = completion
+        }
+    }
+
+    /// One running tween per window and property, so a new one (the pointer leaving before the
+    /// fade in finished) takes over from where the old one had got to instead of fighting it.
+    private static var tweens: [ObjectIdentifier: [String: Tween]] = [:]
+
+    private static func tween(_ window: NSWindow, key: String, duration: TimeInterval,
+                              curve: @escaping (Double) -> Double, step: @escaping (Double) -> Void,
+                              completion: (() -> Void)? = nil) {
+        cancel(window, key: key)
+        let id = ObjectIdentifier(window)
+        let tween = Tween(duration: duration, curve: curve, step: step, completion: completion)
+        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak window] timer in
+            guard window != nil else { timer.invalidate(); return }
+            let t = min(1, (CACurrentMediaTime() - tween.started) / max(duration, 0.001))
+            tween.step(tween.curve(t))
+            guard t >= 1 else { return }
+            timer.invalidate()
+            if tweens[id]?[key] === tween { tweens[id]?[key] = nil }
+            tween.completion?()
+        }
+        tween.timer = timer
+        tweens[id, default: [:]][key] = tween
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    /// Stops a running tween where it is. Its completion still runs: `dismiss` promises that its
+    /// closure ALWAYS runs, and a tween taken over by another is not an excuse to break that.
+    static func cancel(_ window: NSWindow, key: String) {
+        let id = ObjectIdentifier(window)
+        guard let old = tweens[id]?[key] else { return }
+        tweens[id]?[key] = nil
+        old.timer?.invalidate()
+        old.completion?()
+    }
+
+    /// Fades a window's opacity on our own clock. See the note above on why not `animator()`.
+    static func fade(_ window: NSWindow, to alpha: CGFloat, duration: TimeInterval,
+                     curve: @escaping (Double) -> Double = Curve.easeInOut, completion: (() -> Void)? = nil) {
+        guard enabled, duration > 0 else {
+            cancel(window, key: "alpha")
+            window.alphaValue = alpha
+            completion?()
+            return
+        }
+        let from = Double(window.alphaValue), to = Double(alpha)
+        tween(window, key: "alpha", duration: duration, curve: curve,
+              step: { window.alphaValue = CGFloat(from + (to - from) * $0) }, completion: completion)
+    }
+
+    /// Easing curves for the window tweens: t in 0...1 to progress, which may overshoot 1.
+    enum Curve {
+        static let easeOut: (Double) -> Double = { 1 - pow(1 - $0, 3) }
+        static let easeIn: (Double) -> Double = { $0 * $0 * $0 }
+        static let easeInOut: (Double) -> Double = { $0 < 0.5 ? 4 * $0 * $0 * $0 : 1 - pow(-2 * $0 + 2, 3) / 2 }
+
+        /// A CSS-style cubic-bezier, the same curve `CAMediaTimingFunction(controlPoints:)` draws.
+        static func bezier(_ x1: Double, _ y1: Double, _ x2: Double, _ y2: Double) -> (Double) -> Double {
+            func sample(_ a: Double, _ b: Double, _ t: Double) -> Double {
+                let u = 1 - t
+                return 3 * u * u * t * a + 3 * u * t * t * b + t * t * t
+            }
+            return { x in
+                guard x > 0 else { return 0 }
+                guard x < 1 else { return 1 }
+                // x(t) is monotonic for any control points inside 0...1, so bisection always lands.
+                var lo = 0.0, hi = 1.0, t = x
+                for _ in 0..<24 {
+                    t = (lo + hi) / 2
+                    if sample(x1, x2, t) < x { lo = t } else { hi = t }
+                }
+                return sample(y1, y2, t)
+            }
+        }
+    }
+
     /// Grows a window into place with a spring while it fades in.
     static func appear(window: NSWindow, content: NSView?, to alpha: CGFloat) {
         guard enabled else { window.alphaValue = alpha; return }
@@ -41,11 +138,8 @@ enum Motion {
             // A short drop from above, so a new note reads as landing on the desk.
             layer.add(arrivalSpring(keyPath: "transform.translation.y", from: 22, to: 0), forKey: "pintack.appear.drop")
         }
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.16       // the fade finishes early; the spring carries the rest
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            window.animator().alphaValue = alpha
-        }
+        // The fade finishes early; the spring carries the rest.
+        fade(window, to: alpha, duration: 0.16, curve: Curve.easeOut)
     }
 
     /// Shrinks a window away and then runs `finished`. The closure ALWAYS runs, motion or not, so
@@ -62,23 +156,25 @@ enum Motion {
             shrink.isRemovedOnCompletion = false
             layer.add(shrink, forKey: "pintack.dismiss.scale")
         }
-        NSAnimationContext.runAnimationGroup({ context in
-            context.duration = dismissDuration
-            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
-            window.animator().alphaValue = 0
-        }, completionHandler: finished)
+        fade(window, to: 0, duration: dismissDuration, curve: Curve.easeIn, completion: finished)
     }
 
     /// A spring applied to a window's frame, for collapse and expand.
     static func springFrame(_ window: NSWindow, to frame: NSRect) {
         guard enabled else { window.setFrame(frame, display: true); return }
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.32
-            // Gentler overshoot than the layer springs get: a window's frame is clamped by minSize,
-            // and a collapse targets exactly that, so a big overshoot would hit the clamp and stutter.
-            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.22, 1.12, 0.36, 1)
-            window.animator().setFrame(frame, display: true)
-        }
+        let from = window.frame
+        func mix(_ a: CGFloat, _ b: CGFloat, _ p: Double) -> CGFloat { a + (b - a) * CGFloat(p) }
+        // Gentler overshoot than the layer springs get: a window's frame is clamped by minSize,
+        // and a collapse targets exactly that, so a big overshoot would hit the clamp and stutter.
+        tween(window, key: "frame", duration: 0.32, curve: Curve.bezier(0.22, 1.12, 0.36, 1), step: { p in
+            window.setFrame(NSRect(x: mix(from.minX, frame.minX, p), y: mix(from.minY, frame.minY, p),
+                                   width: mix(from.width, frame.width, p), height: mix(from.height, frame.height, p)),
+                            display: true)
+        }, completion: {
+            // Land exactly: the curve's last sample is 1, but a rounding error must not leave the
+            // persisted geometry (SPEC.md §5.2) a fraction of a point out.
+            window.setFrame(frame, display: true)
+        })
     }
 
     /// Springs a popover in. NSPopover's own `animates` is deliberately off (it fades the popover

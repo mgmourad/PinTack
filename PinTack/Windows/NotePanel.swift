@@ -160,12 +160,9 @@ final class NotePanel: NSPanel {
     /// hover-to-reveal can never disagree about what it should be.
     func applyOpacity(animated: Bool = false) {
         let target = effectiveOpacity
-        guard animated, Motion.enabled, abs(alphaValue - target) > 0.01 else { alphaValue = target; return }
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = target > alphaValue ? 0.16 : 0.32      // quick to show, slower to fade
-            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            animator().alphaValue = target
-        }
+        // Quick to show, slower to fade. Not animated, it still goes through Motion so that a fade
+        // already running cannot carry on afterwards and overwrite the value set here.
+        Motion.fade(self, to: target, duration: animated ? (target > alphaValue ? 0.16 : 0.32) : 0)
     }
 
     /// Freeze mode. The note stops taking the mouse entirely; FreezeMode re-enables it while the
