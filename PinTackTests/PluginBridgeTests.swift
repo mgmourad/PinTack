@@ -387,7 +387,9 @@ final class PluginBridgeAPITests: PluginTestCase {
         settings.save()
         let saved = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: store.metaURL.appendingPathComponent("settings.json"))) as? [String: Any])
         XCTAssertEqual((saved["cfg"] as? [String: Any])?["timeout"] as? Double, 45)
-        XCTAssertNotNil(saved["fontFamily"]); XCTAssertNotNil(saved["enabledPlugins"])
+        // The app's own part of the file is still there. Not fontFamily: since settings version 2 a
+        // value left at its default is not written at all, so it is no evidence either way.
+        XCTAssertNotNil(saved["settingsVersion"]); XCTAssertNotNil(saved["enabledPlugins"])
     }
 
     func testOnlyWebAndMailLinksOpenAndPathsMustExist() throws {

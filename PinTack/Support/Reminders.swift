@@ -65,6 +65,7 @@ final class MemoryReminderStore: ReminderStore {
         (requests[identifier]?.trigger as? UNCalendarNotificationTrigger)?.nextTriggerDate()
     }
     func body(_ identifier: String) -> String? { requests[identifier]?.content.body }
+    func title(_ identifier: String) -> String? { requests[identifier]?.content.title }
 }
 
 /// Due-date reminders for todo notes. SPEC.md §6.
@@ -116,8 +117,8 @@ final class Reminders: NSObject, UNUserNotificationCenterDelegate {
             guard let self else { return }
             for (kind, date) in wanted {
                 let content = UNMutableNotificationContent()
-                content.title = note.title
-                content.body = self.bodyText(for: note, kind: kind)
+                content.title = Reminders.bannerTitle
+                content.body = Reminders.bannerBody(for: note)
                 content.sound = .default
                 content.userInfo = ["noteID": note.id]
 
@@ -152,20 +153,13 @@ final class Reminders: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
-    private func bodyText(for note: Note, kind: String) -> String {
-        guard let due = note.due else { return "Due" }
-        let when = due.formatted(date: .abbreviated, time: .shortened)
-        if kind == "ahead", let ahead = note.remindAheadInterval {
-            return "Due in \(Reminders.friendly(ahead)) — \(when)"
-        }
-        return "Due now — \(when)"
-    }
+    /// The banner says what it is and which note, nothing more (owner decision, 2026-09-21). The
+    /// date was dropped because the banner arriving IS the date; repeating it only pushed the note's
+    /// name off the end of a narrow banner.
+    static let bannerTitle = "PinTack - @Todo"
 
-    static func friendly(_ seconds: TimeInterval) -> String {
-        if seconds >= 86400 { let d = Int(seconds / 86400); return "\(d) day\(d == 1 ? "" : "s")" }
-        if seconds >= 3600  { let h = Int(seconds / 3600);  return "\(h) hour\(h == 1 ? "" : "s")" }
-        let m = Int(seconds / 60); return "\(m) minute\(m == 1 ? "" : "s")"
-    }
+    /// The todo's own name, without the @Todo marker the title already carries.
+    static func bannerBody(for note: Note) -> String { note.titleWithoutTodoMarker }
 
     func cancel(_ note: Note) {
         store.remove(identifiers: ["ontime", "ahead"].map { Reminders.identifier(note, $0) })

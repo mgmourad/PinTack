@@ -1002,8 +1002,9 @@ enum SelfTest {
                   abs(due.timeIntervalSince(early) - 1800) < 90,
                   String(format: "%.0f minutes apart", due.timeIntervalSince(early) / 60))
         }
-        check("the banner says which note and when",
-              store.body(onTime)?.contains("Due now") == true, store.body(onTime) ?? "no body")
+        check("the banner is titled PinTack - @Todo and names the note, marker stripped",
+              store.title(onTime) == "PinTack - @Todo" && store.body(onTime) == "Ship the pilot",
+              "\(store.title(onTime) ?? "no title") / \(store.body(onTime) ?? "no body")")
         Reminders.shared.cancel(todo)
         check("clearing a note's reminders takes both of them away",
               store.requests[onTime] == nil && store.requests[ahead] == nil,
