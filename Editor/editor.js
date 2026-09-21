@@ -80,6 +80,31 @@ class CheckboxWidget extends WidgetType {
   ignoreEvent() { return true; }
 }
 
+// ⌘↩ ticks or unticks the task on every line the selection touches (owner, 2026-09-21), so a
+// checklist can be worked through without reaching for the mouse. The same three list markers
+// Note.taskCounts counts (- * +), so the box that flips is always one the tracker can see.
+// Anywhere that is not a task it declines, and ⌘↩ keeps doing what it did before.
+function toggleTaskAtCursor(view) {
+  const { state } = view;
+  const changes = [];
+  const seen = new Set();
+  for (const range of state.selection.ranges) {
+    const first = state.doc.lineAt(range.from).number, last = state.doc.lineAt(range.to).number;
+    for (let n = first; n <= last; n++) {
+      if (seen.has(n)) continue;
+      seen.add(n);
+      const line = state.doc.line(n);
+      const m = /^(\s*[-*+]\s+\[)([ xX])\]/.exec(line.text);
+      if (!m) continue;
+      const at = line.from + m[1].length;
+      changes.push({ from: at, to: at + 1, insert: m[2] === " " ? "x" : " " });
+    }
+  }
+  if (!changes.length) return false;
+  view.dispatch({ changes, userEvent: "input.toggle" });
+  return true;
+}
+
 class HrWidget extends WidgetType {
   eq() { return true; }
   toDOM() { const s = document.createElement("span"); s.className = "cm-hr"; return s; }
@@ -1270,7 +1295,8 @@ const view = new EditorView({
       spellCompartment.of(EditorView.contentAttributes.of({ spellcheck: "false", autocorrect: "off", autocapitalize: "off" })),
       placeholder("Start typing…  ( / for commands )"),
       autocompletion({ override: [slashSource, tagSource, templateSource], icons: false, defaultKeymap: true }),
-      Prec.highest(keymap.of([{ key: "Enter", run: enterHandler }, { key: "Tab", run: tabOutOfSpan }])),
+      Prec.highest(keymap.of([{ key: "Enter", run: enterHandler }, { key: "Tab", run: tabOutOfSpan },
+                              { key: "Mod-Enter", run: toggleTaskAtCursor }])),
       // With an emoji bullet chosen, typing "- " at the start of a line produces that emoji instead.
       EditorView.inputHandler.of((view, from, to, text) => {
         const bullet = noteState.settings && noteState.settings.bullet;

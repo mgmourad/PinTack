@@ -1607,8 +1607,36 @@ enum SelfTest {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                     check("expanded again, the bar leaves the title bar to the squares below",
                           card.debugCollapsedProgress.isHidden)
-                    doneTodoTest(panel: panel, out: out, then: next)
+                    keyboardTickTest(panel: panel) { doneTodoTest(panel: panel, out: out, then: next) }
                 }
+            }
+        }
+    }
+
+    /// ⌘↩ ticks the box on the caret's line — pressed as a real key, through the page's own keymap.
+    private static func keyboardTickTest(panel: NotePanel, then next: @escaping () -> Void) {
+        let note = panel.note
+        let js = """
+        const view = window.__pintack._view;
+        view.focus();
+        const line = [...Array(view.state.doc.lines).keys()].map(i => view.state.doc.line(i + 1))
+          .find(l => l.text.includes("servers"));
+        view.dispatch({ selection: { anchor: line.to } });
+        const press = () => view.contentDOM.dispatchEvent(new KeyboardEvent("keydown",
+          { key: "Enter", code: "Enter", metaKey: true, bubbles: true, cancelable: true }));
+        press();
+        const afterOne = view.state.doc.lineAt(view.state.selection.main.head).text;
+        return JSON.stringify({ afterOne });
+        """
+        panel.card.editor.callAsyncJavaScript(js, arguments: [:], in: nil, in: .page) { result in
+            let json = (try? result.get()) as? String
+            check("⌘↩ ticks the box on the caret's line", text(json, "afterOne").contains("[x] servers"),
+                  text(json, "afterOne"))
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                check("…and the tick reaches the note, so the tracker counts it",
+                      note.body.contains("- [x] servers") && note.taskCounts.done == 3,
+                      "\(note.taskCounts.done)/\(note.taskCounts.total)")
+                next()
             }
         }
     }
