@@ -1558,8 +1558,31 @@ enum SelfTest {
         RunLoop.current.run(until: Date().addingTimeInterval(0.1))
     }
 
+    /// A display unplugged with notes on it. The window server reports it as a screen-parameters
+    /// change; the check sends the same notification after putting two notes where no screen is.
+    private static func strandedNotesTest(then next: @escaping () -> Void) {
+        let panels = Array(WindowManager.shared.openPanels.prefix(2))
+        guard panels.count == 2 else { return next() }
+        let far = NSPoint(x: -30_000, y: -30_000)          // where an unplugged display used to be
+        for (i, p) in panels.enumerated() { p.setFrameOrigin(NSPoint(x: far.x + CGFloat(i) * 40, y: far.y)) }
+        panels.forEach { $0.syncFrameToNote() }
+        let stranded = panels.filter { !WindowManager.isReachable(NotePanel.cardRect(forWindow: $0.frame)) }.count
+        NotificationCenter.default.post(name: NSApplication.didChangeScreenParametersNotification, object: NSApp)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            let back = panels.filter { WindowManager.isReachable(NotePanel.cardRect(forWindow: $0.frame)) }
+            check("notes left on a display that has gone come back onto a screen",
+                  stranded == 2 && back.count == 2, "\(stranded) stranded, \(back.count) back")
+            // The FILE has to agree, or the next launch puts them straight back off-screen.
+            check("the rescued position is what gets saved",
+                  panels.allSatisfy { WindowManager.isReachable($0.note.cardFrame) })
+            check("rescued notes land apart, not in one pile",
+                  panels[0].frame.origin != panels[1].frame.origin)
+            next()
+        }
+    }
+
     private static func renderWindows(out: URL) {
-        runnerTest(out: out) { linkPreviewTest(out: out) { imageEditTest(out: out) { freezeTest { reminderTest(out: out) { findTest(out: out) { quickCaptureTest { templateTest { actionBarTest { testerBugsTest { todoBarTest(out: out) { onboardingTest(out: out) { renderWindowsNow(out: out) } } } } } } } } } } } }
+        runnerTest(out: out) { linkPreviewTest(out: out) { imageEditTest(out: out) { freezeTest { reminderTest(out: out) { findTest(out: out) { quickCaptureTest { templateTest { actionBarTest { testerBugsTest { todoBarTest(out: out) { onboardingTest(out: out) { strandedNotesTest { renderWindowsNow(out: out) } } } } } } } } } } } } }
     }
 
     private static func renderWindowsNow(out: URL) {

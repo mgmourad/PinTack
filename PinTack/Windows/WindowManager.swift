@@ -16,6 +16,10 @@ final class WindowManager {
         nc.addObserver(self, selector: #selector(noteSaved(_:)), name: .noteDidSave, object: nil)
         nc.addObserver(self, selector: #selector(vaultChangedForPlugins), name: .vaultDidChange, object: nil)
         nc.addObserver(self, selector: #selector(pluginSettingChanged(_:)), name: .pluginSettingsDidChange, object: nil)
+        // A display unplugged or rearranged while notes are open. Launch was already covered by
+        // clampToScreen; this is the case of a note left pointing at a screen that has just gone.
+        nc.addObserver(self, selector: #selector(screensChanged),
+                       name: NSApplication.didChangeScreenParametersNotification, object: nil)
     }
 
     // MARK: - Plugins (SPEC.md §12.3 events)
@@ -239,14 +243,34 @@ final class WindowManager {
 
     /// A frame restored from a disconnected display must come back on-screen. SPEC.md §5.5.
     private func clampToScreen(_ note: Note) {
-        let screens = NSScreen.screens.map(\.visibleFrame)
-        // Enough of the card must be reachable: its title bar, not just one pixel.
-        let header = NSRect(x: note.cardFrame.minX, y: note.cardFrame.maxY - NotePanel.headerHeight,
-                            width: note.cardFrame.width, height: NotePanel.headerHeight)
-        if screens.contains(where: { $0.intersection(header).width > 40 && $0.intersection(header).height > 10 }) { return }
+        if WindowManager.isReachable(note.cardFrame) { return }
         guard let main = NSScreen.main?.visibleFrame else { return }
         note.cardFrame.origin = NSPoint(x: main.midX - note.cardFrame.width / 2,
                                         y: main.midY - note.cardFrame.height / 2)
+    }
+
+    /// Enough of the card is on some screen to grab it: its title bar, not just one pixel.
+    static func isReachable(_ card: NSRect, screens: [NSRect] = NSScreen.screens.map(\.visibleFrame)) -> Bool {
+        let header = NSRect(x: card.minX, y: card.maxY - NotePanel.headerHeight,
+                            width: card.width, height: NotePanel.headerHeight)
+        return screens.contains { $0.intersection(header).width > 40 && $0.intersection(header).height > 10 }
+    }
+
+    /// Brings back every open note that is no longer on any screen. They land in a short cascade
+    /// in the middle of the main screen, not in one pile, so each can be told apart and grabbed.
+    @objc func screensChanged() {
+        guard let main = NSScreen.main?.visibleFrame else { return }
+        var step: CGFloat = 0
+        for panel in openPanels.sorted(by: { $0.note.created < $1.note.created }) {
+            let visible = NotePanel.cardRect(forWindow: panel.frame)
+            guard !WindowManager.isReachable(visible) else { continue }
+            let origin = NSPoint(x: main.midX - visible.width / 2 + step,
+                                 y: min(main.maxY - visible.height, main.midY - visible.height / 2) - step)
+            panel.setFrameOrigin(NSPoint(x: origin.x - NotePanel.margin, y: origin.y - NotePanel.margin))
+            panel.syncFrameToNote()
+            VaultStore.shared.save(panel.note)
+            step += 28
+        }
     }
 
     // MARK: - Arrange (SPEC.md §5.5)
