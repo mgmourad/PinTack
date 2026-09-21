@@ -646,6 +646,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     @objc private func settingsChanged() {
         if !AppSettings.shared.actionBarAutoCollapse { cancelCollapseTimer() }
         panel.applyOpacity()
+        tagPills.needsDisplay = true              // a tag's colour may just have been changed
         applyColors()
         editor.pushSettings()
         needsDisplay = true
@@ -868,8 +869,10 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         present(view, from: appearanceButton)
     }
 
-    @objc private func showTags() {
-        let view = TagsPopoverView(note: note) { [weak self] in
+    @objc private func showTags() { presentTags(colouring: nil) }
+
+    private func presentTags(colouring: String?) {
+        let view = TagsPopoverView(note: note, colouring: colouring) { [weak self] in
             guard let self else { return }
             VaultStore.shared.save(self.note)
             self.refreshTagsButton()
@@ -881,6 +884,9 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     private func present<V: View>(_ view: V, from anchor: NSView) {
         popover?.close()
         let host = NSHostingController(rootView: view)
+        // Content that grows while open (the tag editor's colour swatches) resizes the popover
+        // instead of being clipped by the size it was measured at.
+        host.sizingOptions = [.preferredContentSize]
         // Measure the SwiftUI content BEFORE showing. Shown unmeasured, the popover is placed for a
         // placeholder size and then shrinks in place, leaving it floating a couple of hundred points
         // away from the button it belongs to (found by measuring: 158 pt off).
@@ -1257,7 +1263,7 @@ extension NoteCardView {
         return (boldButton.isHidden, onScreen(boldButton), tagsButton.isHidden, onScreen(tagsButton))
     }
     var debugFooterEmptyPoint: NSPoint { NSPoint(x: cardRect.midX + 20, y: cardRect.minY + 12) }
-    func debugShowTags() { showTags() }
+    func debugShowTags(colouring: String? = nil) { presentTags(colouring: colouring) }
     func debugClosePopover() { popover?.close() }
     var debugHasPopover: Bool { popover?.isShown == true }
 }

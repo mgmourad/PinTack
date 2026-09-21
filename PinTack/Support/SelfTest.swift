@@ -1811,8 +1811,34 @@ enum SelfTest {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { waitFor(target, on: window, started: started, then: done) }
     }
 
+    /// A tag colour picked in the tag editor repaints that tag's pill on every note (2026-09-21).
+    private static func tagColourTest(out: URL, then next: @escaping () -> Void) {
+        let note = VaultStore.shared.createNote(body: "Tagged", tags: ["intune", "azure", "q4"],
+                                                frame: WindowManager.shared.nextCardFrame(size: NSSize(width: 340, height: 220)))
+        let panel = WindowManager.shared.open(note, focus: false)
+        AppSettings.shared.tagColors["intune"] = "#3A3F4B"
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            check("a picked tag colour is what the pill is painted with",
+                  TagPillsView.color(for: "intune").hexString == "#3A3F4B"
+                      && TagPillsView.textColor(for: "intune") == .white,
+                  TagPillsView.color(for: "intune").hexString)
+            panel.card.debugShowTags(colouring: "intune")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                let finish = {
+                    panel.card.debugDismissPopover()
+                    AppSettings.shared.tagColors["intune"] = nil
+                    next()
+                }
+                guard let popover = panel.card.debugPopoverWindow else { finish(); return }
+                snapshot(window: popover, to: out.appendingPathComponent("tag-colours.png")) {
+                    snapshot(window: panel, to: out.appendingPathComponent("tag-colours-note.png"), completion: finish)
+                }
+            }
+        }
+    }
+
     private static func renderWindows(out: URL) {
-        runnerTest(out: out) { linkPreviewTest(out: out) { imageEditTest(out: out) { freezeTest { reminderTest(out: out) { findTest(out: out) { quickCaptureTest { templateTest { actionBarTest { testerBugsTest { todoBarTest(out: out) { onboardingTest(out: out) { strandedNotesTest { collapsedTodoTest(out: out) { blankCloseTest { undoDeleteTest { renderWindowsNow(out: out) } } } } } } } } } } } } } } } }
+        runnerTest(out: out) { linkPreviewTest(out: out) { imageEditTest(out: out) { freezeTest { reminderTest(out: out) { findTest(out: out) { quickCaptureTest { templateTest { actionBarTest { testerBugsTest { todoBarTest(out: out) { onboardingTest(out: out) { strandedNotesTest { collapsedTodoTest(out: out) { blankCloseTest { undoDeleteTest { tagColourTest(out: out) { renderWindowsNow(out: out) } } } } } } } } } } } } } } } } }
     }
 
     private static func renderWindowsNow(out: URL) {

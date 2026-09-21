@@ -29,6 +29,10 @@ final class AppSettings: ObservableObject {
     /// A faded note turns fully opaque while the pointer is over it, and fades back after. An
     /// option, off by default (owner, 2026-09-21): someone who faded a note may want it faded.
     @Published var hoverRevealsNote = false
+    /// Tag colours the user picked, keyed by the tag in lower case. A tag with no entry keeps the
+    /// automatic colour from its name. Global rather than per note, so a tag looks the same
+    /// everywhere, which is the point of colouring it at all.
+    @Published var tagColors: [String: String] = [:]
     @Published var defaultNoteWidth = 300.0
     @Published var defaultNoteHeight = 250.0
     @Published var placement = "cascade"          // cursor | centered | cascade
@@ -68,7 +72,7 @@ final class AppSettings: ObservableObject {
         "placement", "autosaveSeconds", "actionBarAutoCollapse", "actionBarCollapseSeconds", "defaultMode",
         "spellcheck", "slashCommands", "imagePaste", "bulletEmoji", "enabledPlugins", "plugins", "linkPreviews",
         "inlineCodeColor", "inlineCodeOpacity", "codeBlockColor", "codeBlockOpacity", "pasteAsMarkdown",
-        "settingsVersion", "hoverRevealsNote",
+        "settingsVersion", "hoverRevealsNote", "tagColors",
     ]
 
     /// Bumped when the file's MEANING changes. Version 1 (no key at all) wrote every value, chosen or
@@ -142,6 +146,7 @@ final class AppSettings: ObservableObject {
         outlineWidth = min(3, max(1, d("outlineWidth") ?? outlineWidth))
         pinnedGlow = b("pinnedGlow") ?? pinnedGlow
         hoverRevealsNote = b("hoverRevealsNote") ?? hoverRevealsNote
+        tagColors = (dict["tagColors"] as? [String: String]) ?? tagColors
         defaultNoteWidth = max(190, d("defaultNoteWidth") ?? defaultNoteWidth)
         defaultNoteHeight = max(120, d("defaultNoteHeight") ?? defaultNoteHeight)
         placement = s("placement") ?? placement
@@ -168,7 +173,7 @@ final class AppSettings: ObservableObject {
                                   "actionBarCollapseSeconds", "bulletEmoji", "enabledPlugins", "linkPreviews",
                                   "inlineCodeColor", "inlineCodeOpacity", "codeBlockColor",
                                   "codeBlockOpacity", "pasteAsMarkdown", "settingsVersion",
-                                  "hoverRevealsNote"]
+                                  "hoverRevealsNote", "tagColors"]
         extra = dict.filter { !known.contains($0.key) }
         applyRuntimeEffects()
     }
@@ -216,6 +221,7 @@ final class AppSettings: ObservableObject {
         dict["outlineWidth"] = outlineWidth
         dict["pinnedGlow"] = pinnedGlow
         dict["hoverRevealsNote"] = hoverRevealsNote
+        dict["tagColors"] = tagColors
         dict["defaultNoteWidth"] = defaultNoteWidth
         dict["defaultNoteHeight"] = defaultNoteHeight
         dict["placement"] = placement

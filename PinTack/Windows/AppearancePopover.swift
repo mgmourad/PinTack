@@ -100,11 +100,18 @@ struct TagsPopoverView: View {
 
     @State private var tags: [String]
     @State private var input = ""
+    /// The tag whose colour dot was clicked, showing the swatches under the chips. nil: closed.
+    @State private var colouring: String?
+    /// Bumped when a colour changes, so the chips redraw in it at once.
+    @State private var colourVersion = 0
 
-    init(note: Note, onChange: @escaping () -> Void) {
+    /// `colouring` opens a tag's swatches straight away. The self-test uses it, because a click
+    /// on a SwiftUI button is not something it can make.
+    init(note: Note, colouring: String? = nil, onChange: @escaping () -> Void) {
         self.note = note
         self.onChange = onChange
         _tags = State(initialValue: note.tags)
+        _colouring = State(initialValue: colouring)
     }
 
     private var suggestions: [String] {
@@ -120,10 +127,19 @@ struct TagsPopoverView: View {
             Text("Tags").font(.caption).foregroundStyle(.secondary)
 
             if !tags.isEmpty {
-                FlowChips(items: tags) { tag in
-                    tags.removeAll { $0 == tag }
-                    commit()
-                }
+                FlowChips(items: tags, colouring: colouring, version: colourVersion,
+                          pickColour: { tag in withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                              colouring = colouring == tag ? nil : tag } },
+                          remove: { tag in
+                              tags.removeAll { $0 == tag }
+                              if colouring == tag { colouring = nil }
+                              commit()
+                          })
+            }
+
+            if let tag = colouring {
+                TagColourSwatches(tag: tag) { colourVersion += 1 }
+                    .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
             TextField("Add tag…", text: $input)
@@ -162,28 +178,127 @@ struct TagsPopoverView: View {
     }
 }
 
-/// Chips that wrap onto new lines.
+/// The note's tags as chips, each in the tag's own colour with a dot that opens its swatches.
 private struct FlowChips: View {
     let items: [String]
+    let colouring: String?
+    let version: Int                     // read so the chips redraw when a colour changes
+    let pickColour: (String) -> Void
     let remove: (String) -> Void
 
     var body: some View {
-        // A simple wrapping layout without the macOS 13+ Layout protocol boilerplate.
-        let rows = stride(from: 0, to: items.count, by: 3).map { Array(items[$0..<min($0 + 3, items.count)]) }
-        VStack(alignment: .leading, spacing: 4) {
-            ForEach(rows, id: \.self) { row in
+        let _ = version
+        ChipFlow(spacing: 4) {
+            ForEach(items, id: \.self) { tag in
+                let ink = Color(nsColor: TagPillsView.textColor(for: tag))
                 HStack(spacing: 4) {
-                    ForEach(row, id: \.self) { tag in
-                        HStack(spacing: 3) {
-                            Text("#\(tag)").font(.caption)
-                            Button { remove(tag) } label: { Image(systemName: "xmark.circle.fill").font(.caption) }
-                                .buttonStyle(.plain).foregroundStyle(.secondary)
-                        }
-                        .padding(.horizontal, 6).padding(.vertical, 2)
-                        .background(Capsule().fill(Color.secondary.opacity(0.18)))
+                    Button { pickColour(tag) } label: {
+                        Circle().strokeBorder(ink.opacity(0.55), lineWidth: 1)
+                            .background(Circle().fill(ink.opacity(colouring == tag ? 0.35 : 0.12)))
+                            .frame(width: 10, height: 10)
                     }
+                    .buttonStyle(.plain)
+                    .help("Change this tag's colour")
+                    Text("#\(tag)").font(.caption.weight(.semibold)).foregroundStyle(ink)
+                        .lineLimit(1).fixedSize()
+                    Button { remove(tag) } label: { Image(systemName: "xmark.circle.fill").font(.caption) }
+                        .buttonStyle(.plain).foregroundStyle(ink.opacity(0.6))
                 }
+                .padding(.horizontal, 7).padding(.vertical, 3)
+                .background(Capsule().fill(Color(nsColor: TagPillsView.color(for: tag))))
             }
         }
+    }
+}
+
+/// Lays chips out left to right and wraps them onto a new line when the next would not fit —
+/// never breaking a chip's text, which a fixed three-to-a-row grid did once chips grew a dot.
+private struct ChipFlow: Layout {
+    var spacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? .infinity
+        return arrange(subviews, width: width).size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        for (view, origin) in zip(subviews, arrange(subviews, width: bounds.width).origins) {
+            view.place(at: CGPoint(x: bounds.minX + origin.x, y: bounds.minY + origin.y), proposal: .unspecified)
+        }
+    }
+
+    private func arrange(_ subviews: Subviews, width: CGFloat) -> (origins: [CGPoint], size: CGSize) {
+        var origins: [CGPoint] = []
+        var x: CGFloat = 0, y: CGFloat = 0, lineHeight: CGFloat = 0, widest: CGFloat = 0
+        for view in subviews {
+            let size = view.sizeThatFits(.unspecified)
+            if x > 0 && x + size.width > width {
+                x = 0
+                y += lineHeight + spacing
+                lineHeight = 0
+            }
+            origins.append(CGPoint(x: x, y: y))
+            x += size.width + spacing
+            lineHeight = max(lineHeight, size.height)
+            widest = max(widest, x - spacing)
+        }
+        return (origins, CGSize(width: widest, height: y + lineHeight))
+    }
+}
+
+/// A tag's colour choices: Automatic, a row of presets, and a custom colour. It changes the tag
+/// everywhere at once, because a colour is a property of the tag, not of the note.
+private struct TagColourSwatches: View {
+    let tag: String
+    let changed: () -> Void
+
+    @ObservedObject private var settings = AppSettings.shared
+    @State private var custom = Color.orange
+
+    /// Soft enough for the pills' usual look, strong enough to tell apart at a glance.
+    static let presets = ["#FF8A80", "#FFB74D", "#FFE066", "#9BE38B", "#6FD6C4",
+                          "#7FB8FF", "#B39DFF", "#FF9ACD", "#C9CCD1", "#3A3F4B"]
+
+    private var key: String { tag.lowercased() }
+    private var chosen: String? { settings.tagColors[key] }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Colour of #\(tag)").font(.caption2).foregroundStyle(.secondary)
+            // Flows onto a second line rather than pushing the whole popover sideways.
+            ChipFlow(spacing: 6) {
+                swatch(nil)
+                ForEach(Self.presets, id: \.self) { swatch($0) }
+                ColorPicker("", selection: $custom, supportsOpacity: false)
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .onChange(of: custom) { _, new in set(NSColor(new).hexString) }
+                    .help("Any colour")
+            }
+        }
+        .padding(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.1)))
+    }
+
+    /// nil is Automatic: the colour from the tag's name, drawn so it can be recognised as such.
+    @ViewBuilder private func swatch(_ hex: String?) -> some View {
+        let fill = hex.flatMap { NSColor(hex: $0) } ?? TagPillsView.automaticColor(for: tag)
+        let isChosen = chosen?.caseInsensitiveCompare(hex ?? "") == .orderedSame || (hex == nil && chosen == nil)
+        Button { set(hex) } label: {
+            ZStack {
+                Circle().fill(Color(nsColor: fill))
+                if hex == nil { Text("A").font(.system(size: 8, weight: .bold)).foregroundStyle(.black.opacity(0.6)) }
+            }
+            .frame(width: 16, height: 16)
+            .overlay(Circle().strokeBorder(Color.primary.opacity(isChosen ? 0.85 : 0.15), lineWidth: isChosen ? 2 : 1))
+        }
+        .buttonStyle(.plain)
+        .help(hex == nil ? "Automatic, from the tag's name" : hex!)
+    }
+
+    private func set(_ hex: String?) {
+        if let hex { settings.tagColors[key] = hex } else { settings.tagColors[key] = nil }
+        changed()
     }
 }

@@ -110,3 +110,35 @@ final class ShortcutAndSettingsTests: VaultTestCase {
         n.colorHex = "#1F1F24"; n.theme = "light"; XCTAssertFalse(n.isDarkText, "dark paper keeps light text in any mode")
     }
 }
+
+/// Tag colours the user picks (2026-09-21).
+final class TagColourTests: VaultTestCase {
+
+    override func tearDownWithError() throws {
+        AppSettings.shared.tagColors = [:]
+        try super.tearDownWithError()
+    }
+
+    func testAPickedColourWinsAndAutomaticIsTheFallback() {
+        let automatic = TagPillsView.automaticColor(for: "Intune")
+        XCTAssertEqual(TagPillsView.color(for: "Intune").hexString, automatic.hexString)
+        AppSettings.shared.tagColors["intune"] = "#3A3F4B"
+        XCTAssertEqual(TagPillsView.color(for: "Intune").hexString, "#3A3F4B", "keyed without case, like tags")
+        AppSettings.shared.tagColors["intune"] = nil
+        XCTAssertEqual(TagPillsView.color(for: "Intune").hexString, automatic.hexString, "Automatic undoes it")
+    }
+
+    func testLetteringStaysReadableOnADarkPick() {
+        XCTAssertEqual(TagPillsView.textColor(for: "q4"), .black, "automatic pills are pale")
+        AppSettings.shared.tagColors["q4"] = "#3A3F4B"
+        XCTAssertEqual(TagPillsView.textColor(for: "q4"), .white, "black on a dark slate would vanish")
+    }
+
+    func testPickedColoursTravelWithTheVault() throws {
+        let s = AppSettings(); s.load(from: store.metaURL)
+        s.tagColors = ["azure": "#7FB8FF"]
+        s.save()
+        let back = AppSettings(); back.load(from: store.metaURL)
+        XCTAssertEqual(back.tagColors["azure"], "#7FB8FF")
+    }
+}

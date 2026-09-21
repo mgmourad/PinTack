@@ -53,9 +53,22 @@ final class TagPillsView: NSView {
         tags.isEmpty ? nil : "Tags: " + tags.joined(separator: ", ")
     }
 
-    /// A tag's colour, from a stable hash of its text. NOT `hashValue`: Swift seeds its hasher per
-    /// process, so every launch would repaint the same tag a different colour.
+    /// A tag's colour: the one the user picked for it (the tag editor, 2026-09-21), otherwise the
+    /// automatic one from its name.
     static func color(for tag: String) -> NSColor {
+        if let hex = AppSettings.shared.tagColors[tag.lowercased()], let picked = NSColor(hex: hex) { return picked }
+        return automaticColor(for: tag)
+    }
+
+    /// Lettering that reads on the pill. Automatic colours are always washed out to take dark text;
+    /// a picked colour can be anything, so it is decided by how light that colour is.
+    static func textColor(for tag: String) -> NSColor {
+        color(for: tag).relativeLuminance < 0.45 ? .white : .black
+    }
+
+    /// The colour from a stable hash of the tag's text. NOT `hashValue`: Swift seeds its hasher per
+    /// process, so every launch would repaint the same tag a different colour.
+    static func automaticColor(for tag: String) -> NSColor {
         var hash: UInt64 = 5381
         for byte in tag.lowercased().utf8 { hash = (hash &* 33) &+ UInt64(byte) }
         let hue = CGFloat(hash % 360) / 360.0
@@ -127,8 +140,8 @@ final class TagPillsView: NSView {
         overflowRect = overflow
 
         for pill in pills {
-            // Every pill is washed out to take dark text, so the lettering never switches colour.
-            draw("#" + pill.tag, at: pill.rect, background: TagPillsView.color(for: pill.tag), text: .black)
+            draw("#" + pill.tag, at: pill.rect, background: TagPillsView.color(for: pill.tag),
+                 text: TagPillsView.textColor(for: pill.tag))
         }
         if !overflow.isEmpty {
             draw("+\(tags.count - pills.count)", at: overflow,
