@@ -107,6 +107,59 @@ final class FeatureTests: VaultTestCase {
         XCTAssertEqual(low.actionBarCollapseSeconds, 2)
     }
 
+    // MARK: Only choices are written (2026-09-21)
+
+    private var settingsFile: URL { store.metaURL.appendingPathComponent("settings.json") }
+    private func writtenSettings() throws -> [String: Any] {
+        try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: settingsFile)) as? [String: Any])
+    }
+
+    func testDefaultsAreNotWrittenDown() throws {
+        let s = AppSettings(); s.load(from: store.metaURL)
+        s.fontSize = 15
+        s.save()
+        let dict = try writtenSettings()
+        XCTAssertEqual((dict["fontSize"] as? NSNumber)?.doubleValue, 15, "a change is a choice, and is kept")
+        XCTAssertNil(dict["defaultNoteWidth"], "an untouched default must not be frozen into the file")
+        XCTAssertNil(dict["fontFamily"])
+        XCTAssertEqual(dict["settingsVersion"] as? Int, AppSettings.fileVersion)
+    }
+
+    func testAnOldFileThatOnlyRecordedTheOldDefaultGetsTheNewOne() throws {
+        // What every build before version 2 wrote: all of it, chosen or not.
+        try JSONSerialization.data(withJSONObject: ["defaultNoteWidth": 280, "defaultNoteHeight": 210,
+                                                    "fontSize": 13]).write(to: settingsFile)
+        let s = AppSettings(); s.load(from: store.metaURL)
+        XCTAssertEqual(s.defaultNoteWidth, 300)
+        XCTAssertEqual(s.defaultNoteHeight, 250)
+    }
+
+    func testAnOldFileWithARealChoiceKeepsIt() throws {
+        try JSONSerialization.data(withJSONObject: ["defaultNoteWidth": 420, "defaultNoteHeight": 210])
+            .write(to: settingsFile)
+        let s = AppSettings(); s.load(from: store.metaURL)
+        XCTAssertEqual(s.defaultNoteWidth, 420, "420 was never a default, so somebody picked it")
+        XCTAssertEqual(s.defaultNoteHeight, 250)
+    }
+
+    func testANewFileMeansWhatItSays() throws {
+        // Once a file is version 2, 280 in it is a deliberate choice, not a leftover default.
+        try JSONSerialization.data(withJSONObject: ["defaultNoteWidth": 280, "settingsVersion": 2])
+            .write(to: settingsFile)
+        let s = AppSettings(); s.load(from: store.metaURL)
+        XCTAssertEqual(s.defaultNoteWidth, 280)
+    }
+
+    func testPluginSettingsSurviveTheSlimmerFile() throws {
+        try JSONSerialization.data(withJSONObject: ["runner": ["shell": "/bin/bash"], "fontSize": 13])
+            .write(to: settingsFile)
+        let s = AppSettings(); s.load(from: store.metaURL)
+        s.save()
+        let dict = try writtenSettings()
+        XCTAssertEqual((dict["runner"] as? [String: String])?["shell"], "/bin/bash",
+                       "keys a plugin owns are kept however little the app writes of its own")
+    }
+
     func testAnExplicitFontChoiceIsRespected() throws {
         try JSONSerialization.data(withJSONObject: ["fontFamily": ""]).write(to: store.metaURL.appendingPathComponent("settings.json"))
         let s = AppSettings(); s.load(from: store.metaURL)

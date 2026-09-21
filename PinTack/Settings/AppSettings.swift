@@ -65,7 +65,25 @@ final class AppSettings: ObservableObject {
         "placement", "autosaveSeconds", "actionBarAutoCollapse", "actionBarCollapseSeconds", "defaultMode",
         "spellcheck", "slashCommands", "imagePaste", "bulletEmoji", "enabledPlugins", "plugins", "linkPreviews",
         "inlineCodeColor", "inlineCodeOpacity", "codeBlockColor", "codeBlockOpacity", "pasteAsMarkdown",
+        "settingsVersion",
     ]
+
+    /// Bumped when the file's MEANING changes. Version 1 (no key at all) wrote every value, chosen or
+    /// not; version 2 writes only what the user changed from the built-in defaults.
+    static let fileVersion = 2
+
+    /// Defaults that have since changed, as older builds wrote them. A version-1 file holding one of
+    /// these did not record a choice — it recorded whatever the default happened to be that day —
+    /// so it is read as "not chosen" and the current default applies. Without this, everyone who
+    /// ran an earlier build kept 280 × 210 new notes for ever (found on the owner's Mac, 2026-09-21).
+    private static let supersededDefaults: [String: Double] = [
+        "defaultNoteWidth": 280,
+        "defaultNoteHeight": 210,
+    ]
+
+    /// What every key is when nobody has touched it, taken from a fresh instance so it can never
+    /// drift from the property initialisers above.
+    private static let factoryValues: [String: Any] = AppSettings().values()
 
     private var fileURL: URL?
     private var extra: [String: Any] = [:]        // unknown keys, preserved. SPEC.md §12.2
@@ -95,7 +113,13 @@ final class AppSettings: ObservableObject {
         let url = metaDirectory.appendingPathComponent("settings.json")
         fileURL = url
         guard let data = try? Data(contentsOf: url),
-              let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+              var dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+        if dict["settingsVersion"] == nil {
+            for (key, old) in AppSettings.supersededDefaults
+            where (dict[key] as? NSNumber)?.doubleValue == old {
+                dict[key] = nil
+            }
+        }
         loading = true
         defer { loading = false }
 
@@ -139,7 +163,7 @@ final class AppSettings: ObservableObject {
                                   "slashCommands", "imagePaste", "newNoteColor", "actionBarAutoCollapse",
                                   "actionBarCollapseSeconds", "bulletEmoji", "enabledPlugins", "linkPreviews",
                                   "inlineCodeColor", "inlineCodeOpacity", "codeBlockColor",
-                                  "codeBlockOpacity", "pasteAsMarkdown"]
+                                  "codeBlockOpacity", "pasteAsMarkdown", "settingsVersion"]
         extra = dict.filter { !known.contains($0.key) }
         applyRuntimeEffects()
     }
@@ -172,9 +196,9 @@ final class AppSettings: ObservableObject {
         save()
     }
 
-    func save() {
-        guard let fileURL else { return }
-        var dict = extra
+    /// Every setting this build owns, as it would be written.
+    private func values() -> [String: Any] {
+        var dict: [String: Any] = [:]
         dict["appTheme"] = appTheme
         dict["defaultColor"] = defaultColorHex
         dict["newNoteColor"] = newNoteColor
@@ -204,6 +228,20 @@ final class AppSettings: ObservableObject {
         dict["codeBlockOpacity"] = codeBlockOpacity
         dict["pasteAsMarkdown"] = pasteAsMarkdown
         dict["enabledPlugins"] = enabledPlugins
+        return dict
+    }
+
+    /// Writes only what differs from the defaults. A value left at its default is not a choice, and
+    /// writing it down anyway freezes it: the next build's better default would never arrive.
+    func save() {
+        guard let fileURL else { return }
+        var dict = extra
+        for (key, value) in values() {
+            let factory = AppSettings.factoryValues[key] as AnyObject?
+            if let factory, (value as AnyObject).isEqual(factory) { continue }
+            dict[key] = value
+        }
+        dict["settingsVersion"] = AppSettings.fileVersion
         guard let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted, .sortedKeys]) else { return }
         do { try AtomicWriter.write(data, to: fileURL) }
         catch { NSLog("PinTack: settings save failed: \(error)") }
