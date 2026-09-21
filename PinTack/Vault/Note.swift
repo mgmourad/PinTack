@@ -161,6 +161,19 @@ final class Note {
         return (done, total)
     }
 
+    /// Nothing anyone would miss: no words, no name of its own, not a template, no reminder, no
+    /// tag beyond the `todo` that New Todo adds by itself, and nothing a plugin stored in its
+    /// frontmatter. Closing such a note discards it instead of hiding it (owner decision,
+    /// 2026-09-21), so a change of mind after ⌥⌘N does not leave an empty file in the vault.
+    /// Deliberately strict: every one of these is somebody's data, and this ends in a deleted file.
+    var isBlank: Bool {
+        let text = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        let bodyIsEmpty = text.isEmpty || text.caseInsensitiveCompare("@todo") == .orderedSame
+        let onlyAutomaticTags = tags.allSatisfy { $0.caseInsensitiveCompare("todo") == .orderedSame }
+        return bodyIsEmpty && onlyAutomaticTags && (customTitle ?? "").isEmpty && templateName.isEmpty
+            && due == nil && unknownBlocks.isEmpty
+    }
+
     /// Finished: it has tasks and every one of them is ticked.
     var isDone: Bool {
         let counts = taskCounts

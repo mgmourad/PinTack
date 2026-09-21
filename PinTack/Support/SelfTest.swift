@@ -1681,8 +1681,29 @@ enum SelfTest {
         }
     }
 
+    /// Closing an empty note discards it instead of hiding it (owner, 2026-09-21), through the
+    /// same closeNote the ✕ button and ⌘W use.
+    private static func blankCloseTest(then next: @escaping () -> Void) {
+        let blank = WindowManager.shared.newNote()
+        let kept = VaultStore.shared.createNote(body: "Keep me",
+                                                frame: WindowManager.shared.nextCardFrame(size: NSSize(width: 300, height: 250)))
+        let keptPanel = WindowManager.shared.open(kept, focus: false)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            let blankFile = blank.fileURL, keptFile = kept.fileURL
+            WindowManager.shared.panel(for: blank.id)?.card.closeNote()
+            keptPanel.card.closeNote()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                check("closing an empty note leaves no file behind",
+                      !FileManager.default.fileExists(atPath: blankFile.path) && VaultStore.shared.note(id: blank.id) == nil)
+                check("closing a note with words in it only hides it",
+                      FileManager.default.fileExists(atPath: keptFile.path) && VaultStore.shared.note(id: kept.id) != nil)
+                next()
+            }
+        }
+    }
+
     private static func renderWindows(out: URL) {
-        runnerTest(out: out) { linkPreviewTest(out: out) { imageEditTest(out: out) { freezeTest { reminderTest(out: out) { findTest(out: out) { quickCaptureTest { templateTest { actionBarTest { testerBugsTest { todoBarTest(out: out) { onboardingTest(out: out) { strandedNotesTest { collapsedTodoTest(out: out) { renderWindowsNow(out: out) } } } } } } } } } } } } } }
+        runnerTest(out: out) { linkPreviewTest(out: out) { imageEditTest(out: out) { freezeTest { reminderTest(out: out) { findTest(out: out) { quickCaptureTest { templateTest { actionBarTest { testerBugsTest { todoBarTest(out: out) { onboardingTest(out: out) { strandedNotesTest { collapsedTodoTest(out: out) { blankCloseTest { renderWindowsNow(out: out) } } } } } } } } } } } } } } }
     }
 
     private static func renderWindowsNow(out: URL) {

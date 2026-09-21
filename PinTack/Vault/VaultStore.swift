@@ -281,6 +281,27 @@ final class VaultStore {
     /// Notes whose last write failed. A note in here is NOT on disk as you see it.
     private(set) var saveFailures: Set<String> = []
 
+    /// Removes a BLANK note's file outright, without the Trash — there is nothing in it to get back,
+    /// and a Trash full of Untitled.md is its own mess. Refuses unless the note is blank in memory
+    /// AND the file on disk is blank too: an edit from another app that has not been read yet must
+    /// not be thrown away by a close. Returns whether it discarded anything.
+    @discardableResult
+    func discardIfBlank(_ note: Note) -> Bool {
+        guard note.isBlank else { return false }
+        if let onDisk = try? String(contentsOf: note.fileURL, encoding: .utf8),
+           !Note.parse(onDisk, fileURL: note.fileURL).isBlank {
+            return false
+        }
+        SaveCoordinator.shared.discard(noteID: note.id)
+        Reminders.shared.cancel(note)
+        try? FileManager.default.removeItem(at: note.fileURL)
+        notes.removeAll { $0.id == note.id }
+        saveFailures.remove(note.id)
+        index?.remove(id: note.id)
+        NotificationCenter.default.post(name: .vaultDidChange, object: nil)
+        return true
+    }
+
     func delete(_ note: Note) {
         SaveCoordinator.shared.discard(noteID: note.id)
         // Its reminders go with it: otherwise a binned todo still fires a banner pointing at a

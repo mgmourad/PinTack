@@ -725,6 +725,15 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
 
     @objc func closeNote() {
         SaveCoordinator.shared.flush(noteID: note.id)
+        // Closed with nothing in it: it goes, rather than joining the Untitled/Empty rows in All
+        // Notes. Only on an explicit close — hiding every note at once is not a change of mind.
+        // The discard comes FIRST and decides: if it refuses (the file has words the app has not
+        // read yet), this falls through to an ordinary hide and nothing blank is written anywhere.
+        if VaultStore.shared.discardIfBlank(note) {
+            WindowManager.shared.close(noteID: note.id)
+            Toast.show("Empty note discarded")
+            return
+        }
         note.visible = false
         VaultStore.shared.save(note)
         WindowManager.shared.close(noteID: note.id)
