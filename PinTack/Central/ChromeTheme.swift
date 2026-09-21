@@ -123,3 +123,70 @@ struct GlyphTabs<Value: Hashable>: View {
         .background(Capsule().fill(Color.chromeSurface))
     }
 }
+
+/// A segmented choice with a solid orange pill and DARK lettering on it. The system segmented
+/// control draws its chosen segment in the accent colour with white text, and no tint changes that
+/// — white on bright orange was the unreadable highlight the owner reported (2026-09-21).
+struct ChromeSegmented<Value: Hashable>: View {
+
+    @Binding var selection: Value
+    let options: [(label: String, value: Value)]
+    @Namespace private var pill
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(options.indices, id: \.self) { index in
+                let option = options[index]
+                let chosen = option.value == selection
+                Button {
+                    withAnimation(ChromeMotion.spring) { selection = option.value }
+                } label: {
+                    Text(option.label)
+                        .font(.system(size: 12.5, weight: chosen ? .semibold : .medium))
+                        .foregroundStyle(chosen ? Color.chromeOnHighlight : Color.primary.opacity(0.8))
+                        .padding(.horizontal, 12).frame(height: 24)
+                        .background {
+                            if chosen {
+                                Capsule().fill(Color.chromeHighlight)
+                                    .matchedGeometryEffect(id: "segment", in: pill)
+                            }
+                        }
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(option.label)
+                .accessibilityAddTraits(chosen ? [.isButton, .isSelected] : .isButton)
+            }
+        }
+        .padding(2)
+        .background(Capsule().fill(Color.chromeSurface))
+        .fixedSize()
+    }
+}
+
+/// The window's one prominent button, orange with dark lettering for the same reason.
+struct ChromeProminentButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(Color.chromeOnHighlight)
+            .padding(.horizontal, 14).frame(height: 28)
+            .background(Capsule().fill(Color.chromeHighlight.opacity(configuration.isPressed ? 0.8 : 1)))
+            .shadow(color: Color.chromeHighlight.opacity(0.3), radius: 6, y: 1)
+            .scaleEffect(configuration.isPressed && Motion.enabled ? 0.97 : 1)
+            .animation(.easeOut(duration: 0.1), value: configuration.isPressed)
+    }
+}
+
+/// A settings row whose label and control share a centre line. The Form's own layout lines a label
+/// up with the control's text baseline, and a pill control reports one that sits low, which left
+/// "App theme" a few points above its own segments.
+struct CentredRow: LabeledContentStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(alignment: .center) {
+            configuration.label
+            Spacer(minLength: 12)
+            configuration.content
+        }
+    }
+}

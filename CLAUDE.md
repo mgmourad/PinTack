@@ -240,7 +240,9 @@ Owner decisions added after the rebuild (2026-09-19):
   `Central/MainWindow.swift`. `AllNotesWindowController` and `SettingsWindowController` are kept as
   thin fronts that pick a tab, so no shortcut or menu had to change. Its look lives in
   `ChromeTheme`: dark = deep indigo, never system grey; a selection is SOLID `Brand.accentNS` with
-  dark lettering; Settings glyphs are monochrome with no coloured tiles.
+  dark lettering; Settings glyphs are monochrome with no coloured tiles. Never use the system
+  `.pickerStyle(.segmented)` or `.borderedProminent` in that window: both draw the choice in the
+  accent with WHITE text, which no tint changes. Use `ChromeSegmented` / `ChromeProminentButtonStyle`.
 - The menu-bar item takes the system's default position (left end); do not seed one.
 - The pinned pushpin is the owner's PNG (`Assets.xcassets/Pushpin`), anchored by its crack; the
   pinned glow is the note's own color. App chrome (Settings, All Notes, popovers) uses the fixed

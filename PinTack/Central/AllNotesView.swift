@@ -416,7 +416,7 @@ struct AllNotesView: View {
                     let folder: String? = { if case .folder(let f) = model.selection { return f }; return nil }()
                     WindowManager.shared.newNote(folder: folder)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(ChromeProminentButtonStyle())
                 .fixedSize()
                 Button("New folder") { newFolder() }.fixedSize()
                 Spacer()

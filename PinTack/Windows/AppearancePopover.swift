@@ -28,14 +28,8 @@ struct AppearancePopoverView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Picker("Mode", selection: $mode) {
-                Text("Auto").tag("auto")
-                Text("Dark").tag("dark")
-                Text("Light").tag("light")
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .onChange(of: mode) { _, new in switchMode(to: new) }
+            ChromeSegmented(selection: $mode, options: [("Auto", "auto"), ("Dark", "dark"), ("Light", "light")])
+                .onChange(of: mode) { _, new in switchMode(to: new) }
 
             VStack(alignment: .leading, spacing: 6) {
                 Text("Color").font(.caption).foregroundStyle(.secondary)

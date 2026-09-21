@@ -128,10 +128,11 @@ private struct AppearancePane: View {
 
     var body: some View {
         Form {
-            Picker("App theme", selection: $s.appTheme) {
-                Text("System").tag("system"); Text("Light").tag("light"); Text("Dark").tag("dark")
+            LabeledContent("App theme") {
+                ChromeSegmented(selection: $s.appTheme,
+                                options: [("System", "system"), ("Light", "light"), ("Dark", "dark")])
             }
-            .pickerStyle(.segmented)
+            .labeledContentStyle(CentredRow())
 
             Toggle("Open PinTack at login", isOn: Binding(get: { launchAtLogin }, set: { setLaunchAtLogin($0) }))
             if let loginMessage {
@@ -142,11 +143,11 @@ private struct AppearancePane: View {
                 }
             }
 
-            Picker("New notes get", selection: $s.newNoteColor) {
-                Text("The default color").tag("default")
-                Text("A random color").tag("random")
+            LabeledContent("New notes get") {
+                ChromeSegmented(selection: $s.newNoteColor,
+                                options: [("The default color", "default"), ("A random color", "random")])
             }
-            .pickerStyle(.segmented)
+            .labeledContentStyle(CentredRow())
 
             LabeledContent("Default note color") {
                 HStack(spacing: 8) {
@@ -168,10 +169,10 @@ private struct AppearancePane: View {
                  : "Text color flips light or dark automatically, so no color can be unreadable.")
                 .font(.caption).foregroundStyle(.secondary)
 
-            Picker("Corners", selection: $s.cornerStyle) {
-                Text("Rounded").tag("rounded"); Text("Square").tag("square")
+            LabeledContent("Corners") {
+                ChromeSegmented(selection: $s.cornerStyle, options: [("Rounded", "rounded"), ("Square", "square")])
             }
-            .pickerStyle(.segmented)
+            .labeledContentStyle(CentredRow())
 
             LabeledContent("Default opacity") {
                 HStack {
@@ -353,10 +354,10 @@ private struct EditorPane: View {
 
     var body: some View {
         Form {
-            Picker("Default mode", selection: $s.defaultMode) {
-                Text("Live Preview").tag("live"); Text("Source").tag("source")
+            LabeledContent("Default mode") {
+                ChromeSegmented(selection: $s.defaultMode, options: [("Live Preview", "live"), ("Source", "source")])
             }
-            .pickerStyle(.segmented)
+            .labeledContentStyle(CentredRow())
             Toggle("Spellcheck", isOn: $s.spellcheck)
             Toggle("Slash commands (type / for a menu)", isOn: $s.slashCommands)
             Toggle("Paste rich text as Markdown", isOn: $s.pasteAsMarkdown)

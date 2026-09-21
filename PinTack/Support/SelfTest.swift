@@ -1877,10 +1877,26 @@ enum SelfTest {
         check("every Settings sidebar glyph exists on this macOS",
               SettingsView.Pane.allCases.allSatisfy { NSImage(systemSymbolName: $0.symbol, accessibilityDescription: nil) != nil },
               SettingsView.Pane.allCases.map(\.symbol).joined(separator: " "))
+        // Lettering on the orange selection has to be dark (owner, 2026-09-21): white on bright orange
+        // was the unreadable highlight. WCAG's ratio, against the 7:1 it asks of body text.
+        let orange = ChromeTheme.highlight.relativeLuminance, ink = ChromeTheme.onHighlight.relativeLuminance
+        let contrast = (max(orange, ink) + 0.05) / (min(orange, ink) + 0.05)
+        check("the lettering on an orange selection is dark enough to read", contrast >= 7 && ink < orange,
+              String(format: "%.1f : 1", contrast))
         // Dark means dark: the window is a deep indigo, not the system's grey.
         let dark = ChromeTheme.window.resolved(for: .darkAqua)
         check("the dark theme is a deep indigo", dark.relativeLuminance < 0.02 && dark.blueComponent > dark.redComponent * 1.5,
               dark.hexString)
+    }
+
+    private static func paneTour(window: NSWindow, out: URL, panes: [SettingsView.Pane], then next: @escaping () -> Void) {
+        guard let pane = panes.first else { return next() }
+        MainWindowModel.shared.settingsPane = pane
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
+            snapshot(window: window, to: out.appendingPathComponent("pane-\(pane.rawValue.lowercased()).png")) {
+                paneTour(window: window, out: out, panes: Array(panes.dropFirst()), then: next)
+            }
+        }
     }
 
     private static func renderWindows(out: URL) {
@@ -1939,6 +1955,9 @@ enum SelfTest {
                               && MainWindowModel.shared.tab == .settings && titled.count == 1,
                           "tab \(MainWindowModel.shared.tab.rawValue), titled windows: \(titled.map { String(describing: Swift.type(of: $0)) + " '" + $0.title + "'" })")
                     snapshot(window: w, to: out.appendingPathComponent("settings.png")) {
+                        // Every pane, dark, so nothing orange with white lettering hides on a pane
+                        // that is not the one shown by default.
+                        paneTour(window: w, out: out, panes: SettingsView.Pane.allCases) {
                         // The same window in light mode, so the warm palette gets looked at too.
                         let appearance = w.appearance
                         w.appearance = NSAppearance(named: .aqua)
@@ -1951,6 +1970,7 @@ enum SelfTest {
                                 group.enter(); snapshot(window: o, to: out.appendingPathComponent("shortcuts.png")) { group.leave() }
                             }
                             group.leave()
+                        }
                         }
                         }
                         }
