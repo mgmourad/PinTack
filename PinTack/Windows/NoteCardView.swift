@@ -204,9 +204,14 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         // inside the 24pt margin so the window never clips them.
         let glowing = note.pinned && settings.pinnedGlow
         if glowing {
+            // Settings → Notes → Glow strength. Mostly brightness; the halo also widens a little, but
+            // never past the 24pt margin, or the window edge would slice it off flat (SPEC.md §5.2).
+            let strength = settings.pinnedGlowStrength
             for (blur, alpha) in [(22.0, 0.62), (9.0, 0.85)] {
+                let spread = min(Double(NotePanel.margin), blur * (0.75 + 0.25 * strength))
                 ctx.saveGState()
-                ctx.setShadow(offset: .zero, blur: CGFloat(blur), color: note.color.withAlphaComponent(alpha).cgColor)
+                ctx.setShadow(offset: .zero, blur: CGFloat(spread),
+                              color: note.color.withAlphaComponent(CGFloat(min(1, alpha * strength))).cgColor)
                 note.color.setFill()
                 card.fill()
                 ctx.restoreGState()

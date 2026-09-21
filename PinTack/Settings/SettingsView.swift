@@ -204,6 +204,14 @@ private struct NotesPane: View {
                 }
                 Text("This color is also the accent for plugin-contributed UI.").font(.caption).foregroundStyle(.secondary)
                 Toggle("Glow on pinned notes", isOn: $s.pinnedGlow)
+                LabeledContent("Glow strength") {
+                    HStack {
+                        Slider(value: $s.pinnedGlowStrength, in: 0.25...1.6).frame(width: 160)
+                        Text("\(Int((s.pinnedGlowStrength * 100).rounded()))%")
+                            .monospacedDigit().frame(width: 44, alignment: .trailing)
+                    }
+                }
+                .disabled(!s.pinnedGlow)
             }
             Section("Faded notes") {
                 Toggle("Show a faded note fully while the pointer is over it", isOn: $s.hoverRevealsNote)

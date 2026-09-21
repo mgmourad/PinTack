@@ -1837,8 +1837,40 @@ enum SelfTest {
         }
     }
 
+    /// Settings → Notes → Glow strength, measured off the pixels just outside a pinned card.
+    private static func glowStrengthTest(then next: @escaping () -> Void) {
+        let note = VaultStore.shared.createNote(body: "Pinned", frame: WindowManager.shared.nextCardFrame(size: NSSize(width: 300, height: 250)))
+        note.pinned = true
+        let panel = WindowManager.shared.open(note, focus: false)
+        panel.applyPinned()
+        guard let view = panel.contentView else {
+            check("a pinned note to measure the glow on", false)
+            return next()
+        }
+        let was = AppSettings.shared.pinnedGlowStrength
+        /// How opaque the halo is 10pt outside the card's left edge, halfway down.
+        func halo() -> CGFloat {
+            view.needsDisplay = true
+            view.displayIfNeeded()
+            guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return -1 }
+            view.cacheDisplay(in: view.bounds, to: rep)
+            let scale = CGFloat(rep.pixelsWide) / view.bounds.width
+            let x = Int((NotePanel.margin - 10) * scale), y = Int(view.bounds.midY * scale)
+            return rep.colorAt(x: x, y: y)?.alphaComponent ?? -1
+        }
+        AppSettings.shared.pinnedGlowStrength = 0.25
+        let faint = halo()
+        AppSettings.shared.pinnedGlowStrength = 1.6
+        let strong = halo()
+        check("the glow strength setting changes how bright a pinned note's halo is",
+              strong > faint + 0.1, String(format: "halo %.2f at 25%%, %.2f at 160%%", faint, strong))
+        AppSettings.shared.pinnedGlowStrength = was
+        view.needsDisplay = true
+        next()
+    }
+
     private static func renderWindows(out: URL) {
-        runnerTest(out: out) { linkPreviewTest(out: out) { imageEditTest(out: out) { freezeTest { reminderTest(out: out) { findTest(out: out) { quickCaptureTest { templateTest { actionBarTest { testerBugsTest { todoBarTest(out: out) { onboardingTest(out: out) { strandedNotesTest { collapsedTodoTest(out: out) { blankCloseTest { undoDeleteTest { tagColourTest(out: out) { renderWindowsNow(out: out) } } } } } } } } } } } } } } } } }
+        runnerTest(out: out) { linkPreviewTest(out: out) { imageEditTest(out: out) { freezeTest { reminderTest(out: out) { findTest(out: out) { quickCaptureTest { templateTest { actionBarTest { testerBugsTest { todoBarTest(out: out) { onboardingTest(out: out) { strandedNotesTest { collapsedTodoTest(out: out) { blankCloseTest { undoDeleteTest { tagColourTest(out: out) { glowStrengthTest { renderWindowsNow(out: out) } } } } } } } } } } } } } } } } } }
     }
 
     private static func renderWindowsNow(out: URL) {

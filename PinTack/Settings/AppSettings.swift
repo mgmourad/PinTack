@@ -26,6 +26,8 @@ final class AppSettings: ObservableObject {
     @Published var outlineColorHex = "#FF9F0A"    // also the accent for plugin UI. SPEC.md §9
     @Published var outlineWidth = 1.5
     @Published var pinnedGlow = true
+    /// How strong the pinned glow is, 1 being the look it always had. SPEC.md §5.4.
+    @Published var pinnedGlowStrength = 1.0
     /// A faded note turns fully opaque while the pointer is over it, and fades back after. An
     /// option, off by default (owner, 2026-09-21): someone who faded a note may want it faded.
     @Published var hoverRevealsNote = false
@@ -72,7 +74,7 @@ final class AppSettings: ObservableObject {
         "placement", "autosaveSeconds", "actionBarAutoCollapse", "actionBarCollapseSeconds", "defaultMode",
         "spellcheck", "slashCommands", "imagePaste", "bulletEmoji", "enabledPlugins", "plugins", "linkPreviews",
         "inlineCodeColor", "inlineCodeOpacity", "codeBlockColor", "codeBlockOpacity", "pasteAsMarkdown",
-        "settingsVersion", "hoverRevealsNote", "tagColors",
+        "settingsVersion", "hoverRevealsNote", "tagColors", "pinnedGlowStrength",
     ]
 
     /// Bumped when the file's MEANING changes. Version 1 (no key at all) wrote every value, chosen or
@@ -145,6 +147,7 @@ final class AppSettings: ObservableObject {
         outlineColorHex = s("outlineColor") ?? outlineColorHex
         outlineWidth = min(3, max(1, d("outlineWidth") ?? outlineWidth))
         pinnedGlow = b("pinnedGlow") ?? pinnedGlow
+        pinnedGlowStrength = min(1.6, max(0.25, d("pinnedGlowStrength") ?? pinnedGlowStrength))
         hoverRevealsNote = b("hoverRevealsNote") ?? hoverRevealsNote
         tagColors = (dict["tagColors"] as? [String: String]) ?? tagColors
         defaultNoteWidth = max(190, d("defaultNoteWidth") ?? defaultNoteWidth)
@@ -173,7 +176,7 @@ final class AppSettings: ObservableObject {
                                   "actionBarCollapseSeconds", "bulletEmoji", "enabledPlugins", "linkPreviews",
                                   "inlineCodeColor", "inlineCodeOpacity", "codeBlockColor",
                                   "codeBlockOpacity", "pasteAsMarkdown", "settingsVersion",
-                                  "hoverRevealsNote", "tagColors"]
+                                  "hoverRevealsNote", "tagColors", "pinnedGlowStrength"]
         extra = dict.filter { !known.contains($0.key) }
         applyRuntimeEffects()
     }
@@ -220,6 +223,7 @@ final class AppSettings: ObservableObject {
         dict["outlineColor"] = outlineColorHex
         dict["outlineWidth"] = outlineWidth
         dict["pinnedGlow"] = pinnedGlow
+        dict["pinnedGlowStrength"] = pinnedGlowStrength
         dict["hoverRevealsNote"] = hoverRevealsNote
         dict["tagColors"] = tagColors
         dict["defaultNoteWidth"] = defaultNoteWidth
