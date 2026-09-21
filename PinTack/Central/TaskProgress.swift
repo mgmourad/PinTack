@@ -10,7 +10,15 @@ enum TaskProgressStyle {
     static let square: CGFloat = 9
     static let gap: CGFloat = 3
 
+    /// Gap between the last square and the "3/7" label.
+    static let labelGap: CGFloat = 6
+
+    /// Most squares on one row of a note's action bar. Past this the tracker wraps and the bar
+    /// grows a row taller — the owner's call (2026-09-20), and deliberately unlimited.
+    static let perRow = 6
+
     /// Above this many tasks the squares become a plain bar: 60 tiny squares is noise, not progress.
+    /// Only the All Notes list, which has one line to work with, falls back to it.
     static let maxSquares = 24
 }
 
@@ -53,9 +61,18 @@ struct TaskProgressBar: View {
 
 /// The AppKit form, shown in a todo note's own action bar. Transparent to the mouse, so the empty
 /// action bar still drags the note.
+///
+/// Squares WRAP: six to a row at most (the owner's cap, 2026-09-20), fewer on a note too narrow for
+/// six, and as many rows as the tasks need. It used to be one row that simply vanished once it no
+/// longer fitted, which is what made a todo note's tracker disappear at about seven items.
 final class TaskProgressView: NSView {
 
     var counts: (done: Int, total: Int) = (0, 0) { didSet { needsDisplay = true } }
+    /// Squares on one row. Set by whoever lays this out, from `grid`.
+    var perRow: Int = TaskProgressStyle.perRow { didSet { needsDisplay = true } }
+    /// Whether the "3/7" count is drawn. A note too narrow for both gives the count up rather
+    /// than its squares or its tags.
+    var showsLabel = true { didSet { needsDisplay = true } }
     /// The note's automatic text colour, for the "3/7" label.
     var foreground: NSColor = .black { didSet { needsDisplay = true } }
 
@@ -72,27 +89,60 @@ final class TaskProgressView: NSView {
 
     private static let font = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .medium)
 
-    /// Width this needs for `total` tasks, so the footer can decide whether it fits.
-    static func width(for total: Int) -> CGFloat {
-        guard total > 0 else { return 0 }
-        let squares = min(total, TaskProgressStyle.maxSquares)
-        let label = ("\(total)/\(total)" as NSString).size(withAttributes: [.font: font]).width
-        return CGFloat(squares) * TaskProgressStyle.square
-            + CGFloat(max(0, squares - 1)) * TaskProgressStyle.gap + 6 + label.rounded(.up)
+    /// Room the "3/7" label needs. It is monospaced-digit, so the widest reading is total/total.
+    static func labelWidth(for total: Int) -> CGFloat {
+        ("\(total)/\(total)" as NSString).size(withAttributes: [.font: font]).width.rounded(.up)
+    }
+
+    /// How `total` squares arrange themselves in `width` points, keeping `reservedForTags` points
+    /// clear for the note's tag pills where it can.
+    ///
+    /// Six a row is what the owner asked for (2026-09-20), and a narrow note gives things up in a
+    /// fixed order to keep it: first the tags' elbow room, then the "3/7" count, and only then
+    /// squares a row. The tracker itself is never given up — hiding it is the bug this replaces.
+    static func grid(total: Int, room: CGFloat,
+                     reservedForTags: CGFloat = 0) -> (perRow: Int, rows: Int, showsLabel: Bool) {
+        guard total > 0 else { return (0, 0, false) }
+        let cap = min(TaskProgressStyle.perRow, total)
+        func rows(_ perRow: Int) -> Int { (total + perRow - 1) / perRow }
+        func block(_ perRow: Int, _ label: Bool) -> CGFloat { width(perRow: perRow, total: total, showsLabel: label) }
+
+        // Preference order, widest arrangement first. Keeping the tags' room outranks both the
+        // count and a sixth square, because a bar where the tags simply vanished is the fault this
+        // replaces; only when nothing fits beside them is their room given up.
+        for reserve in [reservedForTags, 0] {
+            for perRow in stride(from: cap, through: 1, by: -1) {
+                if block(perRow, true) <= room - reserve { return (perRow, rows(perRow), true) }
+                if block(perRow, false) <= room - reserve { return (perRow, rows(perRow), false) }
+            }
+        }
+        return (1, total, false)
+    }
+
+    /// Width this block occupies once it is wrapped `perRow` to a row.
+    static func width(perRow: Int, total: Int, showsLabel: Bool) -> CGFloat {
+        guard total > 0, perRow > 0 else { return 0 }
+        let n = min(total, perRow)
+        let squares = CGFloat(n) * TaskProgressStyle.square + CGFloat(n - 1) * TaskProgressStyle.gap
+        return showsLabel ? squares + TaskProgressStyle.labelGap + labelWidth(for: total) : squares
+    }
+
+    /// Height `rows` rows of squares occupy.
+    static func height(rows: Int) -> CGFloat {
+        rows <= 0 ? 0 : CGFloat(rows) * TaskProgressStyle.square + CGFloat(rows - 1) * TaskProgressStyle.gap
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        guard counts.total > 0 else { return }
-        let height = TaskProgressStyle.square
-        let y = ((bounds.height - height) / 2).rounded()
-        var x: CGFloat = 0
+        guard counts.total > 0, perRow > 0 else { return }
+        let side = TaskProgressStyle.square
+        let unit = side + TaskProgressStyle.gap
 
-        let squares = min(counts.total, TaskProgressStyle.maxSquares)
-        // With more tasks than squares, each square stands for a slice of the list.
-        let filled = Int((Double(counts.done) / Double(counts.total) * Double(squares)).rounded(.down))
-        for index in 0..<squares {
-            let isDone = counts.total <= TaskProgressStyle.maxSquares ? index < counts.done : index < filled
-            let box = NSBezierPath(roundedRect: NSRect(x: x, y: y, width: height, height: height), xRadius: 2, yRadius: 2)
+        for index in 0..<counts.total {
+            let x = CGFloat(index % perRow) * unit
+            let y = CGFloat(index / perRow) * unit
+            let isDone = index < counts.done
+            let box = NSBezierPath(roundedRect: NSRect(x: x, y: y, width: side, height: side),
+                                   xRadius: 2, yRadius: 2)
             if isDone, let ctx = NSGraphicsContext.current?.cgContext {
                 // A finished square glows, the way a lit contribution square does.
                 ctx.saveGState()
@@ -103,15 +153,19 @@ final class TaskProgressView: NSView {
             }
             (isDone ? TaskProgressStyle.done : TaskProgressStyle.todo).setFill()
             box.fill()
-            x += height + TaskProgressStyle.gap
         }
 
+        // The count stays on the first row, so it does not wander as tasks are added.
+        guard showsLabel else { return }
         let label = "\(counts.done)/\(counts.total)" as NSString
         let attributes: [NSAttributedString.Key: Any] = [
             .font: TaskProgressView.font,
             .foregroundColor: foreground.withAlphaComponent(0.65),
         ]
         let size = label.size(withAttributes: attributes)
-        label.draw(at: NSPoint(x: x + 3, y: bounds.midY - size.height / 2), withAttributes: attributes)
+        let firstRow = CGFloat(min(counts.total, perRow))
+        let x = firstRow * TaskProgressStyle.square + (firstRow - 1) * TaskProgressStyle.gap
+            + TaskProgressStyle.labelGap
+        label.draw(at: NSPoint(x: x, y: (side - size.height) / 2), withAttributes: attributes)
     }
 }

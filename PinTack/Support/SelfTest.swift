@@ -1155,8 +1155,213 @@ enum SelfTest {
         }
     }
 
+    /// The action bar, from a tester's Mac (2026-09-20). Two faults, one cause: the tracker was
+    /// only ever built when the note was opened, and it was drawn on a single row that simply
+    /// disappeared once it no longer fitted — taking the tags with it at about seven tasks.
+    private static func todoBarTest(out: URL, then next: @escaping () -> Void) {
+        let note = VaultStore.shared.createNote(
+            body: "@Todo Rollout\n\nNo boxes yet\n",
+            tags: ["todo", "intune", "azure", "q4", "pilot", "ring1"],
+            frame: WindowManager.shared.nextCardFrame(size: NSSize(width: 360, height: 260)))
+        VaultStore.shared.save(note)
+        let panel = WindowManager.shared.open(note, focus: true)
+        panel.card.debugCollapseActionBar()
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            let card = panel.card!
+            check("a todo note with no boxes has no tracker", card.debugProgress.isHidden)
+            let topBefore = panel.frame.maxY
+            let barBefore = card.debugFooterHeight
+
+            // Typed through the editor, which is the path that used to leave the bar untouched.
+            let js = """
+            const view = window.__pintack._view;
+            view.focus();
+            view.dispatch({ selection: { anchor: view.state.doc.length } });
+            for (const ch of "\\n- [ ] first") { const s = view.state.selection.main;
+              view.dispatch({ changes: { from: s.from, to: s.to, insert: ch },
+                              selection: { anchor: s.from + 1 }, userEvent: "input.type" }); }
+            return "typed";
+            """
+            card.editor.callAsyncJavaScript(js, arguments: [:], in: nil, in: .page) { _ in
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    check("the tracker appears the moment the first box is typed, with no reopening",
+                          note.taskCounts.total == 1 && !card.debugProgress.isHidden,
+                          "\(note.taskCounts.total) task(s), tracker hidden: \(card.debugProgress.isHidden)")
+                    todoBarRowsTest(out: out, panel: panel, topBefore: topBefore, barBefore: barBefore, then: next)
+                }
+            }
+        }
+    }
+
+    private static func todoBarRowsTest(out: URL, panel: NotePanel, topBefore: CGFloat,
+                                        barBefore: CGFloat, then next: @escaping () -> Void) {
+        let note = panel.note
+        let card = panel.card!
+        // Fourteen boxes: six to a row is three rows, so the bar is two rows thicker than a plain one.
+        let boxes = (1...14).map { "- [\($0 <= 5 ? "x" : " ")] item \($0)" }.joined(separator: "\n")
+        note.body = "@Todo Rollout\n\n" + boxes + "\n"
+        NotificationCenter.default.post(name: .noteBodyDidChange, object: note)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            card.layoutSubtreeIfNeeded()
+            check("the tracker wraps at six squares a row", card.debugProgressPerRow == 6,
+                  "\(card.debugProgressPerRow) per row")
+            let expected = barBefore + 2 * NotePanel.footerRowHeight
+            check("fourteen tasks make the action bar two rows thicker",
+                  abs(card.debugFooterHeight - expected) < 0.5,
+                  "bar \(Int(barBefore)) → \(Int(card.debugFooterHeight))pt, expected \(Int(expected))")
+            check("the tracker is still there at fourteen tasks, where it used to vanish",
+                  !card.debugProgress.isHidden && card.debugProgress.frame.width > 0,
+                  "frame \(NSStringFromRect(card.debugProgress.frame))")
+            check("the bar grew DOWNWARD: the top of the note did not move",
+                  abs(panel.frame.maxY - topBefore) < 0.5,
+                  "top \(Int(topBefore)) → \(Int(panel.frame.maxY))")
+            let pills = card.debugTagPills
+            check("the tags survive a thick bar instead of disappearing with the tracker",
+                  !pills.isHidden && (!pills.debugPillRects.isEmpty || !pills.overflowRect.isEmpty),
+                  "\(pills.debugPillRects.count) of \(note.tags.count) pills, overflow: \(!pills.overflowRect.isEmpty)")
+            check("the tags use the extra thickness, wrapping onto a second line",
+                  pills.debugLineCount > 1 || Set(pills.debugPillRects.map(\.minY)).count > 1,
+                  "\(pills.debugLineCount) line(s) of tags in \(Int(pills.frame.height))pt")
+
+            // Unlimited, not capped: forty tasks is seven rows, not four.
+            let many = (1...40).map { _ in "- [ ] x" }.joined(separator: "\n")
+            note.body = "@Todo Rollout\n\n" + many + "\n"
+            NotificationCenter.default.post(name: .noteBodyDidChange, object: note)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                let rows = 1 + (card.debugFooterHeight - NotePanel.footerHeight) / NotePanel.footerRowHeight
+                check("rows keep coming: forty tasks is seven rows, not a capped four",
+                      Int(rows.rounded()) == 7 && !card.debugProgress.isHidden,
+                      "\(Int(rows.rounded())) rows, bar \(Int(card.debugFooterHeight))pt")
+
+                // Back to a short list: the bar has to give the height back again.
+                note.body = "@Todo Rollout\n\n- [ ] one\n- [x] two\n"
+                NotificationCenter.default.post(name: .noteBodyDidChange, object: note)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                    check("deleting the tasks gives the height back",
+                          abs(card.debugFooterHeight - NotePanel.footerHeight) < 0.5 &&
+                          abs(panel.frame.maxY - topBefore) < 0.5,
+                          "bar \(Int(card.debugFooterHeight))pt, top \(Int(panel.frame.maxY))")
+                    // Leave it wrapped, so the rendered note at the end of the run shows the
+                    // thick bar rather than a one-row one.
+                    note.body = "@Todo Rollout\n\n" + boxes + "\n"
+                    NotificationCenter.default.post(name: .noteBodyDidChange, object: note)
+                    VaultStore.shared.save(note)
+                    narrowTodoTest(out: out, panel: panel, then: next)
+                }
+            }
+        }
+    }
+
+    /// A narrow note is where the old bar gave up first. Six squares a row plus the count plus the
+    /// tags do not all fit at 250pt, so the tracker gives things up in a fixed order — the count
+    /// goes before the squares, and the tags never go at all.
+    private static func narrowTodoTest(out: URL, panel: NotePanel, then next: @escaping () -> Void) {
+        let narrow = VaultStore.shared.createNote(
+            body: "@Todo Narrow\n\n" + (1...14).map { _ in "- [ ] x" }.joined(separator: "\n") + "\n",
+            tags: ["todo", "intune", "azure"],
+            frame: WindowManager.shared.nextCardFrame(size: NSSize(width: 250, height: 200)))
+        VaultStore.shared.save(narrow)
+        let small = WindowManager.shared.open(narrow, focus: false)
+        small.card.debugCollapseActionBar()
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
+            let card = small.card!
+            card.layoutSubtreeIfNeeded()
+            let pills = card.debugTagPills
+            // Six a row plus the count plus the tags do not fit at 250pt. Squares a row is what
+            // gives, and only after the count has already gone.
+            check("a narrow note keeps a sensible row of squares", card.debugProgressPerRow >= 4,
+                  "\(card.debugProgressPerRow) per row, bar \(Int(card.debugFooterHeight))pt")
+            check("the tracker is drawn on a narrow note rather than hidden",
+                  !card.debugProgress.isHidden && card.debugProgress.frame.width > 0)
+            check("the tags keep their place on a narrow note, even if only as a +N",
+                  !pills.debugPillRects.isEmpty || !pills.overflowRect.isEmpty,
+                  "\(pills.debugPillRects.count) pills, overflow: \(!pills.overflowRect.isEmpty), \(Int(pills.frame.width))pt wide")
+            reminderPopoverTest(out: out, panel: panel, then: next)
+        }
+    }
+
+    /// The reminder popover, from the same tester: Done left it on screen, and a two-digit minute
+    /// came out as its second digit alone.
+    private static func reminderPopoverTest(out: URL, panel: NotePanel, then next: @escaping () -> Void) {
+        let card = panel.card!
+        WindowManager.shared.openPanels.forEach { $0.card.debugDismissPopover() }
+        card.debugShowReminderPopover()
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            guard card.debugPopoverShown, let picker = ReminderPopoverDebug.datePicker else {
+                check("the reminder popover opens with a date field", false, "no NSDatePicker found")
+                return next()
+            }
+            NSApp.activate(ignoringOtherApps: true)
+            picker.window?.makeKeyAndOrderFront(nil)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+            picker.window?.makeFirstResponder(picker)
+
+            // Two digits into the segment the field opens on. That is exactly what was reported:
+            // the first digit was committed, the panel re-rendered, and the second digit started
+            // over — "37" became 7. The starting date holds no 12 and no 2, so both readings are
+            // unambiguous whichever segment the locale puts first.
+            let before = Calendar.current.dateComponents([.month, .day, .hour, .minute], from: picker.dateValue)
+            typeKeys("12", into: picker)
+            let after = Calendar.current.dateComponents([.month, .day, .hour, .minute], from: picker.dateValue)
+            let fields = [after.month ?? 0, after.day ?? 0, after.hour ?? 0, after.minute ?? 0]
+            check("a two-digit entry survives: the second digit does not replace the first",
+                  fields.contains(12) && !fields.contains(2),
+                  "typed \"12\"; fields were \([before.month ?? 0, before.day ?? 0, before.hour ?? 0, before.minute ?? 0]), now \(fields)")
+            check("typing does not throw the keyboard out of the date field",
+                  picker.window?.firstResponder === picker,
+                  (picker.window?.firstResponder).map { String(describing: Swift.type(of: $0)) } ?? "none")
+
+            // Done carries the panel's default-action shortcut, so Return runs the very closure the
+            // button runs. SwiftUI draws its own buttons and puts none of them in the accessibility
+            // tree, so there is nothing else here to press.
+            check("the reminder popover is open before Done", card.debugPopoverShown)
+            pressReturn(in: picker.window)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                check("Done closes the reminder popover instead of leaving it on screen",
+                      !card.debugPopoverShown)
+                card.debugDismissPopover()
+                next()
+            }
+        }
+    }
+
+    /// Real key presses through the app's own event dispatch, so the control's multi-digit entry
+    /// state machine is what is being exercised. Delivering them straight to the view instead runs
+    /// only half of it: every digit lands in the first segment and nothing ever advances.
+    private static func typeKeys(_ digits: String, into view: NSView) {
+        let codes: [Character: UInt16] = ["0": 29, "1": 18, "2": 19, "3": 20, "4": 21,
+                                          "5": 23, "6": 22, "7": 26, "8": 28, "9": 25]
+        for ch in digits {
+            guard let code = codes[ch] else { continue }
+            let s = String(ch)
+            guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                                               timestamp: ProcessInfo.processInfo.systemUptime,
+                                               windowNumber: view.window?.windowNumber ?? 0, context: nil,
+                                               characters: s, charactersIgnoringModifiers: s,
+                                               isARepeat: false, keyCode: code) else { continue }
+            if let window = view.window { window.sendEvent(event) } else { view.keyDown(with: event) }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+        }
+    }
+
+    /// Return, which is the Done button's keyboard shortcut.
+    private static func pressReturn(in window: NSWindow?) {
+        guard let window,
+              let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                                           timestamp: ProcessInfo.processInfo.systemUptime,
+                                           windowNumber: window.windowNumber, context: nil,
+                                           characters: "\r", charactersIgnoringModifiers: "\r",
+                                           isARepeat: false, keyCode: 36) else { return }
+        window.sendEvent(event)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+    }
+
     private static func renderWindows(out: URL) {
-        runnerTest(out: out) { linkPreviewTest(out: out) { imageEditTest(out: out) { freezeTest { reminderTest(out: out) { findTest(out: out) { quickCaptureTest { templateTest { actionBarTest { testerBugsTest { renderWindowsNow(out: out) } } } } } } } } } }
+        runnerTest(out: out) { linkPreviewTest(out: out) { imageEditTest(out: out) { freezeTest { reminderTest(out: out) { findTest(out: out) { quickCaptureTest { templateTest { actionBarTest { testerBugsTest { todoBarTest(out: out) { renderWindowsNow(out: out) } } } } } } } } } } }
     }
 
     private static func renderWindowsNow(out: URL) {

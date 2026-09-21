@@ -3,8 +3,11 @@ import AppKit
 /// The note's tags in the action bar, drawn as coloured pills. SPEC.md §5.3.
 ///
 /// The colour is derived from the tag text, never chosen by the user: the same tag then looks the
-/// same in every note and after a relaunch, without storing anything. Tags that do not fit collapse
-/// into a "+N" pill.
+/// same in every note and after a relaunch, without storing anything.
+///
+/// Pills WRAP onto as many lines as the view is tall — which is however many rows the task tracker
+/// has already given the action bar (owner decision, 2026-09-20). Tags never make the bar taller
+/// themselves: once the lines they have are full, the rest collapse into a "+N" pill.
 final class TagPillsView: NSView {
 
     var tags: [String] = [] { didSet { if tags != oldValue { needsDisplay = true } } }
@@ -19,6 +22,8 @@ final class TagPillsView: NSView {
     private static let font = NSFont.systemFont(ofSize: 10, weight: .semibold)
     private static let padding: CGFloat = 6
     private static let gap: CGFloat = 4
+    static let lineHeight: CGFloat = 15
+    private static let lineGap: CGFloat = 3
 
     override var isFlipped: Bool { true }
 
@@ -70,36 +75,73 @@ final class TagPillsView: NSView {
         (text as NSString).size(withAttributes: [.font: font]).width.rounded(.up) + padding * 2
     }
 
-    override func draw(_ dirtyRect: NSRect) {
-        overflowRect = .zero
-        guard !tags.isEmpty else { return }
-        let height = min(bounds.height, 15)
-        let y = ((bounds.height - height) / 2).rounded()
-        var x: CGFloat = 0
-
-        for (index, tag) in tags.enumerated() {
-            let text = "#" + tag
-            let pillWidth = TagPillsView.width(of: text)
-            // Does this pill fit, and if it is not the last one, does a "+N" still fit after it?
-            let remaining = tags.count - index
-            let overflow = "+\(remaining)"
-            let overflowWidth = TagPillsView.width(of: overflow)
-            let needsRoom = index == tags.count - 1 ? pillWidth : pillWidth + TagPillsView.gap + overflowWidth
-            if x + needsRoom > bounds.width {
-                if x + overflowWidth <= bounds.width {
-                    overflowRect = NSRect(x: x, y: y, width: overflowWidth, height: height)
-                    draw(overflow, at: overflowRect,
-                         background: foreground.withAlphaComponent(0.18), text: foreground.withAlphaComponent(0.85))
-                    window?.invalidateCursorRects(for: self)
-                }
-                return
-            }
-            // Every pill is washed out to take dark text, so the lettering never switches colour.
-            draw(text, at: NSRect(x: x, y: y, width: pillWidth, height: height),
-                 background: TagPillsView.color(for: tag), text: .black)
-            x += pillWidth + TagPillsView.gap
-        }
+    /// Lines of pills this view has room for. One at the usual footer height; more once the task
+    /// tracker has made the action bar taller.
+    private var lineCount: Int {
+        let step = TagPillsView.lineHeight + TagPillsView.lineGap
+        return max(1, Int((bounds.height + TagPillsView.lineGap) / step))
     }
+
+    /// Where every pill goes, and whether an overflow pill is needed. Laid out BEFORE anything is
+    /// drawn: the "+N" has to take the place of pills that were already positioned, which cannot be
+    /// undone once they are on screen.
+    private func layoutPills() -> (pills: [(tag: String, rect: NSRect)], overflow: NSRect) {
+        guard !tags.isEmpty, bounds.width > 0 else { return ([], .zero) }
+        let lines = lineCount
+
+        /// Places `texts` left to right, wrapping, and returns nil the moment one does not fit.
+        func place(_ texts: [String]) -> [NSRect]? {
+            var rects: [NSRect] = []
+            var line = 0
+            var x: CGFloat = 0
+            for text in texts {
+                let width = TagPillsView.width(of: text)
+                if x > 0 && x + width > bounds.width {
+                    line += 1
+                    x = 0
+                }
+                guard line < lines, x + width <= bounds.width else { return nil }
+                rects.append(NSRect(x: x, y: CGFloat(line) * (TagPillsView.lineHeight + TagPillsView.lineGap),
+                                    width: width, height: TagPillsView.lineHeight))
+                x += width + TagPillsView.gap
+            }
+            return rects
+        }
+
+        if let rects = place(tags.map { "#" + $0 }) {
+            return (zip(tags, rects).map { (tag: $0.0, rect: $0.1) }, .zero)
+        }
+        // Not all of them fit. Show as many as can share the space with a "+N" that stands for the
+        // rest, dropping one more each time until the whole arrangement fits.
+        for shown in stride(from: tags.count - 1, through: 0, by: -1) {
+            let texts = tags.prefix(shown).map { "#" + $0 } + ["+\(tags.count - shown)"]
+            guard let rects = place(Array(texts)) else { continue }
+            return (zip(tags.prefix(shown), rects).map { (tag: $0.0, rect: $0.1) }, rects[shown])
+        }
+        return ([], .zero)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let previousOverflow = overflowRect
+        let (pills, overflow) = layoutPills()
+        overflowRect = overflow
+
+        for pill in pills {
+            // Every pill is washed out to take dark text, so the lettering never switches colour.
+            draw("#" + pill.tag, at: pill.rect, background: TagPillsView.color(for: pill.tag), text: .black)
+        }
+        if !overflow.isEmpty {
+            draw("+\(tags.count - pills.count)", at: overflow,
+                 background: foreground.withAlphaComponent(0.18), text: foreground.withAlphaComponent(0.85))
+        }
+        if previousOverflow != overflowRect { window?.invalidateCursorRects(for: self) }
+    }
+
+#if DEBUG
+    /// Lines of pills the bar's current thickness allows, and where the pills actually landed.
+    var debugLineCount: Int { lineCount }
+    var debugPillRects: [NSRect] { layoutPills().pills.map(\.rect) }
+#endif
 
     private func draw(_ text: String, at rect: NSRect, background: NSColor, text textColor: NSColor) {
         let path = NSBezierPath(roundedRect: rect, xRadius: rect.height / 2, yRadius: rect.height / 2)

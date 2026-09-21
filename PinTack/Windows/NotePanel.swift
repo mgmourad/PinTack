@@ -17,6 +17,8 @@ final class NotePanel: NSPanel {
     static let margin: CGFloat = 24
     static let headerHeight: CGFloat = 30
     static let footerHeight: CGFloat = 30
+    /// What one extra row of task-tracker squares adds to the action bar.
+    static let footerRowHeight: CGFloat = TaskProgressStyle.square + TaskProgressStyle.gap
     static let minCardSize = NSSize(width: 190, height: 120)
 
     let note: Note
@@ -78,12 +80,21 @@ final class NotePanel: NSPanel {
     }
 
     /// The visible card for the current state: full height, or header-only when collapsed.
-    /// The stored `cardFrame` is always the expanded rect; collapsing keeps the top edge fixed.
+    ///
+    /// The stored `cardFrame` is always the expanded card with a PLAIN action bar. Two things
+    /// change what is actually on screen, and both are re-derived rather than persisted, so the
+    /// stored rect cannot drift: collapsing keeps the top edge and shows the header only, and a
+    /// task tracker that has wrapped onto more rows pushes the BOTTOM edge down (owner decision,
+    /// 2026-09-20) — down rather than up, so the text you are typing never moves.
     private var visibleCardRect: NSRect {
         let full = note.cardFrame
-        guard note.collapsed else { return full }
-        return NSRect(x: full.minX, y: full.maxY - NotePanel.headerHeight,
-                      width: full.width, height: NotePanel.headerHeight)
+        guard !note.collapsed else {
+            return NSRect(x: full.minX, y: full.maxY - NotePanel.headerHeight,
+                          width: full.width, height: NotePanel.headerHeight)
+        }
+        let extra = card?.extraFooterHeight ?? 0
+        guard extra > 0 else { return full }
+        return NSRect(x: full.minX, y: full.minY - extra, width: full.width, height: full.height + extra)
     }
 
     /// Persist the CARD rect, never the window rect. SPEC.md §5.2.
@@ -93,7 +104,10 @@ final class NotePanel: NSPanel {
             note.cardFrame = NSRect(x: visible.minX, y: visible.maxY - note.cardFrame.height,
                                     width: visible.width, height: note.cardFrame.height)
         } else {
-            note.cardFrame = visible
+            // Take the tracker's extra rows back out: what is stored is the plain-bar card.
+            let extra = card?.extraFooterHeight ?? 0
+            note.cardFrame = NSRect(x: visible.minX, y: visible.minY + extra, width: visible.width,
+                                    height: max(NotePanel.headerHeight, visible.height - extra))
         }
     }
 
@@ -104,6 +118,20 @@ final class NotePanel: NSPanel {
         // press dispatch land outside any time-based de-dupe (see ActionRouter.perform).
         if animated { Motion.springFrame(self, to: target) } else { setFrame(target, display: true) }
         card?.updateCollapsedState()
+    }
+
+    /// The task tracker gained or lost a row, so the action bar is a row taller or shorter. Uses
+    /// the same spring as collapsing, since the owner wants window movement lively (2026-09-20).
+    func applyFooterHeight(animated: Bool) {
+        guard !note.collapsed else { return }
+        // A note low on the screen would otherwise grow off the bottom of it.
+        if let limit = (screen ?? NSScreen.main)?.visibleFrame {
+            let bottom = visibleCardRect.minY
+            if bottom < limit.minY { note.cardFrame.origin.y += limit.minY - bottom }
+        }
+        let target = NotePanel.windowRect(forCard: visibleCardRect)
+        guard target != frame else { return }
+        if animated { Motion.springFrame(self, to: target) } else { setFrame(target, display: true) }
     }
 
     func applyCardFrame(_ rect: NSRect, animated: Bool = false) {

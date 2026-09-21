@@ -264,9 +264,15 @@ Three consequences, all mandatory:
 either the tools (bullet, bold, italic, code, opacity) or the tag side (tag icon, reminder bell,
 task progress, tag pills). The two sides **cross-fade**; only a real open or close animates.
 
+The bar is **30 pt tall plus a row for every extra row of task-tracker squares**, and it grows
+**downward**: the window's bottom edge moves and the text area above it never shrinks as a checklist
+is typed. The stored card frame is always the plain-bar card, so nothing drifts across relaunches.
+A note low on the screen is nudged up rather than grown off it.
+
 Tag pills are coloured from a **djb2 hash of the tag text** — never `hashValue`, which is seeded per
-process and would repaint every tag on each launch. Tags that do not fit collapse into a `+N` pill
-that opens a popover listing them all. `TagPillsView` is transparent to the mouse so the empty
+process and would repaint every tag on each launch. They **wrap onto as many lines as the bar is
+thick**, but never make it thicker themselves; the ones that still do not fit collapse into a `+N`
+pill that opens a popover listing them all. `TagPillsView` is transparent to the mouse so the empty
 action bar still drags the note — **except** over that `+N` pill.
 
 ### 5.4 Pin
@@ -334,13 +340,20 @@ marker is never a template recall**, and `todo` is a **reserved template name**.
 
 **Reminders.** A todo's action bar carries a bell; its popover holds three controls and nothing
 else — when it is due, whether to announce at the time, and whether to announce earlier by a count
-of minutes/hours/days. Dates live in the frontmatter so a reminder travels with the note.
+of minutes/hours/days, and **Done closes it**. The date field is AppKit's `NSDatePicker`, not
+SwiftUI's `DatePicker`, and the chosen date is held in a reference outside SwiftUI's state: writing
+state on each keystroke re-rendered the panel, which threw away a half-typed entry (`37` became `7`)
+and took the keyboard out of the field. Dates live in the frontmatter so a reminder travels with the note.
 Notifications go through `UNUserNotificationCenter`, are re-armed at launch, and are **cancelled
 when the note is deleted**. Permission is asked the first time a reminder is *set*, never at launch.
 A moment already past is dropped rather than scheduled.
 
 **Progress.** A todo's action bar shows one square per task — bright and glowing for done, dark for
-not — then `3/7`. A note counts as *done* only when it **has** tasks and all are ticked.
+not — then `3/7`. The squares **wrap at six to a row** and take as many rows as the tasks need,
+thickening the bar; there is no cap. The tracker appears the moment the first checkbox is typed,
+without reopening the note. On a note too narrow for six squares, the count goes first and then
+squares come off the row, in that order; the tracker itself is never hidden and neither are the
+tags. A note counts as *done* only when it **has** tasks and all are ticked.
 
 ### 6.4 `/find` — quick open
 

@@ -42,6 +42,18 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     private var popover: NSPopover?
     private var dragOrigin: NSPoint?
 
+    /// How much taller than `NotePanel.footerHeight` the action bar currently is, because the task
+    /// tracker has wrapped onto more than one row (owner decision, 2026-09-20). The bar grows
+    /// DOWNWARD — see `NotePanel.visibleCardRect` — so a checklist never shrinks the text area.
+    private(set) var extraFooterHeight: CGFloat = 0
+    /// Squares the tracker fits on one row at this note's width. Six at most.
+    private var progressPerRow = TaskProgressStyle.perRow
+    /// Whether there is room for the "3/7" count beside them.
+    private var progressShowsLabel = true
+    /// What the right-hand side of the action bar depends on. Rebuilding it on every keystroke
+    /// would cut its fade animations short, so it is only rebuilt when one of these changes.
+    private var todoSignature = ""
+
     private let pinSize: CGFloat = 28
 
     init(note: Note, panel: NotePanel) {
@@ -51,6 +63,10 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         super.init(frame: .zero)
         wantsLayer = true
         buildSubviews()
+        // Before the panel first sizes itself: the stored card frame is the BASE card, and the
+        // extra tracker rows are re-derived here, so the note comes back the height it was left.
+        recomputeFooterGrid(cardWidth: note.cardFrame.width)
+        todoSignature = currentTodoSignature
 
         let nc = NotificationCenter.default
         nc.addObserver(self, selector: #selector(bodyChanged(_:)), name: .noteBodyDidChange, object: note)
@@ -70,6 +86,56 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     private var headerRect: NSRect {
         NSRect(x: cardRect.minX, y: cardRect.maxY - NotePanel.headerHeight,
                width: cardRect.width, height: NotePanel.headerHeight)
+    }
+
+    /// The action bar's current thickness: the base height plus a row per extra tracker row.
+    var footerHeight: CGFloat { NotePanel.footerHeight + extraFooterHeight }
+
+    /// Room the tracker has between the bell and the freeze button, and how much of it to keep
+    /// clear for the tags — enough for a "+N" pill, so tasks can never crowd them off the bar.
+    private func progressRoom(cardWidth: CGFloat) -> (width: CGFloat, keptForTags: CGFloat) {
+        let left: CGFloat = 8 + 22 + 2 + 18 + 4 + 22 + (note.isTodo ? 23 : 0) + 2
+        let right: CGFloat = 20 + 21 + 6
+        return (max(TaskProgressStyle.square, cardWidth - left - right), note.tags.isEmpty ? 0 : 34)
+    }
+
+    /// Re-derives how the tracker wraps at `cardWidth`. True when the action bar's height changed.
+    @discardableResult
+    private func recomputeFooterGrid(cardWidth: CGFloat) -> Bool {
+        let total = note.isTodo ? note.taskCounts.total : 0
+        let room = progressRoom(cardWidth: cardWidth)
+        let grid = TaskProgressView.grid(total: total, room: room.width, reservedForTags: room.keptForTags)
+        progressPerRow = max(1, grid.perRow)
+        progressShowsLabel = grid.showsLabel
+        let extra = CGFloat(max(0, grid.rows - 1)) * NotePanel.footerRowHeight
+        guard abs(extra - extraFooterHeight) > 0.5 else { return false }
+        extraFooterHeight = extra
+        return true
+    }
+
+    /// Grows or shrinks the action bar to match the number of tasks. Cheap when nothing changed,
+    /// so callers may fire it on every edit.
+    func syncFooterHeight(animated: Bool = true) {
+        let width = bounds.width > 0 ? cardRect.width : note.cardFrame.width
+        guard recomputeFooterGrid(cardWidth: width) else { return }
+        panel.applyFooterHeight(animated: animated)
+        needsLayout = true
+        needsDisplay = true
+    }
+
+    private var currentTodoSignature: String {
+        let counts = note.taskCounts
+        return "\(note.isTodo)/\(counts.done)/\(counts.total)"
+    }
+
+    /// Called whenever the note's text or tags changed: keeps the tracker and the bar's height in
+    /// step with the checklist WITHOUT closing and reopening the note, which is what used to be
+    /// needed before the tracker would appear at all.
+    private func syncTodoState() {
+        guard todoSignature != currentTodoSignature else { return }
+        todoSignature = currentTodoSignature
+        updateActionBar()
+        syncFooterHeight()
     }
 
     /// The pushpin art (assets: Pushpin). Its needle enters a crack in the paper, and that crack
@@ -154,8 +220,8 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         sep.move(to: NSPoint(x: rect.minX + 1, y: headerRect.minY + 0.5))
         sep.line(to: NSPoint(x: rect.maxX - 1, y: headerRect.minY + 0.5))
         if !note.collapsed {
-            sep.move(to: NSPoint(x: rect.minX + 1, y: rect.minY + NotePanel.footerHeight - 0.5))
-            sep.line(to: NSPoint(x: rect.maxX - 1, y: rect.minY + NotePanel.footerHeight - 0.5))
+            sep.move(to: NSPoint(x: rect.minX + 1, y: rect.minY + footerHeight - 0.5))
+            sep.line(to: NSPoint(x: rect.maxX - 1, y: rect.minY + footerHeight - 0.5))
         }
         sep.stroke()
 
@@ -442,12 +508,13 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
                                  y: headerY + 5, width: btn, height: btn)
         titleField.frame = NSRect(x: left, y: headerY + 7, width: max(20, pinButton.frame.minX - 6 - left), height: 17)
 
-        let footer = NotePanel.footerHeight
+        let footer = footerHeight
         editor.frame = NSRect(x: c.minX + 1, y: c.minY + footer,
                               width: c.width - 2, height: max(0, c.height - NotePanel.headerHeight - footer))
 
         // Footer, left to right: 🎨  >  then either the tags or the tools; the resize grip at the far right.
-        let y = c.minY + 5
+        // The controls stay on the TOP row of the bar; extra tracker rows hang below them.
+        let y = c.minY + footer - 25
         appearanceButton.frame = NSRect(x: c.minX + 8, y: y, width: 22, height: 20)
         expandButton.frame = NSRect(x: appearanceButton.frame.maxX + 2, y: y, width: 18, height: 20)
         grip.frame = NSRect(x: c.maxX - 20, y: c.minY + 4, width: 16, height: 16)
@@ -473,18 +540,29 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
                 bellButton.frame = .zero
                 pillsStart = tagsButton.frame.maxX + 2
             }
-            // This note's own progress, between the bell and the tags. It only takes the room it
-            // needs, and gives way to the tag pills when the note is too narrow for both.
-            let counts = note.taskCounts
+            // This note's own progress, between the bell and the tags. It wraps at six squares a
+            // row (fewer on a narrow note) and the bar has already been made tall enough for it,
+            // so it is never hidden for want of room — which is what used to happen past about
+            // seven tasks, taking the tags down with it.
+            let counts = note.isTodo ? note.taskCounts : (done: 0, total: 0)
             taskProgress.counts = counts
+            taskProgress.perRow = progressPerRow
+            taskProgress.showsLabel = progressShowsLabel
             taskProgress.foreground = foreground
-            let wanted = TaskProgressView.width(for: counts.total)
-            let available = freezeButton.frame.minX - pillsStart - 6
-            let progressWidth = (counts.total > 0 && wanted <= available) ? wanted : 0
-            taskProgress.frame = NSRect(x: pillsStart, y: y, width: progressWidth, height: 20)
-            taskProgress.isHidden = taskProgress.isHidden || progressWidth == 0
-            let afterProgress = progressWidth > 0 ? pillsStart + progressWidth + 8 : pillsStart
-            tagPills.frame = NSRect(x: afterProgress, y: y + 2, width: max(0, freezeButton.frame.minX - afterProgress - 6), height: 16)
+            let rows = counts.total > 0 ? (counts.total + progressPerRow - 1) / progressPerRow : 0
+            let blockWidth = TaskProgressView.width(perRow: progressPerRow, total: counts.total,
+                                                    showsLabel: progressShowsLabel)
+            let blockHeight = TaskProgressView.height(rows: rows)
+            // The first row of squares sits on the controls' line; the rest hang below it.
+            taskProgress.frame = NSRect(x: pillsStart, y: y + 14.5 - blockHeight,
+                                        width: blockWidth, height: blockHeight)
+            let afterProgress = blockWidth > 0 ? pillsStart + blockWidth + 8 : pillsStart
+            // The tags take the whole thickness of the bar, wrapping into as many lines as fit.
+            let tagsTop = y + 19
+            let tagsBottom = c.minY + 4
+            tagPills.frame = NSRect(x: afterProgress, y: tagsBottom,
+                                    width: max(0, freezeButton.frame.minX - afterProgress - 6),
+                                    height: max(TagPillsView.lineHeight, tagsTop - tagsBottom))
         }
     }
 
@@ -497,7 +575,9 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         applyColors()
         editor.pushSettings()
         // A note can BECOME a todo (typing @todo), which changes what the action bar shows.
+        todoSignature = currentTodoSignature
         updateActionBar()
+        syncFooterHeight()
         updateReminderGlyph()
         needsLayout = true
         needsDisplay = true
@@ -514,11 +594,15 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         needsLayout = true
         if titleField.currentEditor() == nil { titleField.stringValue = note.title }
         refreshTagsButton()
+        syncTodoState()
     }
 
     @objc private func tagsMayHaveChanged() {
         refreshTagsButton()
         editor.pushTags()
+        // Tagging a note `todo` is one of the two ways it becomes one, so the bar may change here too.
+        syncTodoState()
+        needsLayout = true
     }
 
     // MARK: - Actions
@@ -571,10 +655,12 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     }
 
     @objc private func showReminders() {
-        let view = ReminderPopoverView(note: note) { [weak self] in
+        let view = ReminderPopoverView(note: note, onChange: { [weak self] in
             self?.updateReminderGlyph()
             NotificationCenter.default.post(name: .vaultDidChange, object: nil)
-        }
+        }, onDone: { [weak self] in
+            self?.popover?.close()
+        })
         present(view, from: bellButton)
     }
 
@@ -672,7 +758,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     private func cancelCollapseTimer() { collapseTimer?.invalidate(); collapseTimer = nil }
 
     private var footerRect: NSRect {
-        NSRect(x: cardRect.minX, y: cardRect.minY, width: cardRect.width, height: NotePanel.footerHeight)
+        NSRect(x: cardRect.minX, y: cardRect.minY, width: cardRect.width, height: footerHeight)
     }
 
     override func updateTrackingAreas() {
@@ -991,12 +1077,17 @@ final class ResizeGripView: NSView {
         let now = window.convertPoint(toScreen: event.locationInWindow)
         let minW = window.minSize.width, minH = window.minSize.height
         let w = max(minW, startFrame.width + (now.x - startMouse.x))
-        let h = max(minH + NotePanel.footerHeight + 40, startFrame.height + (startMouse.y - now.y))
+        let extra = panel?.card.extraFooterHeight ?? 0
+        let h = max(minH + NotePanel.footerHeight + extra + 40, startFrame.height + (startMouse.y - now.y))
         // The top-left corner stays put; the bottom-right follows the mouse.
         window.setFrame(NSRect(x: startFrame.minX, y: startFrame.maxY - h, width: w, height: h), display: true)
     }
 
     override func mouseUp(with event: NSEvent) {
+        panel?.syncFrameToNote()
+        // A narrower note fits fewer squares on a row, so the bar's thickness is re-derived once
+        // the drag ends rather than fighting the drag, then the frame is written back again.
+        panel?.card.syncFooterHeight(animated: false)
         panel?.syncFrameToNote()
         if let note = panel?.note { VaultStore.shared.save(note) }
     }
@@ -1043,7 +1134,13 @@ extension NoteCardView {
     var debugTagsButtonFrame: NSRect { tagsButton.frame }
     var debugBellHidden: Bool { bellButton.isHidden }
     var debugTagPills: TagPillsView { tagPills }
+    var debugProgress: TaskProgressView { taskProgress }
+    var debugProgressPerRow: Int { progressPerRow }
+    var debugFooterHeight: CGFloat { footerHeight }
+    var debugExtraFooterHeight: CGFloat { extraFooterHeight }
+    var debugCardRect: NSRect { cardRect }
     func debugShowReminderPopover() { showReminders() }
+    var debugPopoverContentView: NSView? { popover?.contentViewController?.view }
     func debugDismissPopover() { popover?.close() }
     func debugCollapseActionBar() { if actionBarExpanded { toggleActionBar() } }
     func debugToggleActionBar() { toggleActionBar() }

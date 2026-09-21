@@ -309,6 +309,25 @@ Owner decisions added after the rebuild (2026-09-19):
   meant nobody could discover what templates existed.
 - `⌥⇧=` is Show/Hide Opened Notes: a TOGGLE (owner decision, 2026-09-20). Its rawValue is still
   `showAllOnDesktop` because stored overrides in `hotkeys.json` are keyed by it.
+- The action bar's height is `NotePanel.footerHeight` plus one `footerRowHeight` per EXTRA row of
+  task-tracker squares, and it grows DOWNWARD (owner decision, 2026-09-20) so a checklist never
+  shrinks the text area. `note.cardFrame` always stores the PLAIN-bar card; the extra is re-derived
+  from the note's own tasks in `NotePanel.visibleCardRect`, the same trick `collapsed` uses, so the
+  stored rect cannot drift across relaunches. `syncFrameToNote` subtracts it again.
+- Six squares a row is the cap, rows are UNLIMITED, and the tracker is never hidden for want of
+  room — it used to be one row that vanished past about seven tasks, taking the tags with it. On a
+  note too narrow for all of it, `TaskProgressView.grid` gives things up in a fixed order: the tags'
+  elbow room last, the "3/7" count first, squares a row in between.
+- Tag pills wrap onto as many lines as the bar is thick but NEVER make it thicker (owner decision,
+  2026-09-20): tags overflow into `+N`, tasks add rows.
+- `NoteCardView.syncTodoState` is what makes the tracker appear as the first checkbox is typed.
+  Rebuilding the bar on every keystroke would cut its cross-fade short, so it is keyed on a
+  signature of `isTodo` + the task counts.
+- The reminder popover's date is an `NSDatePicker` in a `DateBox` — a reference deliberately OUTSIDE
+  SwiftUI's state. Any SwiftUI state write re-renders the panel, and a re-render both discards a
+  half-typed entry ("37" became "7") and moves first responder off the field. Do not "tidy" it back
+  into `@State`, and do not push a value into the picker while the panel is open. Done closes the
+  popover; the panel commits on `onDisappear` too, so clicking away still saves.
 - `/find` is quick open. Opening a note from it deliberately does NOT move focus: the key window and
   the caret stay where the search started.
 - Link previews are off by default and fetched only in Swift. A dismissed preview is remembered in
