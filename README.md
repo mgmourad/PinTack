@@ -6,10 +6,10 @@
 
 **Sticky notes for macOS, with Obsidian's editing model and a plugin system.**
 
-Plain Markdown files. Live Preview rendering. An interactive desktop widget.
+Plain Markdown files. Live Preview rendering. Todos with reminders. A plugin system.
 Open source, GPL-3.0.
 
-`Status: built and running. Phases 1–4 complete.`
+`Status: built, running, in beta with testers (0.1.0, build 8). Phases 1–4 complete.`
 `Not yet signed or notarized — see Distribution.`
 `Seeking a macOS developer to own the codebase.`
 
@@ -23,7 +23,7 @@ A commercial sticky-notes app on the Mac App Store does the basics well and sits
 
 Its users have been asking the same things for years: a hotkey to start a note, a pin to float it on top, an opacity slider, a central window listing every note, folders, tags, widgets, and a way to get your data out. The requests go unanswered, and the architecture is most of the reason why. WidgetKit is effectively out of reach from Electron. Native window levels and non-activating panels are awkward through a browser abstraction.
 
-PinTack is the native answer to that feature list. Expected bundle size is 10 to 25 MB.
+PinTack is the native answer to that feature list. The app is **14 MB**; the disk image is about 6 MB.
 
 ## What makes it different
 
@@ -74,20 +74,23 @@ Runner is built strictly against the public plugin API with no private hooks int
 
 | | |
 |---|---|
-| ✍️ Editing | Live Preview markdown, Source mode toggle, slash commands, image paste and drag-drop, clickable task checkboxes, syntax-highlighted code blocks, tables |
-| 🪟 Windows | Floating non-activating note panels, pin-on-top with a skeuomorphic pushpin, per-note opacity, collapse, auto-arrange, cross-Space visibility |
-| 🎨 Appearance | Light/dark app theme independent of note colors, arbitrary note colors with automatic text contrast, configurable outline color and width, rounded or square corners |
-| 🗂️ Organization | Central window with Folders and Tags as separate views, full-text search, show/hide per note |
+| ✍️ Editing | Live Preview markdown, Source mode toggle, slash commands, clickable task checkboxes (⌘↩ ticks the current line), tables, rich text pasted as Markdown |
+| 💻 Code | Syntax highlighting for every language CodeMirror ships, loaded only when a note uses it; a language logo and name on each block; code blocks on their own dark panel |
+| 🖼️ Images | Paste or drop; resize and crop right inside the note, with nothing to type; the original is never overwritten |
+| 🪟 Windows | Floating non-activating note panels, pin-on-top with a real pushpin and a glow in the note's colour, per-note opacity, collapse, freeze, auto-arrange, cross-Space visibility, notes rescued from an unplugged display |
+| 🎨 Appearance | Light/dark app theme independent of note colors, arbitrary note colors with automatic text contrast, outline color and width, glow strength, rounded or square corners |
+| 🏷️ Tags | Coloured pills in each note, colour picked automatically from the name or chosen by you, wrapping to fit |
+| ✅ Todos | Progress squares that wrap six to a row, a progress bar on a collapsed todo, a finished todo that ticks and strikes itself through, due dates and reminders, a todos tab that sorts by how done things are |
+| 🗂️ Organization | One window for All Notes and Settings, with folders, tags, todos and templates, full-text search, show/hide per note |
 | ⌨️ Keyboard | System-wide hotkeys with no Accessibility permission required, fully rebindable with a recorder UI |
 | 🧩 Extension | JavaScript plugin API with a capability/permission/approval model, Runner bundled. WidgetKit widget designed but not built |
-| ✅ Todos | Due dates and reminders, progress squares per note, a todos tab that sorts by how done things are |
-| 🧊 Extras | Freeze mode (a note that lets clicks through), templates recalled with `@name`, quick capture from any app, `/find` fuzzy open, link previews (off by default) |
+| 🧊 Extras | Templates recalled with `@name`, quick capture from any app, `/find` fuzzy open, link previews (off by default), Undo for five seconds after a delete, empty notes that clean up after themselves, a one-screen welcome on first launch |
 
 ## Architecture in one paragraph
 
-A Swift/AppKit shell hosts one `NSPanel` per note. Each panel embeds a `WKWebView` running CodeMirror 6, which provides Live Preview and doubles as the plugin execution context. A `VaultStore` owns all file I/O against the Markdown vault, with an FSEvents watcher and an SQLite FTS5 search index that is fully disposable. A WidgetKit extension reads a denormalized snapshot through an App Group container.
+A Swift/AppKit shell hosts one `NSPanel` per note. Each panel embeds a `WKWebView` running CodeMirror 6, which provides Live Preview and doubles as the plugin execution context. A `VaultStore` owns all file I/O against the Markdown vault, with an FSEvents watcher and an SQLite FTS5 search index that is fully disposable. All Notes and Settings share one SwiftUI window. The widget, when it is built, will read a denormalized snapshot through an App Group container.
 
-**`WKWebView` is not Electron.** It uses the WebKit already installed in macOS. Nothing is bundled, which is the entire difference between 15 MB and 377 MB.
+**`WKWebView` is not Electron.** It uses the WebKit already installed in macOS. Nothing is bundled, which is the entire difference between 14 MB and 377 MB.
 
 Full detail in **[SPEC.md](SPEC.md)**, which is written for a developer picking this up cold.
 
@@ -100,11 +103,12 @@ Full detail in **[SPEC.md](SPEC.md)**, which is written for a developer picking 
 | 3 | Central window, search, settings, hotkeys | **Done** |
 | 4 | Plugin API, Runner | **Done** |
 | 4 | WidgetKit widget | Shelved — needs a signing team |
-| 5 | Signing, notarization, Sparkle, Homebrew | Not started |
+| 5 | Signing, notarization, Sparkle, DMG, Homebrew | Styled DMG **done**; the rest waits on a signing team |
 
-Verified by 211 unit tests plus a self-test that launches the app, drives its own windows and web
-views with real events, asserts 64 things about what happened, and exits non-zero if any of them
-is wrong. One command runs both:
+Verified three ways by one command: a Release build (what actually ships), 230 unit tests, and a
+self-test that launches the app, drives its own windows and web views with real events, asserts 141
+things about what happened, photographs every window as evidence, and exits non-zero if any of them
+is wrong:
 
 ```bash
 scripts/verify.sh
@@ -114,7 +118,7 @@ scripts/verify.sh
 
 Honest framing, because vague calls for help waste everyone's time.
 
-**What exists:** a working app — vault, note windows, Live Preview editor, All Notes, settings, hotkeys, plugins and Runner — with a specification kept in step with it, a test suite, and a self-test that can fail a build.
+**What exists:** a working app in beta — vault, note windows, Live Preview editor, todos and reminders, All Notes and Settings, hotkeys, plugins and Runner — with a specification kept in step with it, a changelog of every change and why ([CHANGELOG.md](CHANGELOG.md)), a test suite, and a self-test that can fail a build.
 
 **What does not exist:** the widget, code signing, notarization, Sparkle updates, and the App Sandbox. Those are Phase 5 and the open decisions in SPEC.md §17.
 
@@ -135,8 +139,8 @@ xcodebuild -scheme PinTack -configuration Debug SYMROOT="$PWD/build" build
 open build/Debug/PinTack.app
 ```
 
-Verify a change with `scripts/verify.sh` (unit tests **and** the self-test; both must pass).
-Build a distributable disk image with `scripts/make-dmg.sh`.
+Verify a change with `scripts/verify.sh` (a Release build, the unit tests **and** the self-test; all
+must pass). Build a distributable disk image with `scripts/make-dmg.sh`.
 
 Requires Xcode 16+ and macOS 14+. A free Apple ID is sufficient for local development; the paid Developer Program membership is only needed to produce notarized releases. `CLAUDE.md` holds the working notes: the platform traps, the decisions and their reasons.
 
@@ -158,4 +162,5 @@ Plugins that communicate solely through the documented public API are not consid
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Plugin authors, start at [SPEC.md §12](SPEC.md#12-plugin-api).
+See [CONTRIBUTING.md](CONTRIBUTING.md). Plugin authors, start at [docs/PLUGINS.md](docs/PLUGINS.md) and
+[SPEC.md §12](SPEC.md#12-plugin-api). What changed, when, and why: [CHANGELOG.md](CHANGELOG.md).

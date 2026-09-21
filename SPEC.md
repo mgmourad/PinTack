@@ -1,8 +1,9 @@
 # PinTack — Technical Specification
 
-**Version:** 0.1.0
-**Status:** Built and running. Phases 1–4 complete; Phase 5 (signing, notarization, Sparkle) and the
-WidgetKit widget are not built — see §11 and §15.
+**Version:** 0.1.0 (build 8) — last brought up to date 2026-09-21
+**Status:** Built and running; in beta with testers. Phases 1–4 complete; Phase 5 (signing,
+notarization, Sparkle) and the WidgetKit widget are not built — see §11 and §15. `CHANGELOG.md`
+records how it got here.
 **Target platform:** macOS 14 (Sonoma) and later
 **License:** GPL-3.0-or-later
 **Bundle identifier:** `io.cymentix.pintack`
@@ -282,6 +283,19 @@ Three consequences, all mandatory:
 
 **Header:** title (drag to move, double-click to rename), pin, mode, collapse, close.
 
+Controls are **13.5 pt glyphs in 24 pt buttons** (26 wide in the action bar), sized in one
+`ChromeSize` table that the tracker's room calculation also reads, so layout and arithmetic cannot
+drift apart. They were 11 pt in 20 pt buttons, and the snowflake was hard to make out.
+
+**A collapsed todo keeps its progress in the title bar:** a plain progress bar — dull green track,
+bright glowing green fill — between the title and the buttons, then `3/7`. A bar rather than squares
+because a collapsed note is one line tall. It ignores the mouse, so the header still drags and
+renames.
+
+**A finished todo looks finished:** once every box is ticked its title gets a green ✓ and is struck
+through, and the note dims to 72% of its own opacity. All of it is drawn, never written: the file
+keeps its plain title and its opacity setting.
+
 New notes are **300 × 250 pt** by default, adjustable in Settings. 300 is not arbitrary: it is the
 narrowest width at which a todo note's bar can show six progress squares, the `5/14` count and a
 tag pill all at once (§5.3).
@@ -290,7 +304,7 @@ tag pill all at once (§5.3).
 either the tools (bullet, bold, italic, code, opacity) or the tag side (tag icon, reminder bell,
 task progress, tag pills). The two sides **cross-fade**; only a real open or close animates.
 
-The bar is **30 pt tall plus a row for every extra row of task-tracker squares**, and it grows
+The bar is **32 pt tall plus a row for every extra row of task-tracker squares**, and it grows
 **downward**: the window's bottom edge moves and the text area above it never shrinks as a checklist
 is typed. The stored card frame is always the plain-bar card, so nothing drifts across relaunches.
 A note low on the screen is nudged up rather than grown off it.
@@ -301,15 +315,28 @@ thick**, but never make it thicker themselves; the ones that still do not fit co
 pill that opens a popover listing them all. `TagPillsView` is transparent to the mouse so the empty
 action bar still drags the note — **except** over that `+N` pill.
 
+**A tag's colour can be picked** in the tag editor: click the dot on a tag's chip and a row of
+swatches opens in the popover — Automatic, ten presets and a custom colour. The choice belongs to
+the tag, not the note, so it repaints that tag everywhere; it is kept in `settings.json` under
+`tagColors`. Because a picked colour can be dark, a pill's lettering is chosen by how light the pill
+is rather than always being black.
+
 ### 5.4 Pin
 
 ⌥⌘P. A pinned note floats above other windows and draws the owner's pushpin PNG, anchored by the
-crack in the paper, with a glow in the note's own colour.
+crack in the paper, with a glow in the note's own colour. **Settings → Notes → Glow strength** runs
+from 25% to 160%; it is mostly brightness, and the halo never widens past the 24 pt margin, where
+the window edge would slice it flat.
 
 ### 5.5 Placement
 
 New notes are placed by the configured rule (cursor, centred, cascade) and clamped on screen.
 They spring in; closing fades out (§5.7).
+
+**Notes on a display that has gone come back.** At launch a note whose title bar is on no screen is
+moved to the main one. While running, a screen-parameters change (a monitor unplugged or
+rearranged) rescues every open note that is out of reach, in a short cascade on the main screen,
+and saves the new position so the next launch agrees.
 
 ### 5.6 Freeze mode
 
@@ -318,8 +345,10 @@ mouse entirely and sits on the desktop as a reference card.
 
 **The way out matters more than the way in.** A window that ignores the mouse cannot be clicked to
 un-ignore itself, cannot be right-clicked, and can never become key — so no shortcut reaches it.
-`FreezeMode` therefore keeps the **snowflake corner live**: it polls `NSEvent.mouseLocation` and
-hands the mouse back while the pointer is over that 46×34pt corner. Polling rather than a global
+`FreezeMode` therefore keeps the **snowflake live**: it polls `NSEvent.mouseLocation` and hands the
+mouse back while the pointer is over the snowflake button itself, with room around it. It used to
+be a fixed box at the card's bottom-right, which stopped covering the snowflake once a todo's bar
+grew tracker rows and lifted the controls to its top row. Polling rather than a global
 mouse monitor, because that API family asks for Accessibility permission and a sticky-note app has
 no business doing so. All Notes also offers a thaw, for a note that ends up off-screen.
 
@@ -332,6 +361,36 @@ its line. Window **frame** animations overshoot less than layer springs, because
 by `minSize` and a collapse targets exactly that.
 
 The system's Reduce Motion setting switches all of it off, on both sides.
+
+**Window opacity and frame animations run on our own clock.** AppKit's window animator
+(`window.animator().alphaValue` and `.setFrame`) does not run at all in an app that is not the active
+one — measured: a fade from 0.2 still read 0.2 a second later and never reached its end. Notes are
+non-activating panels, so PinTack is usually not the active app while they are in use. `Motion.fade`
+and `Motion.springFrame` drive a timer on the main run loop in common modes instead. Layer and
+SwiftUI animations are drawn by the system compositor and were never affected.
+
+### 5.8 Opacity and hover
+
+A note's opacity is its own setting (30–100%). Window opacity is set in exactly one place,
+`NotePanel.applyOpacity`, which combines the user's value with the finished-todo dimming (§5.3) and
+**Settings → Notes → Faded notes**: when that option is on (it is off by default — someone who faded a
+note may want it faded), a note eases to fully opaque while the pointer is over the **card** (never
+the window, which is 24 pt bigger) and back when it leaves. The chosen opacity is never rewritten.
+
+### 5.9 Closing and deleting
+
+**Closing a blank note discards its file** instead of hiding it, so a change of mind after ⌥⌘N leaves
+nothing behind. `Note.isBlank` is deliberately strict, because this deletes a file: no words (an
+untouched `@Todo ` counts as none), no name of its own, not a template, no due date, no tag beyond
+the automatic `todo`, and nothing a plugin stored in the frontmatter. The file on disk must be blank
+too, so an edit another app has just made is never lost; otherwise it is an ordinary hide. The file
+is removed outright rather than sent to the Trash. Only an explicit close does this.
+
+**Deleting** (⌥⌘D, the menus, All Notes) moves the file to the Trash and offers **Undo** on the
+toast for five seconds. Undo puts back the same note — id, frame, colour, reminders — and reopens its
+window if it was open, and refuses rather than overwrite if something new has taken the name. All
+of it goes through `WindowManager.delete`; nothing may show another toast after calling it, which
+once replaced the one carrying Undo.
 
 ---
 
@@ -366,7 +425,9 @@ marker is never a template recall**, and `todo` is a **reserved template name**.
 
 **Reminders.** A todo's action bar carries a bell; its popover holds three controls and nothing
 else — when it is due, whether to announce at the time, and whether to announce earlier by a count
-of minutes/hours/days, and **Done closes it**. The date field is AppKit's `NSDatePicker`, not
+of minutes/hours/days, and **Done closes it**. The banner's title is **PinTack - @Todo** and its
+body is the note's name with the `@Todo` marker stripped; the date is not repeated, because the
+banner arriving is the date. The date field is AppKit's `NSDatePicker`, not
 SwiftUI's `DatePicker`, and the chosen date is held in a reference outside SwiftUI's state: writing
 state on each keystroke re-rendered the panel, which threw away a half-typed entry (`37` became `7`)
 and took the keyboard out of the field. Dates live in the frontmatter so a reminder travels with the note.
@@ -382,6 +443,10 @@ thickening the bar; there is no cap. The tracker appears the moment the first ch
 without reopening the note. On a note too narrow for six squares, the count goes first and then
 squares come off the row, in that order; the tracker itself is never hidden and neither are the
 tags. A note counts as *done* only when it **has** tasks and all are ticked.
+
+**⌘↩ ticks or unticks** the checkbox on every line the selection touches, using the same three list
+markers the tracker counts (`-`, `*`, `+`), so the box that flips is always one the tracker sees. On a
+line that is not a task it declines and ⌘↩ keeps its old job.
 
 ### 6.4 `/find` — quick open
 
@@ -483,10 +548,24 @@ The Settings tab of the one window (§8.0). Seven panes in a sidebar (a `TabView
 "»" menu and looked unfinished): Appearance, Notes, Shortcuts, Editor, Vault, Plugins, About.
 
 App chrome uses the fixed `Brand.accentNS`, **never** the user's outline colour — a dark outline
-once made Settings unreadable.
+once made Settings unreadable. Choices in this window are **our own controls** (`ChromeSegmented`,
+`ChromeProminentButtonStyle`), not the system segmented picker or prominent button: those draw the
+chosen item in the accent with white text, and no tint reaches it. Every orange selection carries
+near-black lettering, 9 : 1 against the orange.
+
+Notes pane covers the outline, the pinned glow and its strength, faded notes (§5.8), new-note size
+and placement, auto-save and the action bar.
+
+**The settings file records choices, not defaults.** Since `settingsVersion` 2, only values that
+differ from the built-in defaults are written, so a better default reaches everyone who never
+touched that setting. Every earlier build wrote every value, which froze the default in force on the
+day of first launch; a version-1 file holding a *superseded* default (a 280 or 210 note size) is
+therefore read as "not chosen". Anything else in it was picked by somebody and is kept. Keys a plugin
+owns are preserved however little the app writes of its own.
 
 Editor pane covers default mode, spellcheck, slash commands, image handling, bullet, inline-code
-background colour and opacity, rich-text paste, and link previews.
+background colour and opacity, code-block background colour and opacity, rich-text paste, and link
+previews.
 
 Vault pane holds the location, move, export/import, and **Find unused attachments**. That sweep
 reads the `.md` files **on disk** rather than the notes held in memory — a note that failed to load
@@ -518,6 +597,9 @@ All Notes by tag ⌥⌘T, Todos ⌥⇧T, Templates ⌥⇧2, Auto-arrange ⌥⌘A
 App-scoped (a PinTack window must be key): Pin ⌥⌘P, Collapse ⌥⌘K, Close ⌥⌘W, Mode ⌥⌘M, Freeze ⌥⌘F,
 Delete ⌥⌘D, Emoji ⌥⌘E, colours ⌥⌘1–6, corners ⌥⌘R, opacity ⌥⌘, / ⌥⌘., export ⌥⌘X, import ⌥⌘I,
 shortcut list ⌥⌘/.
+
+In the editor: **⌘↩** ticks the checkbox on the current line (§6.3). It is a keystroke of the editor,
+not a rebindable action.
 
 Everything acting on **one note** stays app-scoped. A system-wide key that bins whatever note
 happens to be focused is not a thing to hand out. Rebindable in Settings, stored in
@@ -630,16 +712,30 @@ twice in Spotlight and can serve a stale icon.
 
 ### 15.1 Verification
 
-Two layers:
+Three layers, all run by `scripts/verify.sh`, all required:
 
+- **A Release build** — what actually ships. The self-test and every debug hook are compiled out of
+  it, so code that leans on one of them builds in Debug and nowhere else. That went unnoticed for six
+  commits once, found only when the DMG would not build.
 - **Unit tests** (`PinTackTests/`) — frontmatter round-tripping, unknown-key preservation, atomic
   writes, import safety, search, image maths, reminders, templates, plugin security. The plugin
   security tests were mutation-checked: skipping approval, ignoring the token's page, and accepting
   unsigned trust all fail them.
 - **The self-test** (`Support/SelfTest.swift`, Debug only) — the app launches, drives its own
   windows and web views with real events, and **asserts**. It exits non-zero on any failed check.
-  It renders PNGs of everything as evidence. If you add behaviour, add a check: a fact that is only
-  logged is a fact nobody will notice going wrong.
+  It renders PNGs of everything as evidence — every note, both tabs of the main window, every
+  Settings pane in dark mode, and the same window in light mode. If you add behaviour, add a check: a
+  fact that is only logged is a fact nobody will notice going wrong.
+
+  Two lessons it has taught. A check that measures what Swift *intended* proves nothing about what
+  the page drew: compare the page's computed style against the value Swift sent. And the self-test
+  shares a bundle identifier with any installed copy, so anything it writes outside its throwaway
+  vault — notifications, the pasteboard, the Trash — reaches the real user; reminders therefore go
+  to an in-memory `ReminderStore` under the self-test. It also takes the foreground before it starts,
+  because several checks read the key window.
+
+  **What it cannot reach:** a real pointer (hover), clicks on SwiftUI buttons, the notification banner
+  itself, and VoiceOver. Those are tested by hand.
 
 ### 15.2 App icon
 
@@ -648,12 +744,19 @@ modern macOS shrinks a legacy icon into a dark system plate. The plate cannot be
 (an alpha-0 fill still renders opaque), and in the Dark icon style the system forces it dark for
 every app. The art is full-bleed so no plate shows in the Default style.
 
+The current art (2026-09-21) is the owner's design: orange code brackets and a pencil on a purple
+note with a page curl. It is cropped to the artwork and filled edge to edge, so the system's rounded
+shape is the icon's edge; the base behind it is the window's dark indigo, which is what shows behind
+the curl. Preview exactly what the system draws with
+`/Applications/Xcode.app/Contents/Applications/Icon Composer.app/Contents/Executables/ictool`.
+
 Never set `NSApp.applicationIconImage`: it made the Dock show one icon and swap to another.
 
 ### 15.3 Distribution — PARTLY BUILT
 
 `scripts/make-dmg.sh` builds a universal (arm64 + x86_64) Release app and packages a DMG with a
-custom background and layout.
+custom background and layout. The app is **14 MB** (3.5 MB of it the vendored editor and its
+language parsers); the compressed DMG is about 6 MB.
 
 **Not built:** Developer ID signing, notarization, Sparkle updates, the Homebrew cask, App Sandbox.
 Until notarization exists, Gatekeeper blocks the first launch on another Mac; the DMG carries a
@@ -678,7 +781,11 @@ note explaining the three ways past it.
 - **Signing team** — free personal vs paid Developer Program. Blocks the widget (§11.2),
   notarization and Sparkle.
 - **App Sandbox** — needs a security-scoped bookmark flow for the vault; deferred.
-- **Memory at scale** — one web view per open note (§2.1) is unmeasured beyond ~10 notes.
+- **Memory at scale** — one web view per open note (§2.1) is unmeasured beyond ~10 notes, and search
+  has never been run against a vault of 1,000 notes.
+- **Accessibility** — no VoiceOver pass has been made over the window or the notes.
+- **1.0** — what separates the beta from a release is signing and notarization, a stretch of daily
+  use with no new bugs, a measurement at scale, and a VoiceOver pass.
 - **JavaScript tests** — roughly 2,000 lines of editor JS have no automated coverage. A test runner
   would be a new dependency; assertions could instead run inside the self-test's web view.
 
@@ -690,7 +797,8 @@ note explaining the three ways past it.
 - `Assets.xcassets/Pushpin` — the pinned-note pushpin PNG
 - `Editor/icons/` — language logos, Devicon (MIT), vendored
 - `Editor/vendor/` — CodeMirror 6 and Lezer, all MIT, vendored
-- `docs/assets/` — icon sources and the original HTML prototype
+- `docs/assets/` — the icon as rendered for the README, its source art, the DMG background, and the
+  original HTML prototype
 
 ## 19. Contributing
 

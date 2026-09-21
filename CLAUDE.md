@@ -149,8 +149,9 @@ PINTACK_VAULT=/tmp/pt/vault PINTACK_SELFTEST_DIR=/tmp/pt/out PINTACK_SELFTEST_QU
 ```
 
 It writes `report.txt` — every check as PASS/FAIL, ending in a summary — plus PNGs of the Dock
-icon, menu-bar icon, every note, All Notes, Settings and the shortcut list. It exits 1 if any check
-failed. The code is `Support/SelfTest.swift`, compiled out of Release. Other env vars:
+icon, menu-bar icon, every note, the main window on both tabs (`all-notes.png`, `settings.png`),
+every Settings pane in dark mode (`pane-*.png`), the same window in light mode, the popovers and the
+shortcut list. It exits 1 if any check failed. The code is `Support/SelfTest.swift`, compiled out of Release. Other env vars:
 `PINTACK_NO_HOTKEYS`, `PINTACK_NO_TOAST`, `PINTACK_ALLNOTES_TAB`, `PINTACK_SETTINGS_PANE`,
 `PINTACK_LINKPREVIEW_URL` (opt-in; without it nothing on the network is contacted).
 
@@ -172,6 +173,10 @@ light style and how large the art is. Preview exactly what the system draws with
 `/Applications/Xcode.app/Contents/Applications/Icon Composer.app/Contents/Executables/ictool`.
 
 Never set `NSApp.applicationIconImage`: it made the Dock show one icon and then swap to another.
+
+The current art (2026-09-21) is the owner's purple note with orange code brackets and a pencil,
+cropped to the artwork and filled edge to edge on a dark-indigo base. `docs/assets/pintack_icon.png`
+is it rendered by `ictool` for the README; `pintack_icon_source.webp` is the owner's original.
 
 **Always build and test into `build/`** (`SYMROOT="$PWD/build"`). A second copy in DerivedData makes
 LaunchServices list two apps (Spotlight shows PinTack twice) and can serve an old icon. After changing the
@@ -224,6 +229,13 @@ preservation, atomic writes, import safety and search.
 
 **Phase 4, plugins and Runner: built.** The WidgetKit widget is **shelved by the owner**: it needs a real
 Apple signing team (app group must carry the Team ID, trap 2), so it waits on that decision.
+
+**As of 2026-09-21: 0.1.0, build 8, in beta with testers.** `verify.sh` covers a Release build, 230
+unit tests and 141 self-test checks. `CHANGELOG.md` records every change, day by day, with the reason
+— read it before assuming something is an accident. Honest view of what separates this from a 1.0:
+signing and notarization, a stretch of daily use with no new bugs (bugs were still being found by
+use at a rate of about ten a session), a measurement with many notes open and a large vault, and a
+VoiceOver pass.
 
 **Not built yet:** the widget, Sparkle, signing/notarization, App Sandbox.
 The app is a normal Dock app (no `LSUIElement`) plus a menu-bar item: an

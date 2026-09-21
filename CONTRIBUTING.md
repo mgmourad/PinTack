@@ -18,11 +18,14 @@ Three sections in particular will save you time, because each documents a proble
 
 ## Current state
 
-Pre-implementation. The specification is complete and no Swift exists yet.
+**Built, running, and in beta with testers** (0.1.0, build 8). Phases 1–4 are complete: the vault, note
+windows, Live Preview editor, todos and reminders, All Notes and Settings in one window, hotkeys, and
+the plugin system with Runner. Not built: the WidgetKit widget, Developer ID signing, notarization,
+Sparkle and the App Sandbox. [CHANGELOG.md](CHANGELOG.md) records every change and why it was made.
 
 The project is looking for a **maintainer** to own the codebase, not just occasional contributions. See the README for the honest framing on what exists and what does not.
 
-If you are interested in that role, open a discussion rather than a pull request. The first conversation should be about whether the architecture in SPEC.md is one you would actually want to build, including the parts you would change. Disagreement with the spec is not disqualifying; it is the most useful thing you can bring.
+If you are interested in that role, open a discussion rather than a pull request. The first conversation should be about whether the code and the architecture in SPEC.md are ones you would actually want to own, including the parts you would change. Disagreement with the spec is not disqualifying; it is the most useful thing you can bring.
 
 ---
 
@@ -39,13 +42,16 @@ If you are interested in that role, open a discussion rather than a pull request
 ```bash
 git clone https://github.com/<org>/pintack.git
 cd pintack
-open PinTack.xcodeproj
+xcodebuild -scheme PinTack -configuration Debug SYMROOT="$PWD/build" build
+open build/Debug/PinTack.app        # or open PinTack.xcodeproj
 ```
+
+Always build into `build/` (`SYMROOT`). A second copy in DerivedData makes Spotlight list PinTack twice.
 
 ### Code style
 
 - Swift API Design Guidelines. No house dialect.
-- `swift-format` with the config in the repo root, enforced in CI.
+- There is no formatter config and no CI yet. Match the code around you.
 - Prefer clarity over cleverness. This project expects to change maintainers at least once, so code that requires its author to explain it is a defect.
 
 ### Comment policy
@@ -60,15 +66,28 @@ Comment the *why*, never the *what*. Specifically, any code working around a pla
 
 ### Testing
 
+**One command says whether the build is broken:**
+
+```bash
+scripts/verify.sh
+```
+
+It builds Release (what ships — the self-test and every debug hook are compiled out of it, so code
+that leans on one builds in Debug and nowhere else), runs the unit tests, and runs the **self-test**:
+the Debug app launches against a throwaway vault, drives its own windows and web views with real
+events, asserts what happened, and exits non-zero on any failed check. If you add behaviour, add a
+check. `CLAUDE.md` explains how to read its screenshots and what it cannot reach (a real pointer,
+clicks on SwiftUI buttons, VoiceOver).
+
 - Unit tests for anything that parses or writes vault files. Frontmatter round-tripping, unknown-key preservation, and atomic write behavior are non-negotiable: a bug here is user data loss.
 - The search index is disposable by design. Test that a missing, corrupt, or stale-schema index rebuilds rather than blocking startup.
-- Manual test matrix for window behavior: multiple displays, display disconnection with notes restored from off-screen frames, Spaces, full-screen apps, and Stage Manager.
+- Manual test matrix for window behavior: multiple displays, display disconnection (the self-test simulates it, but not with real hardware), Spaces, full-screen apps, and Stage Manager.
 
 ---
 
 ## Plugin development
 
-Start at **[SPEC.md §12](SPEC.md#12-plugin-api)**, then read the bundled Runner plugin as a worked example.
+Start at **[docs/PLUGINS.md](docs/PLUGINS.md)**, the author's guide, then [SPEC.md §12](SPEC.md#12-plugin-api) for the security model, then read the bundled Runner plugin (`Plugins/runner/`) as a worked example.
 
 ### Structure
 
@@ -101,8 +120,8 @@ Open an issue. The correct fix is to extend the public API, not to reach around 
 Genuinely useful, genuinely wanted:
 
 - **Documentation.** Plugin authoring guides, usage docs, and the eventual website.
-- **Design.** The app icon, the pushpin asset, and the `<✏️>` inspect glyph all have open quality work. See SPEC.md §18 for current specs and status.
-- **Testing.** Once builds exist, exercising the window behavior matrix above on hardware configurations the maintainers do not have.
+- **Design.** The app icon and the pushpin are the owner's own art (SPEC.md §15.2 and §18). Design help is still welcome for the widget, the website and the DMG.
+- **Testing.** Tester builds exist (the DMG from `scripts/make-dmg.sh`; until notarization, right-click → Open on first launch). Exercising the window behavior matrix above on hardware the maintainers do not have is genuinely useful.
 - **Plugins.** The fastest way to prove the plugin API works is for someone outside the project to build something with it.
 
 ---

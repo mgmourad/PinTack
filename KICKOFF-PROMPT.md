@@ -1,5 +1,12 @@
 # Claude Code kickoff prompt
 
+> **Historical — kept as it was.** This is the first message that started the build on 2026-09-19,
+> when PinTack was a specification and ~940 lines of Swift that had never been compiled. It is not
+> instructions for today: the app has since been built, rebuilt and taken to a beta (0.1.0, build 8).
+> For where things stand read `CLAUDE.md`; for how it got there read `CHANGELOG.md`. Several things
+> below were later changed on purpose — PinTack is a Dock app rather than a menu-bar-only one, and
+> the owner overrode the "stop after Phase 1" instruction — and those decisions are recorded there.
+
 Paste everything below the line into Claude Code as your first message, after
 you have put the artifacts in the project folder.
 
