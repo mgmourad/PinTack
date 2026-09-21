@@ -5,6 +5,18 @@ import SwiftUI
 ///
 /// The view is the full WINDOW size; the card is inset by `NotePanel.margin`
 /// inside it. Everything below positions itself against `cardRect`, never `bounds`.
+/// The note's controls, sized in one place. Bigger since 2026-09-21 — the owner could barely make
+/// out the snowflake — but not so big that a narrow note runs out of room for its title.
+enum ChromeSize {
+    static let glyph: CGFloat = 13.5                        // SF Symbol point size
+    static let headerButton: CGFloat = 24
+    static let barButton = NSSize(width: 26, height: 24)    // palette, tag, bell, tools, snowflake
+    static let chevron = NSSize(width: 20, height: 24)
+    static let grip: CGFloat = 18
+    /// From the bar's top edge down to the bottom of its row of controls.
+    static let barRowDrop: CGFloat = 28
+}
+
 final class NoteCardView: NSView, NSTextFieldDelegate {
 
     private let note: Note
@@ -96,8 +108,9 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     /// Room the tracker has between the bell and the freeze button, and how much of it to keep
     /// clear for the tags — enough for a "+N" pill, so tasks can never crowd them off the bar.
     private func progressRoom(cardWidth: CGFloat) -> (width: CGFloat, keptForTags: CGFloat) {
-        let left: CGFloat = 8 + 22 + 2 + 18 + 4 + 22 + (note.isTodo ? 23 : 0) + 2
-        let right: CGFloat = 20 + 21 + 6
+        let bar = ChromeSize.barButton.width
+        let left: CGFloat = 6 + bar + 2 + ChromeSize.chevron.width + 4 + bar + (note.isTodo ? 1 + bar : 0) + 2
+        let right: CGFloat = (ChromeSize.grip + 4) + bar + 6
         return (max(TaskProgressStyle.square, cardWidth - left - right), note.tags.isEmpty ? 0 : 34)
     }
 
@@ -345,7 +358,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         b.isBordered = false
         b.imagePosition = .imageOnly
         b.image = NSImage(systemSymbolName: symbol, accessibilityDescription: tip)?
-            .withSymbolConfiguration(.init(pointSize: 11, weight: .semibold))
+            .withSymbolConfiguration(.init(pointSize: ChromeSize.glyph, weight: .semibold))
         b.toolTip = tip
         b.target = self
         b.action = action
@@ -368,7 +381,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
 
     private func symbol(_ name: String, weight: NSFont.Weight = .semibold) -> NSImage? {
         NSImage(systemSymbolName: name, accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: 11, weight: weight))
+            .withSymbolConfiguration(.init(pointSize: ChromeSize.glyph, weight: weight))
     }
 
     /// The header title. A finished todo gets a green tick and its name struck through (owner
@@ -419,7 +432,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     private func refreshTagsButton() {
         let color = foreground.withAlphaComponent(note.tags.isEmpty ? 0.5 : 0.75)
         tagsButton.image = NSImage(systemSymbolName: note.tags.isEmpty ? "tag" : "tag.fill", accessibilityDescription: "Tags")?
-            .withSymbolConfiguration(.init(pointSize: 11, weight: .semibold))
+            .withSymbolConfiguration(.init(pointSize: ChromeSize.glyph, weight: .semibold))
         tagsButton.contentTintColor = color
         tagPills.tags = note.tags
         tagPills.foreground = foreground
@@ -430,7 +443,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         // Preview mode. SPEC.md §4.1.
         let symbol = editor.mode == "live" ? "pencil" : "book"
         modeButton.image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Toggle mode")?
-            .withSymbolConfiguration(.init(pointSize: 11, weight: .semibold))
+            .withSymbolConfiguration(.init(pointSize: ChromeSize.glyph, weight: .semibold))
     }
 
     func updateCollapsedState() {
@@ -531,16 +544,17 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     override func layout() {
         super.layout()
         let c = cardRect
-        let btn: CGFloat = 20
+        let btn = ChromeSize.headerButton
         let headerY = c.maxY - NotePanel.headerHeight
+        let buttonY = headerY + (NotePanel.headerHeight - btn) / 2
         // The title clears the overhanging pin when the note is pinned. SPEC.md §5.2.
         let left = c.minX + (note.pinned ? 34 : 12)
 
-        closeButton.frame = NSRect(x: c.maxX - 8 - btn, y: headerY + 5, width: btn, height: btn)
-        collapseButton.frame = NSRect(x: closeButton.frame.minX - btn - 1, y: headerY + 5, width: btn, height: btn)
-        modeButton.frame = NSRect(x: collapseButton.frame.minX - btn - 1, y: headerY + 5, width: btn, height: btn)
-        pinButton.frame = NSRect(x: (note.collapsed ? collapseButton : modeButton).frame.minX - btn - 1,
-                                 y: headerY + 5, width: btn, height: btn)
+        closeButton.frame = NSRect(x: c.maxX - 6 - btn, y: buttonY, width: btn, height: btn)
+        collapseButton.frame = NSRect(x: closeButton.frame.minX - btn, y: buttonY, width: btn, height: btn)
+        modeButton.frame = NSRect(x: collapseButton.frame.minX - btn, y: buttonY, width: btn, height: btn)
+        pinButton.frame = NSRect(x: (note.collapsed ? collapseButton : modeButton).frame.minX - btn,
+                                 y: buttonY, width: btn, height: btn)
         var titleRight = pinButton.frame.minX - 6
         if !collapsedProgress.isHidden {
             // Title, then the bar and its count, then the header buttons.
@@ -556,27 +570,29 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
 
         // Footer, left to right: 🎨  >  then either the tags or the tools; the resize grip at the far right.
         // The controls stay on the TOP row of the bar; extra tracker rows hang below them.
-        let y = c.minY + footer - 25
-        appearanceButton.frame = NSRect(x: c.minX + 8, y: y, width: 22, height: 20)
-        expandButton.frame = NSRect(x: appearanceButton.frame.maxX + 2, y: y, width: 18, height: 20)
-        grip.frame = NSRect(x: c.maxX - 20, y: c.minY + 4, width: 16, height: 16)
-        freezeButton.frame = NSRect(x: grip.frame.minX - 21, y: y, width: 20, height: 20)
+        let bar = ChromeSize.barButton, rowHeight = bar.height
+        let y = c.minY + footer - ChromeSize.barRowDrop
+        appearanceButton.frame = NSRect(x: c.minX + 6, y: y, width: bar.width, height: rowHeight)
+        expandButton.frame = NSRect(x: appearanceButton.frame.maxX + 2, y: y,
+                                    width: ChromeSize.chevron.width, height: rowHeight)
+        grip.frame = NSRect(x: c.maxX - ChromeSize.grip - 4, y: c.minY + 4, width: ChromeSize.grip, height: ChromeSize.grip)
+        freezeButton.frame = NSRect(x: grip.frame.minX - bar.width, y: y, width: bar.width, height: rowHeight)
 
         var x = expandButton.frame.maxX + 4
         if actionBarExpanded {
             for tool in [bulletButton, boldButton, italicButton, codeButton] {
-                tool.frame = NSRect(x: x, y: y, width: 22, height: 20)
-                x += 23
+                tool.frame = NSRect(x: x, y: y, width: bar.width, height: rowHeight)
+                x += bar.width + 1
             }
             let sliderWidth = freezeButton.frame.minX - 8 - (x + 4)
-            opacitySlider.frame = NSRect(x: x + 4, y: c.minY + 7, width: max(0, sliderWidth), height: 16)
+            opacitySlider.frame = NSRect(x: x + 4, y: y + (rowHeight - 16) / 2, width: max(0, sliderWidth), height: 16)
             opacitySlider.isHidden = sliderWidth < 36 || note.collapsed          // too narrow to use
         } else {
-            tagsButton.frame = NSRect(x: x, y: y, width: 22, height: 20)
+            tagsButton.frame = NSRect(x: x, y: y, width: bar.width, height: rowHeight)
             // The bell sits next to the tag glyph, and only on a todo note.
             let pillsStart: CGFloat
             if note.isTodo {
-                bellButton.frame = NSRect(x: tagsButton.frame.maxX + 1, y: y, width: 22, height: 20)
+                bellButton.frame = NSRect(x: tagsButton.frame.maxX + 1, y: y, width: bar.width, height: rowHeight)
                 pillsStart = bellButton.frame.maxX + 2
             } else {
                 bellButton.frame = .zero
@@ -596,11 +612,13 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
                                                     showsLabel: progressShowsLabel)
             let blockHeight = TaskProgressView.height(rows: rows)
             // The first row of squares sits on the controls' line; the rest hang below it.
-            taskProgress.frame = NSRect(x: pillsStart, y: y + 14.5 - blockHeight,
+            // Centred on the controls' row: its middle, plus half a square.
+            let firstRowTop = y + rowHeight / 2 + TaskProgressStyle.square / 2
+            taskProgress.frame = NSRect(x: pillsStart, y: firstRowTop - blockHeight,
                                         width: blockWidth, height: blockHeight)
             let afterProgress = blockWidth > 0 ? pillsStart + blockWidth + 8 : pillsStart
             // The tags take the whole thickness of the bar, wrapping into as many lines as fit.
-            let tagsTop = y + 19
+            let tagsTop = y + rowHeight / 2 + TagPillsView.lineHeight / 2
             let tagsBottom = c.minY + 4
             tagPills.frame = NSRect(x: afterProgress, y: tagsBottom,
                                     width: max(0, freezeButton.frame.minX - afterProgress - 6),
@@ -1228,6 +1246,9 @@ extension NoteCardView {
     /// to its destination the moment the animation is set up and so proves nothing.
     var debugActionBarState: (toolHidden: Bool, toolAlpha: CGFloat, tagHidden: Bool, tagAlpha: CGFloat) {
         func onScreen(_ view: NSView) -> CGFloat {
+    /// The snowflake, in window coordinates. FreezeMode keeps THIS spot live on a frozen note.
+    var freezeButtonRectInWindow: NSRect { convert(freezeButton.frame, to: nil) }
+
             // -1 says "no presentation layer to read", so a missing animation cannot masquerade
             // as a finished one.
             guard let presented = view.layer?.presentation() else { return -1 }

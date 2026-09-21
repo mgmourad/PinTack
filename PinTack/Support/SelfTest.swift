@@ -1356,7 +1356,7 @@ enum SelfTest {
                   live.contains(NSPoint(x: flake.midX, y: flake.midY)),
                   "snowflake at y \(Int(flake.midY)), live spot \(Int(live.minY))–\(Int(live.maxY))")
             check("the tags use the extra thickness, wrapping onto a second line",
-                  pills.debugLineCount > 1 || Set(pills.debugPillRects.map(\.minY)).count > 1,
+                  Set(pills.debugPillRects.map(\.minY)).count > 1 && !pills.debugPillRects.isEmpty,
                   "\(pills.debugLineCount) line(s) of tags in \(Int(pills.frame.height))pt")
 
             // Unlimited, not capped: forty tasks is seven rows, not four.

@@ -20,8 +20,8 @@ final class TagPillsView: NSView {
     private(set) var overflowRect: NSRect = .zero
 
     private static let font = NSFont.systemFont(ofSize: 10, weight: .semibold)
-    private static let padding: CGFloat = 6
-    private static let gap: CGFloat = 4
+    private static let padding: CGFloat = 5
+    private static let gap: CGFloat = 3
     static let lineHeight: CGFloat = 15
     private static let lineGap: CGFloat = 3
 

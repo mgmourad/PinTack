@@ -16,7 +16,7 @@ final class NotePanel: NSPanel {
 
     static let margin: CGFloat = 24
     static let headerHeight: CGFloat = 30
-    static let footerHeight: CGFloat = 30
+    static let footerHeight: CGFloat = 32         // room for ChromeSize's 24pt controls
     /// What one extra row of task-tracker squares adds to the action bar.
     static let footerRowHeight: CGFloat = TaskProgressStyle.square + TaskProgressStyle.gap
     static let minCardSize = NSSize(width: 190, height: 120)
