@@ -208,9 +208,19 @@ blockquotes, bullet/numbered/task lists, tables, horizontal rules, fenced code.
 loader, and the markdown parser calls it the first time a note actually contains that language.
 A block naming a language also gets a badge with the language's logo and name — Devicon SVGs (MIT)
 in `Editor/icons`, vendored by `scripts/vendor-language-icons.sh`. There is deliberately **no pill**
-behind the badge; on dark paper a dark mark gets a faint light halo instead.
+behind the badge; on a dark panel a dark mark gets a faint light halo instead.
 
-Token colours are two palettes chosen by whether the note's paper is light or dark.
+A fenced block is drawn as a **panel of its own**, not a wash of the note's paper: a dark slate
+(`#1B1E26` at 92%) on every note, whatever colour the note is. Settings → Editor → Code blocks
+changes the colour and how solid it is, exactly like inline code's own background.
+
+Token colours are two palettes chosen by **the panel**, not by the note's paper — a dark panel on a
+light note still needs light tokens. Swift composites the panel over the note's colour, works out
+which palette that calls for, and sends it as `codePaper`. Neither palette may lean on `--fg` or
+`--fg-dim`, and neither may the badge: those follow the note, which is how dark lettering ended up
+on a dark block. Inline code keeps its own separate setting and still follows the paper.
+
+**Blockquotes** carry a bright red bar down their left edge (`--quote-bar`, owner's call).
 
 ### 4.3 Beyond Markdown
 

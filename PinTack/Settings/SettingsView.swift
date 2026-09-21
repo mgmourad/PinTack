@@ -329,6 +329,8 @@ private struct ShortcutsPane: View {
 private struct EditorPane: View {
     @ObservedObject var s = AppSettings.shared
     @State private var inlineCode = Color(nsColor: NSColor(hex: AppSettings.shared.inlineCodeColorHex) ?? .black)
+    @State private var codeBlock = Color(nsColor: NSColor(hex: AppSettings.shared.codeBlockColorHex)
+                                         ?? NSColor(srgbRed: 0.106, green: 0.118, blue: 0.149, alpha: 1))
 
     var body: some View {
         Form {
@@ -375,6 +377,29 @@ private struct EditorPane: View {
                         .disabled(s.inlineCodeColorHex.isEmpty)
                 }
                 Text("The background behind `code` written between single backticks.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section("Code blocks") {
+                ColorPicker("Background", selection: $codeBlock, supportsOpacity: false)
+                    .onChange(of: codeBlock) { _, new in s.codeBlockColorHex = NSColor(new).hexString }
+                LabeledContent("Opacity") {
+                    HStack {
+                        Slider(value: $s.codeBlockOpacity, in: 0...1).frame(width: 160)
+                        Text("\(Int((s.codeBlockOpacity * 100).rounded()))%")
+                            .monospacedDigit().frame(width: 44, alignment: .trailing)
+                    }
+                }
+                HStack {
+                    Text(s.codeBlockColorHex.isEmpty
+                         ? "Automatic: a dark panel on every note, whatever colour it is."
+                         : "Used on every note, whatever its color.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Automatic") { s.codeBlockColorHex = "" }
+                        .disabled(s.codeBlockColorHex.isEmpty)
+                }
+                Text("The panel behind a fenced block written between triple backticks. Syntax colours follow the panel, so a light background switches them back to the light set.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 

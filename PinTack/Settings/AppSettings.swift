@@ -46,6 +46,10 @@ final class AppSettings: ObservableObject {
     /// which is what it always was. A chosen colour is used on every note whatever its paper.
     @Published var inlineCodeColorHex = ""
     @Published var inlineCodeOpacity = 0.15
+    /// Fenced code blocks. Empty means automatic, which is a dark slate panel on EVERY note —
+    /// a wash of the note's own colour was hard to read and looked washed out (owner, 2026-09-20).
+    @Published var codeBlockColorHex = ""
+    @Published var codeBlockOpacity = 0.92
     /// Convert pasted rich text (a web page, an email) into Markdown instead of flattening it.
     /// Shift-Cmd-V always pastes the plain text, whatever this says.
     @Published var pasteAsMarkdown = true
@@ -60,7 +64,7 @@ final class AppSettings: ObservableObject {
         "outlineEnabled", "outlineColor", "outlineWidth", "pinnedGlow", "defaultNoteWidth", "defaultNoteHeight",
         "placement", "autosaveSeconds", "actionBarAutoCollapse", "actionBarCollapseSeconds", "defaultMode",
         "spellcheck", "slashCommands", "imagePaste", "bulletEmoji", "enabledPlugins", "plugins", "linkPreviews",
-        "inlineCodeColor", "inlineCodeOpacity", "pasteAsMarkdown",
+        "inlineCodeColor", "inlineCodeOpacity", "codeBlockColor", "codeBlockOpacity", "pasteAsMarkdown",
     ]
 
     private var fileURL: URL?
@@ -124,6 +128,8 @@ final class AppSettings: ObservableObject {
         linkPreviews = b("linkPreviews") ?? linkPreviews
         inlineCodeColorHex = s("inlineCodeColor") ?? inlineCodeColorHex
         inlineCodeOpacity = min(1, max(0, d("inlineCodeOpacity") ?? inlineCodeOpacity))
+        codeBlockColorHex = s("codeBlockColor") ?? codeBlockColorHex
+        codeBlockOpacity = min(1, max(0, d("codeBlockOpacity") ?? codeBlockOpacity))
         pasteAsMarkdown = b("pasteAsMarkdown") ?? pasteAsMarkdown
         enabledPlugins = (dict["enabledPlugins"] as? [String: Bool]) ?? enabledPlugins
 
@@ -132,7 +138,8 @@ final class AppSettings: ObservableObject {
                                   "defaultNoteHeight", "placement", "autosaveSeconds", "defaultMode", "spellcheck",
                                   "slashCommands", "imagePaste", "newNoteColor", "actionBarAutoCollapse",
                                   "actionBarCollapseSeconds", "bulletEmoji", "enabledPlugins", "linkPreviews",
-                                  "inlineCodeColor", "inlineCodeOpacity", "pasteAsMarkdown"]
+                                  "inlineCodeColor", "inlineCodeOpacity", "codeBlockColor",
+                                  "codeBlockOpacity", "pasteAsMarkdown"]
         extra = dict.filter { !known.contains($0.key) }
         applyRuntimeEffects()
     }
@@ -193,6 +200,8 @@ final class AppSettings: ObservableObject {
         dict["linkPreviews"] = linkPreviews
         dict["inlineCodeColor"] = inlineCodeColorHex
         dict["inlineCodeOpacity"] = inlineCodeOpacity
+        dict["codeBlockColor"] = codeBlockColorHex
+        dict["codeBlockOpacity"] = codeBlockOpacity
         dict["pasteAsMarkdown"] = pasteAsMarkdown
         dict["enabledPlugins"] = enabledPlugins
         guard let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted, .sortedKeys]) else { return }

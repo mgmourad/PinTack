@@ -1358,10 +1358,13 @@ function setBody(body, keepSelection) {
 
 function applySettings(s) {
   const root = document.documentElement.style;
-  const map = { fg: "--fg", fgDim: "--fg-dim", fgHint: "--fg-hint", accent: "--accent", chromeAccent: "--chrome-accent", surface: "--surface", rule: "--rule", highlight: "--highlight", font: "--font", size: "--size", inlineCode: "--inline-code-bg" };
+  const map = { fg: "--fg", fgDim: "--fg-dim", fgHint: "--fg-hint", accent: "--accent", chromeAccent: "--chrome-accent", surface: "--surface", rule: "--rule", highlight: "--highlight", font: "--font", size: "--size", inlineCode: "--inline-code-bg", codeBlock: "--code-bg" };
   for (const [k, cssVar] of Object.entries(map)) if (s[k] != null) root.setProperty(cssVar, k === "size" ? s[k] + "px" : s[k]);
   // Which of the two code-token palettes suits this note's paper. editor.css keys off it.
   if (s.paper != null) document.documentElement.dataset.paper = s.paper;
+  // Tokens INSIDE a fenced block follow the block's own panel instead, which may be dark on a
+  // light note. Swift decides by compositing the panel over the paper.
+  if (s.codePaper != null) document.documentElement.dataset.codePaper = s.codePaper;
   noteState.settings = { ...noteState.settings, ...(s.bullet !== undefined ? { bullet: s.bullet } : {}) };
   if (s.spellcheck != null) {
     view.dispatch({ effects: spellCompartment.reconfigure(EditorView.contentAttributes.of({ spellcheck: String(s.spellcheck), autocorrect: "off", autocapitalize: "off" })) });

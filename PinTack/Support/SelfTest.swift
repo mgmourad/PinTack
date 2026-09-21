@@ -145,6 +145,10 @@ enum SelfTest {
             let p2 = panels[1]
             p2.note.body = sampleBody
             p2.note.colorHex = "#A3D5FF"
+            // Tall enough to hold the whole sample at once: this note is the one photographed as
+            // proof the renderer works, and a default-sized card cuts it off at the checklist.
+            p2.applyCardFrame(NSRect(x: p2.note.cardFrame.minX, y: p2.note.cardFrame.maxY - 560,
+                                     width: 440, height: 560))
             p2.card.refreshFromNote()
             p2.card.editor.reloadBody()
         }
@@ -157,14 +161,14 @@ enum SelfTest {
             let onDisk = (try? String(contentsOf: target.note.fileURL, encoding: .utf8)) ?? ""
             check("typing reaches the file (JS → Swift → atomic save)", onDisk.contains("BRIDGE-TEST-OK"))
             check("an inline #tag is merged into the frontmatter", onDisk.contains("selftest"))
-            codeHighlightTest(panels: panels) { shortcutTest(out: out) { interactionTest(out: out) } }
+            codeHighlightTest(panels: panels, out: out) { shortcutTest(out: out) { interactionTest(out: out) } }
         }
     }
 
     /// The ```powershell block in `sampleBody`, highlighted inside the real web view. This is the only
     /// place that proves the page's CSP lets editor.js import a language module at run time: over the
     /// dev server the CSP is rewritten, so a browser check cannot tell us.
-    private static func codeHighlightTest(panels: [NotePanel], then next: @escaping () -> Void) {
+    private static func codeHighlightTest(panels: [NotePanel], out: URL, then next: @escaping () -> Void) {
         guard panels.count > 1 else { next(); return }
         let js = """
         const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -186,11 +190,24 @@ enum SelfTest {
             });
           }
         }
+        // How light a colour is, 0..1, so the checks can talk about dark and light panels.
+        const lum = (c) => { const m = (c.match(/[\\d.]+/g) || [0,0,0]).map(Number);
+          return (0.2126*m[0] + 0.7152*m[1] + 0.0722*m[2]) / 255; };
+        const block = document.querySelector('.cm-codeblock');
+        const quote = document.querySelector('.cm-quote');
         return JSON.stringify({
           badge: badge ? badge.dataset.lang : null,
           logo,
           tokens: spans.length,
           distinctColours: new Set(spans.map(colour)).size,
+          codePaper: document.documentElement.dataset.codePaper,
+          blockBackground: block ? getComputedStyle(block).backgroundColor : null,
+          blockLuminance: block ? lum(getComputedStyle(block).backgroundColor).toFixed(2) : null,
+          // The dimmest token in the block. On a dark panel every one of them has to be light.
+          dimmestToken: spans.length ? Math.min(...spans.map(e => lum(colour(e)))).toFixed(2) : null,
+          quoteBar: quote ? getComputedStyle(quote).borderLeftColor : null,
+          badgeColour: badge ? getComputedStyle(badge, '::after').color : null,
+          badgeLuminance: badge ? lum(getComputedStyle(badge, '::after').color).toFixed(2) : null,
         });
         """
         panels[1].card.editor.callAsyncJavaScript(js, arguments: [:], in: nil, in: .page) { result in
@@ -199,7 +216,70 @@ enum SelfTest {
                   json ?? "no result")
             check("the language logo loads under the page's CSP", text(json, "logo").contains(".svg"), text(json, "logo"))
             check("the block carries its language badge", text(json, "badge") == "PowerShell", text(json, "badge"))
-            next()
+
+            // This note's paper is a light blue (#A3D5FF), so a block that followed the paper the
+            // way it used to would come out a pale wash. It is its own dark panel now. Measured
+            // in Swift, on the panel composited over the paper: the page can only report the
+            // colour the panel DECLARES, which says nothing while it is translucent.
+            let panelOnLight = panels[1].card.editor.compositedCodeBlockColor.relativeLuminance
+            check("a fenced block is a dark panel even on a light note",
+                  panelOnLight < 0.1,
+                  String(format: "%@ over the paper reads %.3f", text(json, "blockBackground"), panelOnLight))
+            // And the stylesheet really uses that colour. Everything above is measured in Swift and
+            // would go on passing if .cm-codeblock had quietly fallen back to the note's surface.
+            // Compared as numbers: the two sides format the alpha differently (0.92 against 0.920).
+            func channels(_ s: String) -> [Double] {
+                s.split(whereSeparator: { !"0123456789.".contains($0) }).compactMap(Double.init)
+            }
+            let drawn = channels(text(json, "blockBackground"))
+            let sent = channels(panels[1].card.editor.debugCodeBlockCSS)
+            check("the block is painted with the panel colour, not the note's surface wash",
+                  drawn.count == sent.count && zip(drawn, sent).allSatisfy { abs($0 - $1) < 0.01 },
+                  "page says \(text(json, "blockBackground")), Swift sent \(panels[1].card.editor.debugCodeBlockCSS)")
+            check("the code palette follows the panel, not the note's paper",
+                  text(json, "codePaper") == "dark", text(json, "codePaper"))
+            // The whole point of the palette switch: dark tokens on a dark panel would be the same
+            // black-on-black fault the slash menu had.
+            let dimmest = Double(text(json, "dimmestToken")) ?? 0
+            check("every token stays readable on the dark panel",
+                  dimmest > 0.3, "dimmest token luminance \(text(json, "dimmestToken"))")
+
+            // The badge rides ON the dark panel, so it must not take the note's own dim colour.
+            let badge = Double(text(json, "badgeLuminance")) ?? 0
+            check("the language badge is readable on the panel it sits on", badge > 0.3,
+                  "\(text(json, "badgeColour")), luminance \(text(json, "badgeLuminance"))")
+
+            let bar = text(json, "quoteBar")
+            let rgb = bar.split(whereSeparator: { !"0123456789".contains($0) }).compactMap { Double($0) }
+            check("a blockquote's bar is bright red", rgb.count >= 3 && rgb[0] > 200 && rgb[1] < 110 && rgb[2] < 110,
+                  bar)
+            // Worth a picture of its own: this note is the only one carrying every construct at
+            // once, and by the end of the run it has been closed and reopened several times over.
+            snapshot(window: panels[1], to: out.appendingPathComponent("code-and-quote.png")) {
+                darkNoteCodeBlockCheck(panel: panels[1], then: next)
+            }
+        }
+    }
+
+    /// The other half of the panel's job: on a DARK note it must still read as a panel and not melt
+    /// into the paper. Measured rather than eyeballed, because the two are close by design.
+    private static func darkNoteCodeBlockCheck(panel: NotePanel, then next: @escaping () -> Void) {
+        let wasLight = panel.note.colorHex
+        panel.note.colorHex = "#2F3140"                 // a dark paper
+        panel.card.refreshFromNote()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            let js = "return JSON.stringify({ codePaper: document.documentElement.dataset.codePaper });"
+            panel.card.editor.callAsyncJavaScript(js, arguments: [:], in: nil, in: .page) { result in
+                let json = (try? result.get()) as? String
+                let paper = panel.note.color.relativeLuminance
+                let block = panel.card.editor.compositedCodeBlockColor.relativeLuminance
+                check("on a dark note the panel is darker still, not lost in the paper",
+                      block < paper && text(json, "codePaper") == "dark",
+                      String(format: "paper %.3f, panel %.3f", paper, block))
+                panel.note.colorHex = wasLight
+                panel.card.refreshFromNote()
+                next()
+            }
         }
     }
 

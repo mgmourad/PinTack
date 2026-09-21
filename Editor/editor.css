@@ -8,6 +8,7 @@
   --accent: #ff9f0a;
   /* Menus and overlays: fixed, never note-relative. See NoteEditorView.settingsPayload. */
   --chrome-accent: #ff9f0a;
+  --quote-bar: #ff3b30;                /* the bar down a blockquote: loud on purpose */
   --surface: rgba(0, 0, 0, .14);       /* code chips, table headers */
   --surface-strong: rgba(0, 0, 0, .2);
   --rule: rgba(0, 0, 0, .22);
@@ -74,7 +75,7 @@ body {
 .cm-link, .cm-url { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; cursor: text; }
 .cm-tag { color: var(--accent); font-weight: 600; }
 
-.cm-quote { border-left: 3px solid var(--rule); padding-left: 10px !important; opacity: .82; }
+.cm-quote { border-left: 3px solid var(--quote-bar); padding-left: 10px !important; opacity: .82; }
 
 .cm-li { padding-left: 2px; }
 .cm-bullet { display: inline-block; width: 1.05em; text-align: center; color: var(--fg); font-weight: 700; }
@@ -96,9 +97,13 @@ body {
 .cm-hr-raw { color: var(--fg-dim); }
 
 /* fenced code */
+/* A fenced block is a PANEL, not a wash of the note's paper: dark on every note by default, and
+   Settings → Editor → Code blocks can change the colour and how solid it is. Its text colour comes
+   from the code palette, which follows the panel rather than the note. */
 .cm-editor .cm-codeblock {
   font-family: var(--mono); font-size: .9em;
-  background: var(--surface); padding: 0 9px !important;
+  background: var(--code-bg, var(--surface)); color: var(--code-variable);
+  padding: 0 9px !important;
 }
 .cm-codeblock-first { border-radius: 6px 6px 0 0; padding-top: 4px !important; }
 .cm-codeblock-last { border-radius: 0 0 6px 6px; padding-bottom: 4px !important; }
@@ -115,7 +120,9 @@ body {
   position: absolute; top: 0; right: 7px;
   font-family: var(--font); font-size: 9.5px; font-weight: 600; line-height: 14px;
   letter-spacing: .02em;
-  color: var(--fg-dim);
+  /* The panel's dim colour, NOT the note's: the badge sits on the code panel, and --fg-dim is
+     dark on a light note, which put dark lettering on a dark block. */
+  color: var(--code-dim);
   pointer-events: none; user-select: none; white-space: nowrap;
 }
 /* The logo sits behind the text as a background layer. There is deliberately no pill: on a dark
@@ -125,7 +132,7 @@ body {
   padding-left: 14px;
   background: var(--lang-icon) no-repeat left center / 10px 10px;
 }
-:root[data-paper="dark"] .cm-lang-icon::after { filter: drop-shadow(0 0 1px rgba(255, 255, 255, .7)); }
+:root[data-code-paper="dark"] .cm-lang-icon::after { filter: drop-shadow(0 0 1px rgba(255, 255, 255, .7)); }
 /* No logo for this language: a dot in its own colour instead. */
 .cm-lang-dot::after {
   padding-left: 11px;
@@ -133,18 +140,23 @@ body {
 }
 
 /* Tokens inside a fenced block, once its language has loaded (Editor/languages.js).
-   Two palettes, chosen by the paper the note uses; Swift sends `paper` with the other colours. */
+   Two palettes, chosen by the BLOCK's own background and not by the note's paper: the block is a
+   panel of its own, so a dark panel on a light note still needs light tokens. Swift works out
+   which by compositing the panel colour over the note's paper and sends `codePaper`.
+   Neither palette may lean on --fg or --fg-dim for the same reason: those follow the note. */
 :root {
-  --code-keyword: #9333ea; --code-string: #15803d; --code-comment: var(--fg-dim);
+  --code-keyword: #9333ea; --code-string: #15803d; --code-comment: #6e7781;
   --code-number: #b91c1c;  --code-function: #1d4ed8; --code-type: #0f766e;
-  --code-property: #7c2d12; --code-variable: var(--fg); --code-punct: var(--fg-dim);
+  --code-property: #7c2d12; --code-variable: #1f2328; --code-punct: #57606a;
+  --code-dim: #57606a;
   --code-operator: #9333ea;
   --code-tag: #be123c; --code-meta: #4338ca; --code-invalid: #dc2626;
 }
-:root[data-paper="dark"] {
-  --code-keyword: #ff7b72; --code-string: #a5d6ff; --code-comment: var(--fg-dim);
+:root[data-code-paper="dark"] {
+  --code-keyword: #ff7b72; --code-string: #a5d6ff; --code-comment: #8b949e;
   --code-number: #79c0ff;  --code-function: #d2a8ff; --code-type: #7ee787;
-  --code-property: #ffa657; --code-variable: var(--fg); --code-punct: var(--fg-dim);
+  --code-property: #ffa657; --code-variable: #e6edf3; --code-punct: #9aa4b1;
+  --code-dim: #9aa4b1;
   --code-operator: #ff7b72;
   --code-tag: #7ee787; --code-meta: #79c0ff; --code-invalid: #ffa198;
 }

@@ -338,6 +338,16 @@ Owner decisions added after the rebuild (2026-09-19):
   a todo's bar fits six squares, the count and a tag pill together; below it the count goes first.
 - The self-test calls `NSApp.activate` before anything else. Several checks read the KEY window, and
   an installed copy of PinTack or the terminal being in front makes them measure nothing.
+- A fenced code block is its own PANEL — a dark slate on every note (owner decision, 2026-09-20),
+  with its own colour + opacity setting beside inline code's. The token palettes and the language
+  badge key off `--code-paper`/`data-code-paper`, which follows the PANEL, not the note: Swift
+  composites the panel over the note's colour to decide. Nothing inside a block may use `--fg` or
+  `--fg-dim` — those follow the note, which is how the badge came out dark on a dark panel. Third
+  time this bug class has appeared (Settings chrome, the slash menu, this).
+- Checks that only measure what Swift INTENDED prove nothing about what the page drew: the first
+  version of the code-panel checks passed with the stylesheet reverted. Compare the page's computed
+  style against the value Swift sent, numerically (the two format alpha differently).
+- A blockquote's left bar is `--quote-bar`, bright red, on purpose (owner, 2026-09-20).
 - `/find` is quick open. Opening a note from it deliberately does NOT move focus: the key window and
   the caret stay where the search started.
 - Link previews are off by default and fetched only in Swift. A dismissed preview is remembered in

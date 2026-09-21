@@ -301,6 +301,14 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
             // Inline code's own background. Automatic keeps the old behaviour (a wash of black on
             // light paper, white on dark); a chosen colour is used as-is on every note.
             "inlineCode": (NSColor(hex: s.inlineCodeColorHex) ?? (dark ? .black : .white)).css(alpha: s.inlineCodeOpacity),
+            // A fenced block is its own panel, not a wash of the note's paper: a dark slate on
+            // every note, whatever colour the note is (owner decision, 2026-09-20). Code is read,
+            // not skimmed, and a 16% white veil over a dark note was neither one thing nor other.
+            "codeBlock": codeBlockColor.css(alpha: s.codeBlockOpacity),
+            // Which of the two token palettes to use INSIDE a block. It follows the block's own
+            // background, not the note's paper: a dark panel on a light note still needs light
+            // tokens, and the two used to be the same decision.
+            "codePaper": codeBlockPaper(),
             "surface": dark ? "rgba(0, 0, 0, 0.14)" : "rgba(255, 255, 255, 0.16)",
             "rule": dark ? "rgba(0, 0, 0, 0.22)" : "rgba(255, 255, 255, 0.28)",
             "highlight": dark ? "rgba(255, 214, 0, 0.5)" : "rgba(255, 214, 0, 0.32)",
@@ -312,6 +320,37 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
             "pasteAsMarkdown": s.pasteAsMarkdown,
             "linkPreviews": s.linkPreviews,
         ]
+    }
+
+    /// The fenced-code panel: the user's colour, or the automatic dark slate. Not pure black —
+    /// a flat black hole in the middle of a coloured note looks like a rendering fault.
+    private var codeBlockColor: NSColor {
+        NSColor(hex: AppSettings.shared.codeBlockColorHex)
+            ?? NSColor(srgbRed: 0.106, green: 0.118, blue: 0.149, alpha: 1)      // #1B1E26
+    }
+
+    /// What the panel actually LOOKS like once it is composited over the note's own paper. The
+    /// panel is translucent, so its declared colour says little: a pale colour at 30% over a dark
+    /// note is still dark.
+    var compositedCodeBlockColor: NSColor {
+        let alpha = AppSettings.shared.codeBlockOpacity
+        guard let panel = codeBlockColor.usingColorSpace(.sRGB),
+              let paper = note.color.usingColorSpace(.sRGB) else { return codeBlockColor }
+        func mix(_ a: CGFloat, _ b: CGFloat) -> CGFloat { a * alpha + b * (1 - alpha) }
+        return NSColor(srgbRed: mix(panel.redComponent, paper.redComponent),
+                       green: mix(panel.greenComponent, paper.greenComponent),
+                       blue: mix(panel.blueComponent, paper.blueComponent), alpha: 1)
+    }
+
+    #if DEBUG
+    /// Exactly the colour string the page is sent for `--code-bg`, so the self-test can prove the
+    /// stylesheet actually uses it rather than quietly falling back to the note's surface wash.
+    var debugCodeBlockCSS: String { codeBlockColor.css(alpha: AppSettings.shared.codeBlockOpacity) }
+    #endif
+
+    /// Whether code tokens inside a block need the light or the dark palette.
+    private func codeBlockPaper() -> String {
+        compositedCodeBlockColor.relativeLuminance < 0.45 ? "dark" : "light"
     }
 
     /// The universal outline color is the accent. On a note where it would be
