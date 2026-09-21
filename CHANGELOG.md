@@ -1,0 +1,260 @@
+# Changelog
+
+Everything that has happened to PinTack, newest first, from the day it was a specification with no
+compiled code to the beta it is now.
+
+**How to read this.** The version has been **0.1.0** throughout; the **build number** is what changes,
+and each build below is a disk image that went to testers. Every entry names what changed and, where
+the history records it, *why* — the reason is the part that stops someone "fixing" it later. Commit
+hashes are given so any entry can be traced, and undone, with `git revert`. Decisions the project
+owner made are marked **(owner)**; `CLAUDE.md` records them in full and `SPEC.md` describes the app as
+it stands.
+
+---
+
+## Unreleased
+
+- **Docs:** every Markdown file brought up to date with the app as it stands at build 8, and this
+  changelog written. `KICKOFF-PROMPT.md` is kept verbatim as a historical record, with a note saying so.
+
+---
+
+## Build 8 — 2026-09-21
+
+### Added
+- **A new app icon (owner):** orange code brackets and a pencil on a purple note with a page curl,
+  the owner's own design. Cropped to the artwork and filled edge to edge, so the system's rounded
+  shape is the icon's edge rather than a plate around a smaller square; the base behind it is the
+  window's dark indigo, which is what shows behind the curl. Previewed with Apple's `ictool` in light
+  and dark before use. `01ac8e5`
+
+### Fixed
+- **Black lettering on every orange selection (owner).** The segmented choices (App theme, New notes
+  get, Corners, Default mode, and a note's own Auto/Dark/Light) and the New note button were system
+  controls, which draw the chosen item in the accent colour with **white** text that no tint can
+  reach. They are now the app's own `ChromeSegmented` and `ChromeProminentButtonStyle`, with near-black
+  lettering at 9 : 1 against the orange. The self-test now photographs every Settings pane in dark
+  mode, so a stray one cannot hide on a pane nobody opens. `4e7e74b`
+
+---
+
+## Build 7 — 2026-09-21
+
+The biggest single round: ten refinements the owner chose from a list, four more of his own, and a
+run of bugs those turned up.
+
+### Added
+- **All Notes and Settings are one window (owner),** with two big tabs across its title bar. The old
+  window controllers stay as thin fronts that pick a tab, so every shortcut and menu works as before:
+  ⌥⌘H shows All Notes (and closes only when it is already in front), ⌘, shows Settings. Both tabs stay
+  alive underneath, so a search or a Settings pane is still there on the way back. `72d9eb0`
+- **A new look for that window (owner):** dark means a deep indigo (#141128) rather than system grey;
+  light mode is a warm paper tone; every selection is a solid orange that springs to the new choice;
+  Settings' sidebar glyphs are monochrome, outlined at rest and filled when chosen, with the coloured
+  tiles gone. `72d9eb0`
+- **A collapsed todo keeps its progress in the title bar (owner):** a plain progress bar, dull green
+  with a bright glowing fill, then `3/7`. `444dc62`
+- **A finished todo looks finished (owner):** a green ✓, the title struck through, and the note dimmed
+  to 72%. Drawn, never written into the file. `236e5bc`
+- **Hover to reveal (owner, off by default):** a faded note turns fully opaque while the pointer is
+  over it. Settings → Notes → Faded notes. `c5c4d72`
+- **Closing an empty note discards it (owner)** instead of leaving an empty `.md` behind. "Empty" is
+  strict — no words, no name, not a template, no reminder, no user tag, nothing a plugin stored — and
+  the file on disk must be empty too, so an edit another app just made is never lost. `a69e856`
+- **Undo on delete, for five seconds (owner).** Puts back the same note, window and all. `6c6597a`
+- **⌘↩ ticks or unticks the checkbox on the current line (owner).** `d66fd31`
+- **Pick a tag's colour (owner):** click the dot on a chip in the tag editor for Automatic, ten
+  presets or any colour. It applies to that tag everywhere. `d2d946f`
+- **A strength control for the pinned glow (owner),** 25–160%. `1a66615`
+
+### Changed
+- **Reminder banners (owner):** titled "PinTack - @Todo", with the note's name as the body and no
+  date, because the banner arriving is the date. `db62ea9`
+- **Bigger, clearer controls (owner):** 13.5 pt glyphs in 24 pt buttons instead of 11 in 20; the
+  snowflake was hard to make out. All sizes live in one table the layout maths also reads. `ccc05a5`
+- **`verify.sh` now builds Release first.** See the fix below for why. `a67e200`
+
+### Fixed
+- **Settings wrote every value, chosen or not,** which froze the default in force on the day of first
+  launch — anyone who had run an early build would never see new defaults such as 300 × 250 notes.
+  Only real choices are written now; an old file holding a since-changed default is read as "not
+  chosen". `43963d8`
+- **Window fades and frame animations did not run at all while PinTack was not the active app** —
+  which is most of the time, since notes never bring the app forward. Measured: a fade from 0.2 still
+  read 0.2 a second later. Paths that set the value directly afterwards had hidden it. Window opacity
+  and frames now animate on the app's own clock. `4e7f914`
+- **Notes stranded on an unplugged display** now come back onto a screen while the app is running,
+  not only at the next launch. `a39d4b8`
+- **A frozen todo with a thick action bar could not be unfrozen from its snowflake:** the live spot was
+  a fixed corner, and the snowflake had moved up with the extra tracker rows. It now follows the
+  button. `207dc1a`
+- **The self-test posted reminders to the logged-in user.** It shares a bundle identifier — and so a
+  notification store — with any installed copy, so every run's sample todo fired a real banner an hour
+  later, and its launch tidy-up deleted the user's own pending reminders. The self-test now uses an
+  in-memory store. `7cbfdfa`
+- **All Notes covered its own Undo toast** with a second "Moved to Trash" message. `72d9eb0`
+- **Release builds were broken for six commits** without anything noticing: a rect the freeze feature
+  needs had landed among the debug-only helpers, and a second copy sat silently inside a nested
+  function. Found only when the DMG would not build — hence the Release step in `verify.sh`. `a67e200`
+- Tag pills lost a point of padding so a second line of tags fits beside a wrapped tracker. `ccc05a5`
+
+---
+
+## Build 6 — 2026-09-20
+
+### Changed
+- **Fenced code gets its own dark panel (owner)** on every note, with a colour and opacity setting
+  beside inline code's. The token colours now follow the **panel** rather than the note's paper — a
+  dark panel on a light note needs light tokens — decided by compositing the panel over the note's
+  colour. The language badge had to follow too, or it came out dark on dark. `a47c00b`
+- **A blockquote's bar is bright red (owner).** `a47c00b`
+
+---
+
+## Build 5 — 2026-09-20
+
+### Added
+- **A one-screen welcome on first launch (owner),** dismissed with OK. "Once" is a marker file in the
+  vault, written when it is shown so a crash before OK does not greet you again. `add492c`
+
+### Changed
+- **New notes default to 300 × 250 (owner).** 300 is the narrowest width where a todo's bar fits six
+  squares, the count and a tag pill together. `add492c`
+- The self-test takes the foreground before starting; several checks read the key window. `add492c`
+
+---
+
+## Build 4 — 2026-09-20
+
+### Fixed
+- **The todo tracker only appeared after reopening the note,** and past about seven items it vanished,
+  taking the tags with it. It now appears with the first checkbox, wraps at six squares a row with no
+  limit on rows **(owner)**, and the action bar grows **downward (owner)** so the text never shrinks;
+  tags wrap into the extra height but never add to it. `2dcdb7a`
+- **The reminder panel's Done button left it on screen,** and typing "37" into the minutes field gave
+  7. Both were SwiftUI re-rendering on every keystroke; the date now lives outside SwiftUI's state in
+  a real `NSDatePicker`. `2dcdb7a`
+
+---
+
+## Build 3 — 2026-09-20
+
+Three bugs found on a tester's Mac.
+
+### Fixed
+- **The slash menu's selected row was black on black** with some outline colours: it used the note's
+  accent, whose low-contrast fallback is near-black. Menus now use the app's own fixed orange — the
+  second time that bug class appeared. `8de7311`
+- **A bare `@` listed no templates;** it now lists them all, the way `/` lists commands. `8de7311`
+- **"Show all notes on desktop" became a toggle (owner)** named Show/Hide Opened Notes. `8de7311`
+
+---
+
+## Build 2 — 2026-09-19 to 2026-09-20
+
+The first build that went to another Mac, and everything added over the following day before build 3.
+
+### Added
+- **Syntax highlighting for fenced code**, for every language CodeMirror ships, loaded only when a note
+  uses one — a note with no code loads nothing extra. `6670ae1`
+- **Language logos on code blocks** (Devicon, MIT) with the language name, and no pill behind them
+  **(owner)**. `c71132c`, `c856268`
+- **Tags as coloured pills** in the action bar, the colour from a stable hash of the name so a tag looks
+  the same everywhere and after a relaunch. A `+N` pill opens the rest. `3544e74`, `d847ee0`
+- **A note's title and first line separate once you rename it (owner):** renaming writes `title:` into
+  the frontmatter and never rewrites what you wrote. `bad1f48`
+- **Link previews** for a URL on its own line — off by default, the only feature that contacts a
+  website, fetched in Swift and never in the page. `05efc41`
+- **Image editing inside the note (owner):** click an image for corner handles, a crop tool and a bin,
+  with nothing to type; a crop writes a new file and never overwrites the original. This replaced a
+  crop-before-paste dialog the owner rejected. `e86d24e`, `c856268`, `e8cdb06`
+- **Paste rich text as Markdown:** headings, links, lists and tables survive a paste from a browser or
+  mail; ⇧⌘V pastes plain text. `a8be25d`
+- **Freeze mode:** a note that lets clicks pass through it, with a live snowflake as the way back — by
+  polling the pointer, because the alternative needs Accessibility permission. `2ae1bc9`
+- **Due dates and reminders** for todo notes, stored in the note so a reminder travels with it;
+  notification permission is asked when a reminder is first set, never at launch. `6a85b5b`
+- **Todo progress** as squares in the note, and a todo tab in All Notes with four sort orders.
+  `382f423`
+- **`/find`**, quick open across every note, which deliberately leaves your caret where it was.
+  `54f4765`
+- **Quick capture from any app** through the Services menu and ⌥⌘C, with no Accessibility permission.
+  `7817dcc`
+- **Templates**, recalled anywhere with `@name`; **`@todo`** turns any note into a todo; a templates tab.
+  `60cc98d`
+- **Five new shortcuts** (⌥⌘D delete, ⌥⌘T by tag, ⌥⇧T todos, ⌥⇧2 templates, ⌥⇧= show all) and a tooltip
+  per All Notes tab. `f6dfa5a`
+- **Lively animation (owner):** real spring physics for windows, back-out curves in the page, springing
+  popovers, a cross-fading action bar, and a note scrollbar that stays out of sight until wanted.
+  `95e6ff0`, `3d426c6`, `9f1cbb8`
+- **A styled disk image** with a laid-out window and the Gatekeeper instructions on its background.
+  `570e8a0`, `a15a211`
+- **`scripts/verify.sh`**, one command that says whether the build is broken. `0dd039d`
+
+### Changed
+- **The app icon became an Icon Composer document,** full-bleed art so no system plate shows in the
+  light icon style. `3a3844b`, `570e8a0`
+- **The self-test became assertions.** It had been prose a person had to read and judge; now every fact
+  is a check and the run exits non-zero on a failure. `0dd039d`
+- **SPEC.md rewritten to describe the app as built,** instead of the plan it started as. `LICENSE`
+  (GPL-3.0) added. `2f52c6c`
+
+### Fixed
+- **⌥⌘K collapsed a note and immediately expanded it again:** one key press arrives by two paths, and a
+  slow animated resize let the second copy slip past the de-duplication. It now de-dupes on the
+  identity of the key event itself. `d791149`
+- **The Dock showed one icon and then swapped to another,** and Spotlight listed PinTack twice. `3a3844b`,
+  `7ace194`
+- **Cropping a Retina image came out black** (pixel and point space confused), and the crop ✓ and ✕
+  could not be clicked (a shade layered over them). `c856268`, `e8cdb06`
+- **"Find unused attachments" could offer pictures still in use** for deletion; it now reads the files
+  on disk and refuses to act when it read no notes. `898b10e`
+- **Deleting a note left its reminders scheduled,** and a failed save was silent. `0dd039d`
+- A quote in a title grew a backslash on every save. `bad1f48`
+
+### Decided against (owner)
+- **Wikilinks and backlinks, note version history, sync conflict resolution** — scope creep for a
+  sticky-note app. Obsidian exists for the rest.
+
+---
+
+## Build 1 — 2026-09-19
+
+The app goes from a specification to something that runs.
+
+### Added
+- **A Live Preview editor:** CodeMirror 6 vendored as plain ES modules with an import map, so there is
+  no bundler dependency; markdown renders as you type with raw syntax only on the caret's line. `e270620`
+- **The app rebuilt around it in one pass, Phases 1–3 (owner overrode the one-phase-at-a-time plan):** a
+  Dock app with a menu-bar item; note panels with the 24 pt transparent margin so a pushpin can
+  overhang the card; the All Notes window with folders, tags and FTS5 search; Settings; rebindable
+  hotkeys; import and export; an external-edit watcher; and a Debug self-test that renders the app's own
+  windows. The vault keeps unknown frontmatter verbatim and preserves Windows line endings. `d027e29`
+- **Owner feedback, first round:** notes drag by the title and rename on double-click; an action bar
+  with formatting tools; Auto/Dark/Light palette per note with automatic text colour; `@Todo` notes;
+  Comic Sans MS as the default font; Settings in a sidebar. `2615955`
+- **The owner's pushpin art,** a glow in the note's own colour, the note's own right-click menu, folders
+  and multi-select in All Notes, and colour commands like `/red`. `6024ae1`
+- **The plugin system and Runner (Phase 4, minus the widget):** JavaScript plugins with no filesystem
+  or network access; security enforced in Swift with per-page tokens, declared permissions and a
+  native approval sheet no plugin can answer; trust bound to the exact command and folder and signed
+  with a per-Mac secret. Runner is written only against the public API. `d160655`
+
+### Fixed
+- Shortcut reliability: held keys, two paths for one press, and rapid new-note presses. `6024ae1`
+- Settings and All Notes stopped taking the note-outline colour, after a dark outline made them
+  unreadable. `6024ae1`
+- An outside edit that un-hid a note now opens its window. `08dc244`
+
+### Started from
+- `SPEC.md`, an interaction prototype (`docs/assets/tack-prototype.html`), and about 940 lines of Phase 1
+  Swift written without a compiler. The project owner is not a Swift developer; everything since was
+  built by an AI coding agent under his direction and checked by running it, not by reading it.
+  `0dd3f81`
+
+---
+
+## Not built yet
+
+The WidgetKit widget (shelved until a signing team is chosen), Developer ID signing and notarization,
+Sparkle updates, a Homebrew cask, and the App Sandbox. See `SPEC.md` §16–17.
