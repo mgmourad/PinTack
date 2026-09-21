@@ -1207,6 +1207,9 @@ extension NoteCardView {
     var debugTagsButtonFrame: NSRect { tagsButton.frame }
     var debugBellHidden: Bool { bellButton.isHidden }
     var debugTagPills: TagPillsView { tagPills }
+    /// The snowflake, in window coordinates. FreezeMode keeps THIS spot live on a frozen note.
+    var freezeButtonRectInWindow: NSRect { convert(freezeButton.frame, to: nil) }
+
     var debugProgress: TaskProgressView { taskProgress }
     var debugCollapsedProgress: TaskProgressLineView { collapsedProgress }
     var debugTitleFrame: NSRect { titleField.frame }

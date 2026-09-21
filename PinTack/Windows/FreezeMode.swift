@@ -14,10 +14,6 @@ import AppKit
 /// runs while at least one note is frozen.
 enum FreezeMode {
 
-    /// How big the live corner is, measured from the card's bottom-right. It has to be comfortably
-    /// bigger than the snowflake itself or the note becomes hard to thaw.
-    static let liveCorner = NSSize(width: 46, height: 34)
-
     private static var timer: Timer?
 
     /// Starts or stops the pointer watch to match how many notes are frozen.
@@ -44,11 +40,13 @@ enum FreezeMode {
         if !anyFrozen { update() }
     }
 
-    /// The thaw corner in screen coordinates, at the bottom-right of the CARD (never the window:
-    /// the window is 24pt larger on every side, SPEC.md §5.2).
+    /// The live spot in screen coordinates: the snowflake button itself, with room around it for
+    /// an imprecise pointer. It used to be a fixed box at the card's bottom-right, which stopped
+    /// covering the snowflake once a todo's action bar grew tracker rows and lifted the controls
+    /// to its top row — a frozen todo then could not be thawed from its own button.
     static func liveCornerRect(of panel: NotePanel) -> NSRect {
-        let card = NotePanel.cardRect(forWindow: panel.frame)
-        return NSRect(x: card.maxX - liveCorner.width, y: card.minY,
-                      width: liveCorner.width, height: liveCorner.height)
+        guard let card = panel.card else { return .zero }
+        let button = card.freezeButtonRectInWindow.insetBy(dx: -10, dy: -8)
+        return panel.convertToScreen(button)
     }
 }

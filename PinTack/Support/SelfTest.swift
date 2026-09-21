@@ -1348,6 +1348,13 @@ enum SelfTest {
             check("the tags survive a thick bar instead of disappearing with the tracker",
                   !pills.isHidden && (!pills.debugPillRects.isEmpty || !pills.overflowRect.isEmpty),
                   "\(pills.debugPillRects.count) of \(note.tags.count) pills, overflow: \(!pills.overflowRect.isEmpty)")
+            // With tracker rows the controls ride on the bar's TOP row. The thaw spot has to go with
+            // the snowflake, or a frozen todo like this one can never be thawed from its button.
+            let flake = panel.convertToScreen(card.freezeButtonRectInWindow)
+            let live = FreezeMode.liveCornerRect(of: panel)
+            check("a thick bar's snowflake is still inside the spot that thaws a frozen note",
+                  live.contains(NSPoint(x: flake.midX, y: flake.midY)),
+                  "snowflake at y \(Int(flake.midY)), live spot \(Int(live.minY))–\(Int(live.maxY))")
             check("the tags use the extra thickness, wrapping onto a second line",
                   pills.debugLineCount > 1 || Set(pills.debugPillRects.map(\.minY)).count > 1,
                   "\(pills.debugLineCount) line(s) of tags in \(Int(pills.frame.height))pt")
