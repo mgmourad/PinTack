@@ -348,6 +348,12 @@ Owner decisions added after the rebuild (2026-09-19):
   version of the code-panel checks passed with the stylesheet reverted. Compare the page's computed
   style against the value Swift sent, numerically (the two format alpha differently).
 - A blockquote's left bar is `--quote-bar`, bright red, on purpose (owner, 2026-09-20).
+- The self-test shares a BUNDLE IDENTIFIER with any installed copy, and a notification store is
+  keyed by bundle identifier. Left on the system store, every run posted its own fake reminders to
+  the logged-in user an hour later AND its launch-time tidy-up deleted the user's real ones. The
+  self-test now injects `MemoryReminderStore` (in `AppDelegate`, BEFORE anything can schedule).
+  Treat the same way anything else that writes outside the throwaway vault — the notification
+  centre, Services, LaunchServices, the pasteboard.
 - `/find` is quick open. Opening a note from it deliberately does NOT move focus: the key window and
   the caret stay where the search started.
 - Link previews are off by default and fetched only in Swift. A dismissed preview is remembered in

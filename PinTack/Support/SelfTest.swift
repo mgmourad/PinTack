@@ -973,19 +973,56 @@ enum SelfTest {
             check("both reminder moments are scheduled", todo.reminderDates.count == 2,
                   "\(todo.reminderDates.map(\.id))")
 
-            // Close anything already up, or the snapshot below catches the wrong popover.
-            panel.card.debugDismissPopover()
-            WindowManager.shared.openPanels.forEach { $0.card.debugDismissPopover() }
-            panel.card.debugShowReminderPopover()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                if let popover = panel.card.debugPopoverWindow, popover.isVisible {
-                    snapshot(window: popover, to: out.appendingPathComponent("reminder-popover.png")) {
-                        panel.card.debugDismissPopover(); next()
-                    }
-                } else {
-                    check("the reminder popover opens", false, "NOT SHOWN")
-                    next()
+            // What actually reaches the notification store, which the self-test can look inside
+            // now that it has one of its own. It used to check only the dates written in the note,
+            // which is why nobody noticed every run was posting real reminders to whoever was
+            // logged in, an hour after the run.
+            check("the self-test never touches the real notification centre",
+                  Reminders.shared.store is MemoryReminderStore,
+                  String(describing: Swift.type(of: Reminders.shared.store)))
+            Reminders.shared.schedule(todo, requestPermission: false)
+            // Scheduling asks for the authorisation status first, so it lands a couple of main-queue
+            // hops later, not on this one.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                reminderStoreChecks(todo: todo)
+                reminderPopoverSnapshot(panel: panel, out: out, then: next)
+            }
+        }
+    }
+
+    private static func reminderStoreChecks(todo: Note) {
+        guard let store = Reminders.shared.store as? MemoryReminderStore else { return }
+        let onTime = Reminders.identifier(todo, "ontime")
+        let ahead = Reminders.identifier(todo, "ahead")
+        check("a reminder is queued for the due time and one 30 minutes before",
+              store.requests[onTime] != nil && store.requests[ahead] != nil,
+              "\(store.requests.keys.sorted())")
+        if let due = store.fireDate(onTime), let early = store.fireDate(ahead) {
+            check("the early one really is half an hour earlier",
+                  abs(due.timeIntervalSince(early) - 1800) < 90,
+                  String(format: "%.0f minutes apart", due.timeIntervalSince(early) / 60))
+        }
+        check("the banner says which note and when",
+              store.body(onTime)?.contains("Due now") == true, store.body(onTime) ?? "no body")
+        Reminders.shared.cancel(todo)
+        check("clearing a note's reminders takes both of them away",
+              store.requests[onTime] == nil && store.requests[ahead] == nil,
+              "\(store.requests.keys.sorted())")
+    }
+
+    private static func reminderPopoverSnapshot(panel: NotePanel, out: URL, then next: @escaping () -> Void) {
+        // Close anything already up, or the snapshot below catches the wrong popover.
+        panel.card.debugDismissPopover()
+        WindowManager.shared.openPanels.forEach { $0.card.debugDismissPopover() }
+        panel.card.debugShowReminderPopover()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            if let popover = panel.card.debugPopoverWindow, popover.isVisible {
+                snapshot(window: popover, to: out.appendingPathComponent("reminder-popover.png")) {
+                    panel.card.debugDismissPopover(); next()
                 }
+            } else {
+                check("the reminder popover opens", false, "NOT SHOWN")
+                next()
             }
         }
     }

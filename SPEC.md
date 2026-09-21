@@ -370,8 +370,10 @@ of minutes/hours/days, and **Done closes it**. The date field is AppKit's `NSDat
 SwiftUI's `DatePicker`, and the chosen date is held in a reference outside SwiftUI's state: writing
 state on each keystroke re-rendered the panel, which threw away a half-typed entry (`37` became `7`)
 and took the keyboard out of the field. Dates live in the frontmatter so a reminder travels with the note.
-Notifications go through `UNUserNotificationCenter`, are re-armed at launch, and are **cancelled
-when the note is deleted**. Permission is asked the first time a reminder is *set*, never at launch.
+Notifications go through a `ReminderStore`: the system's `UNUserNotificationCenter` in the app, an
+in-memory one under the self-test, which shares a bundle identifier — and so a notification store —
+with any installed copy. They are re-armed at launch, where anything queued for a note the vault no
+longer has is dropped, and are **cancelled when the note is deleted**. Permission is asked the first time a reminder is *set*, never at launch.
 A moment already past is dropped rather than scheduled.
 
 **Progress.** A todo's action bar shows one square per task — bright and glowing for done, dark for

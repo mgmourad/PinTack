@@ -35,6 +35,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Re-arm due reminders: anything still in the future goes back on the schedule, and
         // anything that no longer exists is cleared out.
         QuickCapture.shared.install()
+        // BEFORE anything can schedule: the self-test shares this bundle identifier, and therefore
+        // one notification store, with any installed copy of PinTack. See `ReminderStore`.
+        #if DEBUG
+        if SelfTest.isRequested { Reminders.shared.store = MemoryReminderStore() }
+        #endif
         Reminders.shared.start()
         Reminders.shared.rescheduleAll(vault.notes)
         // Plugins must be known BEFORE the first note window loads, because each page asks for its plugins.

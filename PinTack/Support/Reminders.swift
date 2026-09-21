@@ -1,6 +1,72 @@
 import AppKit
 import UserNotifications
 
+/// Where reminders are actually kept. The app uses the system's notification centre; the self-test
+/// injects an in-memory one.
+///
+/// This seam is not tidiness. The Debug app shares a bundle identifier with any installed copy, and
+/// a bundle identifier is what a notification store is keyed by — so a self-test run posted its own
+/// fake reminders into the user's Notification Center an hour later, AND its launch-time tidy-up
+/// cleared the user's real ones. Neither is acceptable from a test.
+protocol ReminderStore {
+    func pendingIdentifiers(_ completion: @escaping ([String]) -> Void)
+    func remove(identifiers: [String])
+    func add(_ request: UNNotificationRequest)
+    func authorizationStatus(_ completion: @escaping (UNAuthorizationStatus) -> Void)
+    func requestAuthorization(_ completion: @escaping (Bool) -> Void)
+}
+
+/// The real thing.
+struct SystemReminderStore: ReminderStore {
+    private var centre: UNUserNotificationCenter? {
+        // nil rather than a trap when there is no real bundle (unit tests, odd launches).
+        Bundle.main.bundleIdentifier == nil ? nil : UNUserNotificationCenter.current()
+    }
+
+    func pendingIdentifiers(_ completion: @escaping ([String]) -> Void) {
+        guard let centre else { return completion([]) }
+        centre.getPendingNotificationRequests { completion($0.map(\.identifier)) }
+    }
+    func remove(identifiers: [String]) { centre?.removePendingNotificationRequests(withIdentifiers: identifiers) }
+    func add(_ request: UNNotificationRequest) {
+        centre?.add(request) { error in
+            if let error { NSLog("PinTack: could not schedule reminder: \(error)") }
+        }
+    }
+    func authorizationStatus(_ completion: @escaping (UNAuthorizationStatus) -> Void) {
+        guard let centre else { return completion(.denied) }
+        centre.getNotificationSettings { completion($0.authorizationStatus) }
+    }
+    func requestAuthorization(_ completion: @escaping (Bool) -> Void) {
+        guard let centre else { return completion(false) }
+        centre.requestAuthorization(options: [.alert, .sound]) { granted, _ in completion(granted) }
+    }
+}
+
+/// Keeps what would have been scheduled, and tells nobody. Used by the self-test, which can then
+/// check the scheduling itself rather than only the dates in the note.
+final class MemoryReminderStore: ReminderStore {
+    private(set) var requests: [String: UNNotificationRequest] = [:]
+
+    func pendingIdentifiers(_ completion: @escaping ([String]) -> Void) {
+        DispatchQueue.main.async { completion(Array(self.requests.keys)) }
+    }
+    func remove(identifiers: [String]) { for id in identifiers { requests[id] = nil } }
+    func add(_ request: UNNotificationRequest) { requests[request.identifier] = request }
+    func authorizationStatus(_ completion: @escaping (UNAuthorizationStatus) -> Void) {
+        DispatchQueue.main.async { completion(.authorized) }
+    }
+    func requestAuthorization(_ completion: @escaping (Bool) -> Void) {
+        DispatchQueue.main.async { completion(true) }
+    }
+
+    /// When each kind is set to fire, for the checks.
+    func fireDate(_ identifier: String) -> Date? {
+        (requests[identifier]?.trigger as? UNCalendarNotificationTrigger)?.nextTriggerDate()
+    }
+    func body(_ identifier: String) -> String? { requests[identifier]?.content.body }
+}
+
 /// Due-date reminders for todo notes. SPEC.md §6.
 ///
 /// Scheduled with UNUserNotificationCenter, so they still fire when PinTack is not in front; the
@@ -14,27 +80,25 @@ final class Reminders: NSObject, UNUserNotificationCenterDelegate {
 
     static let shared = Reminders()
 
-    private var centre: UNUserNotificationCenter? {
-        // Returns nil rather than trapping when there is no real bundle (unit tests, odd launches).
-        Bundle.main.bundleIdentifier == nil ? nil : UNUserNotificationCenter.current()
-    }
+    /// Swapped for an in-memory one by the self-test. See `ReminderStore`.
+    var store: ReminderStore = SystemReminderStore()
 
     /// Set once the user has been asked, so we ask at most once per launch.
     private var askedThisLaunch = false
 
     func start() {
-        centre?.delegate = self
+        guard store is SystemReminderStore, Bundle.main.bundleIdentifier != nil else { return }
+        UNUserNotificationCenter.current().delegate = self
     }
 
     /// Re-scheduling everything on launch is what makes this survive a quit: notifications that
     /// were already delivered are gone, and anything still in the future is put back.
     func rescheduleAll(_ notes: [Note]) {
-        guard let centre else { return }
-        centre.getPendingNotificationRequests { pending in
+        store.pendingIdentifiers { pending in
             let wanted = Set(notes.flatMap { note in note.reminderDates.map { Reminders.identifier(note, $0.id) } })
-            let stale = pending.map(\.identifier).filter { $0.hasPrefix("pintack.") && !wanted.contains($0) }
+            let stale = pending.filter { $0.hasPrefix("pintack.") && !wanted.contains($0) }
             DispatchQueue.main.async {
-                centre.removePendingNotificationRequests(withIdentifiers: stale)
+                self.store.remove(identifiers: stale)
                 for note in notes where note.due != nil { self.schedule(note, requestPermission: false) }
             }
         }
@@ -44,7 +108,6 @@ final class Reminders: NSObject, UNUserNotificationCenterDelegate {
 
     /// Replaces whatever was scheduled for this note with what its frontmatter now says.
     func schedule(_ note: Note, requestPermission: Bool = true) {
-        guard let centre else { return }
         cancel(note)
         let wanted = note.reminderDates
         guard !wanted.isEmpty else { return }
@@ -60,21 +123,19 @@ final class Reminders: NSObject, UNUserNotificationCenterDelegate {
 
                 let parts = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: date)
                 let trigger = UNCalendarNotificationTrigger(dateMatching: parts, repeats: false)
-                centre.add(UNNotificationRequest(identifier: Reminders.identifier(note, kind),
-                                                 content: content, trigger: trigger)) { error in
-                    if let error { NSLog("PinTack: could not schedule reminder: \(error)") }
-                }
+                self.store.add(UNNotificationRequest(identifier: Reminders.identifier(note, kind),
+                                                     content: content, trigger: trigger))
             }
         }
 
-        centre.getNotificationSettings { settings in
-            switch settings.authorizationStatus {
+        store.authorizationStatus { status in
+            switch status {
             case .authorized, .provisional:
                 DispatchQueue.main.async(execute: post)
             case .notDetermined where requestPermission:
                 guard !self.askedThisLaunch else { return }
                 self.askedThisLaunch = true
-                centre.requestAuthorization(options: [.alert, .sound]) { granted, _ in
+                self.store.requestAuthorization { granted in
                     guard granted else {
                         DispatchQueue.main.async { Toast.show("Reminders need notification permission") }
                         return
@@ -107,7 +168,7 @@ final class Reminders: NSObject, UNUserNotificationCenterDelegate {
     }
 
     func cancel(_ note: Note) {
-        centre?.removePendingNotificationRequests(withIdentifiers: ["ontime", "ahead"].map { Reminders.identifier(note, $0) })
+        store.remove(identifiers: ["ontime", "ahead"].map { Reminders.identifier(note, $0) })
     }
 
     // MARK: Delivery
