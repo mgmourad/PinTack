@@ -1607,6 +1607,42 @@ enum SelfTest {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                     check("expanded again, the bar leaves the title bar to the squares below",
                           card.debugCollapsedProgress.isHidden)
+                    doneTodoTest(panel: panel, out: out, then: next)
+                }
+            }
+        }
+    }
+
+    /// A finished todo looks finished: ticked, struck through and a little dimmed (owner, 2026-09-21).
+    private static func doneTodoTest(panel: NotePanel, out: URL, then next: @escaping () -> Void) {
+        let note = panel.note, card = panel.card!
+        let before = panel.alphaValue
+        let plainTitle = note.title
+        // Tick the last three boxes, through the same notification the editor posts on a keystroke.
+        note.body = note.body.replacingOccurrences(of: "- [ ]", with: "- [x]")
+        card.editor.reloadBody()          // so the picture below shows the boxes ticked too
+        NotificationCenter.default.post(name: .noteBodyDidChange, object: note)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            let title = card.debugTitleText
+            var struck = false
+            title.enumerateAttribute(.strikethroughStyle, in: NSRange(location: 0, length: title.length)) { v, _, _ in
+                if (v as? Int ?? 0) != 0 { struck = true }
+            }
+            check("a finished todo's title gets a tick and is struck through",
+                  note.isDone && title.string.hasPrefix("✓") && struck, title.string)
+            check("a finished todo is dimmed, on top of its own opacity",
+                  abs(panel.alphaValue - before * NotePanel.doneDimming) < 0.02,
+                  String(format: "%.2f → %.2f", before, panel.alphaValue))
+            check("the tick is drawn, never written: the note keeps its plain title",
+                  note.title == plainTitle && !note.body.contains("✓"), note.title)
+            snapshot(window: panel, to: out.appendingPathComponent("done-todo.png")) {
+                // One box back open and it is a live todo again.
+                note.body = note.body.replacingOccurrences(of: "- [x] report", with: "- [ ] report")
+                NotificationCenter.default.post(name: .noteBodyDidChange, object: note)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                    check("unticking a box undoes all of it",
+                          !card.debugTitleText.string.hasPrefix("✓") && abs(panel.alphaValue - before) < 0.02,
+                          String(format: "%@, %.2f", card.debugTitleText.string, panel.alphaValue))
                     next()
                 }
             }

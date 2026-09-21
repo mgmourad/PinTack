@@ -84,7 +84,7 @@ final class WindowManager {
         panels[note.id] = panel
         // Restoring a deskful of notes at launch animates nothing: a dozen cards fading in at once
         // is a light show, not feedback.
-        if animated { Motion.appear(window: panel, content: panel.card, to: note.opacity) }
+        if animated { Motion.appear(window: panel, content: panel.card, to: panel.effectiveOpacity) }
         panel.orderFrontRegardless()
         if focus {
             panel.makeKeyAndOrderFront(nil)

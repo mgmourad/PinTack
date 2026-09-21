@@ -137,6 +137,8 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         todoSignature = currentTodoSignature
         updateActionBar()
         syncFooterHeight()
+        refreshTitle()
+        panel.applyOpacity()
     }
 
     /// The pushpin art (assets: Pushpin). Its needle enters a crack in the paper, and that crack
@@ -282,7 +284,6 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         titleField.lineBreakMode = .byTruncatingTail
         titleField.usesSingleLineMode = true
         titleField.cell?.isScrollable = true
-        titleField.stringValue = note.title
         titleField.delegate = self
         addSubview(titleField)
         addSubview(collapsedProgress)
@@ -353,6 +354,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
 
     func applyColors() {
         titleField.textColor = foreground.withAlphaComponent(0.86)
+        refreshTitle()
         let icon = foreground.withAlphaComponent(0.5)
         [modeButton, collapseButton, closeButton, appearanceButton, expandButton,
          boldButton, italicButton, codeButton].forEach { $0.contentTintColor = icon }
@@ -367,6 +369,29 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         NSImage(systemSymbolName: name, accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(pointSize: 11, weight: weight))
     }
+
+    /// The header title. A finished todo gets a green tick and its name struck through (owner
+    /// decision, 2026-09-21), so a list that is done reads as done from across the room. Drawn
+    /// here, never written into the note: the file keeps its plain title.
+    private func refreshTitle() {
+        guard !titleField.isRenaming else { return }
+        let colour = foreground.withAlphaComponent(0.86)
+        guard note.isTodo && note.isDone else {
+            titleField.attributedStringValue = NSAttributedString(string: note.title, attributes: [
+                .font: titleField.font ?? .systemFont(ofSize: 12.5, weight: .semibold), .foregroundColor: colour])
+            return
+        }
+        let font = titleField.font ?? .systemFont(ofSize: 12.5, weight: .semibold)
+        let title = NSMutableAttributedString(string: "✓ ", attributes: [
+            .font: NSFont.systemFont(ofSize: font.pointSize, weight: .heavy),
+            .foregroundColor: TaskProgressStyle.done])
+        title.append(NSAttributedString(string: note.title, attributes: [
+            .font: font, .foregroundColor: colour.withAlphaComponent(0.6),
+            .strikethroughStyle: NSUnderlineStyle.single.rawValue, .strikethroughColor: colour.withAlphaComponent(0.6)]))
+        titleField.attributedStringValue = title
+    }
+
+    var debugTitleText: NSAttributedString { titleField.attributedStringValue }
 
     /// The header pin: outlined when free, filled and in the accent color when pinned.
     private func refreshPinGlyph() {
@@ -586,7 +611,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
 
     /// The note changed underneath us (Appearance popover, hotkey, external edit).
     func refreshFromNote() {
-        panel.alphaValue = note.opacity
+        panel.applyOpacity()
         panel.applyPinned()
         applyColors()
         editor.pushSettings()
@@ -608,7 +633,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
 
     @objc private func bodyChanged(_ n: Notification) {
         needsLayout = true
-        if titleField.currentEditor() == nil { titleField.stringValue = note.title }
+        if titleField.currentEditor() == nil { refreshTitle() }
         refreshTagsButton()
         syncTodoState()
     }
@@ -751,7 +776,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
 
     @objc private func opacityChanged(_ slider: NSSlider) {
         note.opacity = min(1, max(0.3, (slider.doubleValue * 100).rounded() / 100))
-        panel.alphaValue = note.opacity
+        panel.applyOpacity()
         SaveCoordinator.shared.scheduleSave(note)      // debounced: no write per slider tick
     }
 
@@ -838,6 +863,8 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     private func beginRename() {
         guard !titleField.isRenaming else { return }
         panel.makeKeyAndOrderFront(nil)
+        // Renaming edits the words, not the tick and the strike-through drawn over them.
+        titleField.stringValue = note.title
         titleField.isRenaming = true
         titleField.isEditable = true
         titleField.isSelectable = true
@@ -858,13 +885,15 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         // Renaming stores a title beside the note rather than rewriting its first line, so the
         // body is left alone and the editor does not need to be told anything.
         if text != note.title { WindowManager.shared.rename(note, to: text) }
-        titleField.stringValue = note.title
+        refreshTitle()
         window?.makeFirstResponder(editor)
     }
 
     /// Esc abandons the rename.
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         guard selector == #selector(NSResponder.cancelOperation(_:)) else { return false }
+        // Plain text, and still renaming: ending the edit below reads this field back and renames
+        // the note to whatever it says, so it must not hold the drawn "✓ " of a finished todo.
         titleField.stringValue = note.title
         window?.makeFirstResponder(editor)
         return true

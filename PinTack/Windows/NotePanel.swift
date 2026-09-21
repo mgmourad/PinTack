@@ -40,7 +40,7 @@ final class NotePanel: NSPanel {
         backgroundColor = .clear
         isOpaque = false
         hasShadow = false                     // drawn manually, see above
-        alphaValue = note.opacity
+        alphaValue = effectiveOpacity
         isReleasedWhenClosed = false
         minSize = NSSize(width: NotePanel.minCardSize.width + 2 * NotePanel.margin,
                          height: NotePanel.headerHeight + 2 * NotePanel.margin)
@@ -138,6 +138,23 @@ final class NotePanel: NSPanel {
         note.cardFrame = rect
         setFrame(NotePanel.windowRect(forCard: visibleCardRect), display: true, animate: animated)
     }
+
+    /// How much a finished todo fades (owner decision, 2026-09-21): enough to read as put away,
+    /// not so much that it cannot be read.
+    static let doneDimming: CGFloat = 0.72
+
+    /// What the window's opacity actually is. `note.opacity` is what the user set; a finished todo
+    /// is dimmed on top of that, and the dimming is never written back into the note.
+    var effectiveOpacity: CGFloat {
+        let chosen = CGFloat(note.opacity)
+        // Floored like the opacity setting itself (SPEC.md §3.3): dimming a note already set to 30%
+        // must not take it past the point where it can be found again.
+        return note.isTodo && note.isDone ? max(0.25, chosen * NotePanel.doneDimming) : chosen
+    }
+
+    /// The one place a note's window opacity is set, so the user's choice and the done-dimming
+    /// can never disagree about what it should be.
+    func applyOpacity() { alphaValue = effectiveOpacity }
 
     /// Freeze mode. The note stops taking the mouse entirely; FreezeMode re-enables it while the
     /// pointer is over the snowflake corner, which is the only way back out.
