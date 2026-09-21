@@ -102,6 +102,10 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
                width: cardRect.width, height: NotePanel.headerHeight)
     }
 
+    /// The snowflake, in window coordinates. FreezeMode keeps THIS spot live on a frozen note, so
+    /// it is needed in every build — not one of the debug-only accessors at the end of the file.
+    var freezeButtonRectInWindow: NSRect { convert(freezeButton.frame, to: nil) }
+
     /// The action bar's current thickness: the base height plus a row per extra tracker row.
     var footerHeight: CGFloat { NotePanel.footerHeight + extraFooterHeight }
 
@@ -1236,9 +1240,6 @@ extension NoteCardView {
     var debugTagsButtonFrame: NSRect { tagsButton.frame }
     var debugBellHidden: Bool { bellButton.isHidden }
     var debugTagPills: TagPillsView { tagPills }
-    /// The snowflake, in window coordinates. FreezeMode keeps THIS spot live on a frozen note.
-    var freezeButtonRectInWindow: NSRect { convert(freezeButton.frame, to: nil) }
-
     var debugProgress: TaskProgressView { taskProgress }
     var debugCollapsedProgress: TaskProgressLineView { collapsedProgress }
     var debugTitleFrame: NSRect { titleField.frame }
@@ -1257,9 +1258,6 @@ extension NoteCardView {
     /// to its destination the moment the animation is set up and so proves nothing.
     var debugActionBarState: (toolHidden: Bool, toolAlpha: CGFloat, tagHidden: Bool, tagAlpha: CGFloat) {
         func onScreen(_ view: NSView) -> CGFloat {
-    /// The snowflake, in window coordinates. FreezeMode keeps THIS spot live on a frozen note.
-    var freezeButtonRectInWindow: NSRect { convert(freezeButton.frame, to: nil) }
-
             // -1 says "no presentation layer to read", so a missing animation cannot masquerade
             // as a finished one.
             guard let presented = view.layer?.presentation() else { return -1 }

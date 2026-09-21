@@ -3,9 +3,12 @@
 #
 #   scripts/verify.sh
 #
-# Two layers, and BOTH must pass:
-#   1. xcodebuild test — the unit tests (vault format, plugin security, image maths, …).
-#   2. the self-test   — the app launching itself, driving its own windows and web views, and
+# Three layers, and ALL must pass:
+#   1. a Release build — what actually ships. The self-test and every debug hook are compiled out of
+#                        it, so code that leans on one of them builds in Debug and nowhere else. That
+#                        went unnoticed for six commits once (2026-09-21), found only by building a DMG.
+#   2. xcodebuild test — the unit tests (vault format, plugin security, image maths, …).
+#   3. the self-test   — the app launching itself, driving its own windows and web views, and
 #                        asserting what actually happened. It exits non-zero on any failed check,
 #                        which is what makes it usable here rather than something a person reads.
 #
@@ -17,7 +20,10 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/vault" "$WORK/out"
 
-echo "── building ──"
+echo "── building Release (what ships) ──"
+xcodebuild -scheme PinTack -configuration Release SYMROOT="$PWD/build" build | tail -1
+
+echo "── building Debug ──"
 xcodebuild -scheme PinTack -configuration Debug SYMROOT="$PWD/build" build | tail -1
 
 echo "── unit tests ──"
