@@ -1643,8 +1643,40 @@ enum SelfTest {
                     check("unticking a box undoes all of it",
                           !card.debugTitleText.string.hasPrefix("✓") && abs(panel.alphaValue - before) < 0.02,
                           String(format: "%@, %.2f", card.debugTitleText.string, panel.alphaValue))
-                    next()
+                    hoverRevealTest(panel: panel, then: next)
                 }
+            }
+        }
+    }
+
+    /// Hover-to-reveal (Settings → Notes → Faded notes).
+    private static func hoverRevealTest(panel: NotePanel, then next: @escaping () -> Void) {
+        let note = panel.note, card = panel.card!
+        let wasOn = AppSettings.shared.hoverRevealsNote
+        note.opacity = 0.45
+        panel.applyOpacity()
+        AppSettings.shared.hoverRevealsNote = false
+        card.setHovered(true)
+        let whileOff = panel.alphaValue
+        card.setHovered(false)
+        check("with the option off, hovering leaves a faded note faded", abs(whileOff - 0.45) < 0.02,
+              String(format: "%.2f", whileOff))
+
+        AppSettings.shared.hoverRevealsNote = true
+        card.setHovered(true)
+        // The fade animates; wait it out, then read what is on screen now.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            let revealed = panel.alphaValue
+            card.setHovered(false)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                check("with the option on, hovering shows the note fully, and leaving fades it back",
+                      abs(revealed - 1) < 0.02 && abs(panel.alphaValue - 0.45) < 0.02,
+                      String(format: "0.45 → %.2f → %.2f", revealed, panel.alphaValue))
+                check("hovering never rewrites the opacity the user chose", abs(note.opacity - 0.45) < 0.001)
+                note.opacity = 1
+                AppSettings.shared.hoverRevealsNote = wasOn
+                panel.applyOpacity()
+                next()
             }
         }
     }

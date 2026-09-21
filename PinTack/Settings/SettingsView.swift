@@ -205,6 +205,11 @@ private struct NotesPane: View {
                 Text("This color is also the accent for plugin-contributed UI.").font(.caption).foregroundStyle(.secondary)
                 Toggle("Glow on pinned notes", isOn: $s.pinnedGlow)
             }
+            Section("Faded notes") {
+                Toggle("Show a faded note fully while the pointer is over it", isOn: $s.hoverRevealsNote)
+                Text("Keep notes see-through so they stay out of the way, and still read one the moment you reach for it.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("New notes") {
                 Stepper("Default width: \(Int(s.defaultNoteWidth)) pt", value: $s.defaultNoteWidth, in: 190...700, step: 10)
                 Stepper("Default height: \(Int(s.defaultNoteHeight)) pt", value: $s.defaultNoteHeight, in: 120...700, step: 10)

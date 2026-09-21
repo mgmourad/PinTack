@@ -146,15 +146,27 @@ final class NotePanel: NSPanel {
     /// What the window's opacity actually is. `note.opacity` is what the user set; a finished todo
     /// is dimmed on top of that, and the dimming is never written back into the note.
     var effectiveOpacity: CGFloat {
+        if isHovered && AppSettings.shared.hoverRevealsNote { return 1 }
         let chosen = CGFloat(note.opacity)
         // Floored like the opacity setting itself (SPEC.md §3.3): dimming a note already set to 30%
         // must not take it past the point where it can be found again.
         return note.isTodo && note.isDone ? max(0.25, chosen * NotePanel.doneDimming) : chosen
     }
 
-    /// The one place a note's window opacity is set, so the user's choice and the done-dimming
-    /// can never disagree about what it should be.
-    func applyOpacity() { alphaValue = effectiveOpacity }
+    /// Whether the pointer is over the card. Set by NoteCardView's tracking area.
+    var isHovered = false
+
+    /// The one place a note's window opacity is set, so the user's choice, the done-dimming and
+    /// hover-to-reveal can never disagree about what it should be.
+    func applyOpacity(animated: Bool = false) {
+        let target = effectiveOpacity
+        guard animated, Motion.enabled, abs(alphaValue - target) > 0.01 else { alphaValue = target; return }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = target > alphaValue ? 0.16 : 0.32      // quick to show, slower to fade
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            animator().alphaValue = target
+        }
+    }
 
     /// Freeze mode. The note stops taking the mouse entirely; FreezeMode re-enables it while the
     /// pointer is over the snowflake corner, which is the only way back out.

@@ -39,6 +39,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     /// press collapses a note once rather than collapsing and immediately expanding it again.
     static var collapseRunCount = 0
     private var footerTracking: NSTrackingArea?
+    private var cardTracking: NSTrackingArea?
 
     private var popover: NSPopover?
     private var dragOrigin: NSPoint?
@@ -626,6 +627,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
 
     @objc private func settingsChanged() {
         if !AppSettings.shared.actionBarAutoCollapse { cancelCollapseTimer() }
+        panel.applyOpacity()
         applyColors()
         editor.pushSettings()
         needsDisplay = true
@@ -805,13 +807,34 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let footerTracking { removeTrackingArea(footerTracking) }
-        let area = NSTrackingArea(rect: footerRect, options: [.mouseEnteredAndExited, .activeAlways], owner: self, userInfo: nil)
+        let area = NSTrackingArea(rect: footerRect, options: [.mouseEnteredAndExited, .activeAlways], owner: self,
+                                  userInfo: ["zone": "footer"])
         addTrackingArea(area)
         footerTracking = area
+        // The whole CARD, not the window: the window is 24pt bigger on every side (SPEC.md §5.2),
+        // and a note that lit up when the pointer was merely near it would be jumpy.
+        if let cardTracking { removeTrackingArea(cardTracking) }
+        let card = NSTrackingArea(rect: cardRect, options: [.mouseEnteredAndExited, .activeAlways], owner: self,
+                                  userInfo: ["zone": "card"])
+        addTrackingArea(card)
+        cardTracking = card
     }
 
-    override func mouseEntered(with event: NSEvent) { cancelCollapseTimer() }
-    override func mouseExited(with event: NSEvent) { startCollapseTimer() }
+    override func mouseEntered(with event: NSEvent) {
+        if (event.trackingArea?.userInfo?["zone"] as? String) == "card" { setHovered(true); return }
+        cancelCollapseTimer()
+    }
+    override func mouseExited(with event: NSEvent) {
+        if (event.trackingArea?.userInfo?["zone"] as? String) == "card" { setHovered(false); return }
+        startCollapseTimer()
+    }
+
+    /// Hover-to-reveal (Settings → Notes). Internal so the self-test can hover without a mouse.
+    func setHovered(_ hovered: Bool) {
+        guard panel.isHovered != hovered else { return }
+        panel.isHovered = hovered
+        panel.applyOpacity(animated: true)
+    }
 
     @objc private func showAppearance() {
         let view = AppearancePopoverView(note: note) { [weak self] in
