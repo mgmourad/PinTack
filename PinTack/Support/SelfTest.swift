@@ -1581,8 +1581,40 @@ enum SelfTest {
         }
     }
 
+    /// A collapsed todo keeps its progress in the title bar, as a plain bar (owner, 2026-09-21).
+    private static func collapsedTodoTest(out: URL, then next: @escaping () -> Void) {
+        let todo = VaultStore.shared.createNote(
+            body: "@Todo Patch Tuesday\n\n- [x] pilot ring\n- [x] broad ring\n- [ ] servers\n- [ ] stragglers\n- [ ] report\n",
+            tags: ["todo"], frame: WindowManager.shared.nextCardFrame(size: NSSize(width: 320, height: 220)))
+        VaultStore.shared.save(todo)
+        let panel = WindowManager.shared.open(todo, focus: false)
+        todo.collapsed = true
+        panel.applyCollapsed(animated: false)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            let card = panel.card!
+            card.layoutSubtreeIfNeeded()
+            let bar = card.debugCollapsedProgress
+            check("a collapsed todo shows its progress in the title bar",
+                  !bar.isHidden && bar.counts.done == 2 && bar.counts.total == 5 && bar.frame.width > 0,
+                  "hidden \(bar.isHidden), \(bar.counts.done)/\(bar.counts.total)")
+            check("the bar sits between the title and the header buttons",
+                  bar.frame.minX >= card.debugTitleFrame.maxX && bar.frame.maxX <= card.debugPinFrame.minX,
+                  "title ends \(Int(card.debugTitleFrame.maxX)), bar \(Int(bar.frame.minX))–\(Int(bar.frame.maxX)), pin at \(Int(card.debugPinFrame.minX))")
+            snapshot(window: panel, to: out.appendingPathComponent("collapsed-todo.png")) {
+                todo.collapsed = false
+                panel.applyCollapsed(animated: false)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    check("expanded again, the bar leaves the title bar to the squares below",
+                          card.debugCollapsedProgress.isHidden)
+                    next()
+                }
+            }
+        }
+    }
+
     private static func renderWindows(out: URL) {
-        runnerTest(out: out) { linkPreviewTest(out: out) { imageEditTest(out: out) { freezeTest { reminderTest(out: out) { findTest(out: out) { quickCaptureTest { templateTest { actionBarTest { testerBugsTest { todoBarTest(out: out) { onboardingTest(out: out) { strandedNotesTest { renderWindowsNow(out: out) } } } } } } } } } } } } }
+        runnerTest(out: out) { linkPreviewTest(out: out) { imageEditTest(out: out) { freezeTest { reminderTest(out: out) { findTest(out: out) { quickCaptureTest { templateTest { actionBarTest { testerBugsTest { todoBarTest(out: out) { onboardingTest(out: out) { strandedNotesTest { collapsedTodoTest(out: out) { renderWindowsNow(out: out) } } } } } } } } } } } } } }
     }
 
     private static func renderWindowsNow(out: URL) {

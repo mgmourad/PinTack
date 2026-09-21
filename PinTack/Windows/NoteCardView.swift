@@ -19,6 +19,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     private let tagsButton = ToolButton()          // the tag ICON: the only thing that opens the tag editor
     private let bellButton = ToolButton()          // reminders; todo notes only
     private let taskProgress = TaskProgressView()  // 3/7 squares; todo notes only
+    private let collapsedProgress = TaskProgressLineView()   // the same, as a bar, in a collapsed title bar
     private let tagPills = TagPillsView()                      // shows the tags; ignores the mouse so it drags
     private let grip = ResizeGripView()
     private let freezeButton = ToolButton()      // snowflake, beside the grip
@@ -284,6 +285,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         titleField.stringValue = note.title
         titleField.delegate = self
         addSubview(titleField)
+        addSubview(collapsedProgress)
 
         configure(pinButton, symbol: "pin", tip: "Pin on top", action: #selector(togglePin))
         configure(modeButton, symbol: "book", tip: "Switch between Live Preview and Source", action: #selector(toggleMode))
@@ -451,6 +453,13 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
 
         expandButton.image = symbol(actionBarExpanded ? "chevron.left" : "chevron.right")
         expandButton.toolTip = actionBarExpanded ? "Hide formatting tools" : "Formatting tools"
+
+        // Collapsing hides the whole action bar, squares and all. A collapsed todo keeps its
+        // progress where it can still be seen: in the title bar.
+        let counts = note.taskCounts
+        collapsedProgress.isHidden = !(note.collapsed && note.isTodo && counts.total > 0)
+        collapsedProgress.counts = counts
+        collapsedProgress.foreground = foreground
         needsLayout = true
     }
 
@@ -506,7 +515,14 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         modeButton.frame = NSRect(x: collapseButton.frame.minX - btn - 1, y: headerY + 5, width: btn, height: btn)
         pinButton.frame = NSRect(x: (note.collapsed ? collapseButton : modeButton).frame.minX - btn - 1,
                                  y: headerY + 5, width: btn, height: btn)
-        titleField.frame = NSRect(x: left, y: headerY + 7, width: max(20, pinButton.frame.minX - 6 - left), height: 17)
+        var titleRight = pinButton.frame.minX - 6
+        if !collapsedProgress.isHidden {
+            // Title, then the bar and its count, then the header buttons.
+            let width = TaskProgressLineView.width(for: collapsedProgress.counts.total)
+            collapsedProgress.frame = NSRect(x: titleRight - width, y: headerY + 7, width: width, height: 17)
+            titleRight = collapsedProgress.frame.minX - 8
+        }
+        titleField.frame = NSRect(x: left, y: headerY + 7, width: max(20, titleRight - left), height: 17)
 
         let footer = footerHeight
         editor.frame = NSRect(x: c.minX + 1, y: c.minY + footer,
@@ -1135,6 +1151,9 @@ extension NoteCardView {
     var debugBellHidden: Bool { bellButton.isHidden }
     var debugTagPills: TagPillsView { tagPills }
     var debugProgress: TaskProgressView { taskProgress }
+    var debugCollapsedProgress: TaskProgressLineView { collapsedProgress }
+    var debugTitleFrame: NSRect { titleField.frame }
+    var debugPinFrame: NSRect { pinButton.frame }
     var debugProgressPerRow: Int { progressPerRow }
     var debugFooterHeight: CGFloat { footerHeight }
     var debugExtraFooterHeight: CGFloat { extraFooterHeight }

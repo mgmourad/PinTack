@@ -169,3 +169,70 @@ final class TaskProgressView: NSView {
         label.draw(at: NSPoint(x: x, y: (side - size.height) / 2), withAttributes: attributes)
     }
 }
+
+/// The collapsed todo's progress, in its title bar: a plain bar rather than squares (owner
+/// decision, 2026-09-21), because a collapsed note is one line tall and there is room for a line,
+/// not a grid. Dull green track, bright glowing green fill, then "3/7".
+final class TaskProgressLineView: NSView {
+
+    var counts: (done: Int, total: Int) = (0, 0) { didSet { needsDisplay = true } }
+    /// The note's automatic text colour, for the "3/7" label.
+    var foreground: NSColor = .black { didSet { needsDisplay = true } }
+
+    static let barWidth: CGFloat = 54
+    private static let barHeight: CGFloat = 5
+    private static let gap: CGFloat = 7
+    private static let font = NSFont.monospacedDigitSystemFont(ofSize: 10.5, weight: .medium)
+
+    /// Room this takes for `total` tasks. The label is measured at its widest (total/total), so
+    /// the bar does not shuffle sideways as boxes are ticked.
+    static func width(for total: Int) -> CGFloat {
+        guard total > 0 else { return 0 }
+        let label = ("\(total)/\(total)" as NSString).size(withAttributes: [.font: font]).width.rounded(.up)
+        return barWidth + gap + label
+    }
+
+    override var isFlipped: Bool { true }
+    /// Transparent to the mouse: the collapsed header still drags the note, and a double-click on
+    /// it still renames.
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func isAccessibilityElement() -> Bool { counts.total > 0 }
+    override func accessibilityRole() -> NSAccessibility.Role? { .progressIndicator }
+    override func accessibilityLabel() -> String? {
+        counts.total > 0 ? "\(counts.done) of \(counts.total) tasks done" : nil
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard counts.total > 0 else { return }
+        let h = TaskProgressLineView.barHeight
+        let track = NSRect(x: 0, y: (bounds.height - h) / 2, width: TaskProgressLineView.barWidth, height: h)
+        TaskProgressStyle.todo.setFill()
+        NSBezierPath(roundedRect: track, xRadius: h / 2, yRadius: h / 2).fill()
+
+        let fraction = CGFloat(counts.done) / CGFloat(counts.total)
+        if fraction > 0 {
+            // Never thinner than its own height, or one done task in twenty is an invisible sliver.
+            let fill = NSRect(x: track.minX, y: track.minY, width: max(h, track.width * fraction), height: h)
+            let path = NSBezierPath(roundedRect: fill, xRadius: h / 2, yRadius: h / 2)
+            if let ctx = NSGraphicsContext.current?.cgContext {
+                ctx.saveGState()
+                ctx.setShadow(offset: .zero, blur: 6, color: TaskProgressStyle.done.withAlphaComponent(0.95).cgColor)
+                TaskProgressStyle.done.setFill()
+                path.fill()
+                ctx.restoreGState()
+            }
+            TaskProgressStyle.done.setFill()
+            path.fill()
+        }
+
+        let label = "\(counts.done)/\(counts.total)" as NSString
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: TaskProgressLineView.font,
+            .foregroundColor: foreground.withAlphaComponent(0.7),
+        ]
+        let size = label.size(withAttributes: attributes)
+        label.draw(at: NSPoint(x: track.maxX + TaskProgressLineView.gap, y: (bounds.height - size.height) / 2),
+                   withAttributes: attributes)
+    }
+}
