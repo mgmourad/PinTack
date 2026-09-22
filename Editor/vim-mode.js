@@ -11,6 +11,7 @@
 //  - :w saves, :q closes the note, :wq / :x / ZZ do both. A note is one buffer, so there are no
 //    splits, tabs or :e.
 //  - The mode (NORMAL, INSERT, VISUAL…) is reported to Swift for the action bar.
+//  - A rendered table is a FOLD: j/k step onto it and over it, zo/zc/za/zR/zM open and close it.
 
 import { Prec } from "@codemirror/state";
 
@@ -18,6 +19,11 @@ let pkg = null;                 // the vim package, once loaded
 let post = () => {};            // the bridge to Swift, set by attachVim
 let exDefined = false;          // :w/:q are defined on the package's global Vim object, once
 let session = null;             // the prompt Swift is showing, if any
+let folds = null;               // editor.js's table-fold functions, set by attachVim
+let foldSnap = null;            // a folded table j/k just stepped onto, for editor.js's filter
+
+/** The table a line motion just landed on, once: the cursor must stand on the fold, not in a cell. */
+export function takeFoldSnap() { const s = foldSnap; foldSnap = null; return s; }
 
 /** Loads the package (once) and returns the extension to install. */
 export async function vimExtension() {
@@ -42,9 +48,10 @@ function modeName(event) {
 }
 
 /** Wires a freshly installed vim into PinTack: the prompt, messages, mode reports, ex commands. */
-export function attachVim(view, bridge, onModeChange) {
+export function attachVim(view, bridge, onModeChange, foldApi) {
   if (!pkg) return;
   post = bridge;
+  folds = foldApi;
   const cm = pkg.getCM(view);
   if (!cm || cm.__pintack) return;
   cm.__pintack = true;
@@ -57,6 +64,17 @@ export function attachVim(view, bridge, onModeChange) {
     Vim.defineEx("wq", "wq", () => { post("note.action", { action: "save" }); post("note.action", { action: "close" }); });
     Vim.defineEx("xit", "x", () => { post("note.action", { action: "save" }); post("note.action", { action: "close" }); });
     Vim.map("ZZ", ":x<CR>", "normal");
+    // Folds, for tables. The engine has no folding of its own here; these are vim's keys for it.
+    const cmPos = (cm) => cm.cm6.state.selection.main.head;
+    Vim.defineAction("ptFold", (cm, args) => {
+      if (!folds) return;
+      if (args.all !== undefined) folds.foldAll(args.all);
+      else folds.fold(cmPos(cm), args.open);
+    });
+    for (const [keys, args] of [["zo", { open: true }], ["zc", { open: false }], ["za", {}],
+                                ["zR", { all: true }], ["zM", { all: false }]]) {
+      Vim.mapCommand(keys, "action", "ptFold", args, { context: "normal" });
+    }
   }
 
   // The prompt, redirected to the action bar. The engine calls this with a template holding the
@@ -95,17 +113,50 @@ export function attachVim(view, bridge, onModeChange) {
     return () => {};
   };
 
-  // j and k always land on the next LINE. The engine also measures an on-screen move and, when that
-  // goes further, assumes the gap is folded text and steps over it whole. PinTack folds nothing, but
-  // Live Preview draws a table as one block and squashes a code fence to 4px, which look folded: j
-  // jumped a whole table, and one k from the bottom of a note landed at the top. Measured, then fixed.
+  // j and k always land on the next LINE, and a folded table counts as ONE line. The engine also
+  // measures an on-screen move and, when that goes further, assumes the gap is folded text and steps
+  // over it whole: Live Preview's squashed code fences looked like that, and one k from the bottom of
+  // a note landed at the top. So each step is taken one line at a time and clamped, and tables are
+  // folded on purpose, the way vim folds them (SPEC.md §4.6): j onto one stands on it, j again
+  // steps past it, k from below lands back on it.
   const findPosV = cm.findPosV.bind(cm);
-  cm.findPosV = (start, amount, unit, goalColumn) => {
-    const pos = findPosV(start, amount, unit, goalColumn);
-    if (unit !== "line") return pos;
-    const target = Math.max(cm.firstLine(), Math.min(cm.lastLine(), start.line + amount));
-    const overshot = amount > 0 ? pos.line > target : pos.line < target;
+  const plainStep = (from, dir, goalColumn) => {
+    const pos = findPosV(from, dir, "line", goalColumn);
+    const target = Math.max(cm.firstLine(), Math.min(cm.lastLine(), from.line + dir));
+    const overshot = dir > 0 ? pos.line > target : pos.line < target;
     return overshot ? { line: target, ch: pos.ch } : pos;
+  };
+  const tableOn = (line0) => (folds ? folds.closedTableOnLine(line0 + 1) : null);
+  cm.findPosV = (start, amount, unit, goalColumn) => {
+    if (unit !== "line") return findPosV(start, amount, unit, goalColumn);
+    const dir = amount > 0 ? 1 : -1;
+    let cur = start;
+    let landed = null;
+    for (let i = 0; i < Math.abs(amount); i++) {
+      const here = tableOn(cur.line);
+      const onFold = here && (cm.indexFromPos(cur) === here.from || cm.indexFromPos(cur) === here.to);
+      let next;
+      if (onFold) {
+        // Off the fold: past its far edge. At the end of the note there is nowhere to go.
+        const line0 = dir > 0 ? here.toLine : here.fromLine - 2;
+        if (line0 < cm.firstLine() || line0 > cm.lastLine()) { landed = here; break; }
+        next = { line: line0, ch: 0 };
+      } else {
+        next = plainStep(cur, dir, goalColumn);
+        if (next.hitSide) { cur = Object.assign({}, cur, { hitSide: true }); break; }
+      }
+      const table = tableOn(next.line);
+      if (table && !(here && here.from === table.from && !onFold)) {
+        // Onto a folded table: stand on it, at its start.
+        next = { line: table.fromLine - 1, ch: 0 };
+        landed = table;
+      } else landed = null;
+      cur = next;
+    }
+    // The engine takes a j that did not move "further than asked" at its own column, which puts the
+    // cursor inside the table's first row; editor.js moves it back onto the fold.
+    if (landed) foldSnap = { from: landed.from, to: landed.to };
+    return cur;
   };
 
   cm.on("vim-mode-change", (event) => onModeChange(modeName(event)));

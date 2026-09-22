@@ -7,9 +7,9 @@
 // A StateField rather than a ViewPlugin, because block-level replacements
 // (tables) are only legal from a field.
 
-import { EditorState, Compartment, StateField, StateEffect, Prec, RangeSet } from "@codemirror/state";
+import { EditorState, EditorSelection, Compartment, StateField, StateEffect, Prec, RangeSet } from "@codemirror/state";
 import { EditorView, Decoration, WidgetType, keymap, placeholder, drawSelection,
-         lineNumbers, gutterLineClass, GutterMarker } from "@codemirror/view";
+         lineNumbers, gutterLineClass, GutterMarker, lineNumberMarkers, lineNumberWidgetMarker } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { syntaxTree, ensureSyntaxTree, syntaxHighlighting, HighlightStyle } from "@codemirror/language";
@@ -19,7 +19,7 @@ import { codeLanguages, badgeFor } from "./languages.js";
 import { htmlToMarkdown } from "./html-to-markdown.js";
 import { openFind } from "./find-overlay.js";
 import { createRuntime } from "./plugin-runtime.js";
-import { vimExtension, vimOwnsKeys, attachVim, promptEvent, closePrompt } from "./vim-mode.js";
+import { vimExtension, vimOwnsKeys, attachVim, promptEvent, closePrompt, takeFoldSnap } from "./vim-mode.js";
 
 /* ------------------------------------------------------------------ bridge */
 
@@ -531,12 +531,13 @@ function resolveImage(src) {
 }
 
 class TableWidget extends WidgetType {
-  constructor(text) { super(); this.text = text; }
-  eq(o) { return o.text === this.text; }
+  // `onFold`: vim's cursor is standing on this table while it is folded (SPEC.md §4.6).
+  constructor(text, onFold = false) { super(); this.text = text; this.onFold = onFold; }
+  eq(o) { return o.text === this.text && o.onFold === this.onFold; }
   toDOM(view) {
     const lines = this.text.split("\n").filter((l) => l.trim() !== "");
     const wrap = document.createElement("div");
-    wrap.className = "cm-table-wrap";
+    wrap.className = "cm-table-wrap" + (this.onFold ? " pt-fold-cursor" : "");
     if (lines.length < 2) return wrap;
     const cells = (line) => {
       let s = line.trim();
@@ -566,7 +567,9 @@ class TableWidget extends WidgetType {
     // Clicking a rendered table drops the cursor into it, which reveals the source.
     wrap.addEventListener("mousedown", (e) => {
       e.preventDefault();
-      const pos = view.posAtDOM(wrap);
+      // In vim mode the table's first position is where the cursor stands on the FOLD, which keeps
+      // it drawn; one character in is inside it, which opens it, as a click always has.
+      const pos = view.posAtDOM(wrap) + (vimOn ? 1 : 0);
       view.dispatch({ selection: { anchor: pos }, scrollIntoView: true });
       view.focus();
     });
@@ -598,6 +601,8 @@ function build(state) {
   const deco = [];
   const atomic = [];
   const hiddenLines = [];      // start of every line Live Preview squashes out of sight (fences)
+  const foldOpenLines = [];    // first line of every table open in vim mode, which gets a [−]
+  const pinned = state.field(tableFolds);
 
   // Raw syntax shows on any line the selection touches. When the editor is not
   // focused nothing is "under the cursor", so the whole note renders.
@@ -728,10 +733,19 @@ function build(state) {
         return false;
       } else if (name === "Table") {
         const first = doc.lineAt(from), last = doc.lineAt(to);
-        if (touched(from, to)) {
+        // In vim mode a table is a FOLD (SPEC.md §4.6): it opens when zo / the gutter's [+] pins it
+        // open, or when the cursor is INSIDE it. Standing on its first or last position is standing
+        // on the fold, which keeps it drawn, so j and k can step onto it and past it.
+        const open = vimOn
+          ? pinned.some((p) => p >= from && p <= to)
+            || (focused && sel.some((r) => r.to > from && r.from < to && !(r.empty && (r.head === from || r.head === to))))
+          : touched(from, to);
+        if (open) {
           for (let n = first.number; n <= last.number; n++) line(doc.line(n).from, "cm-table-raw");
+          if (vimOn) foldOpenLines.push(first.from);
         } else {
-          swap(from, to, new TableWidget(doc.sliceString(from, to)), true);
+          const onFold = vimOn && sel.some((r) => r.empty && (r.head === from || r.head === to));
+          swap(from, to, new TableWidget(doc.sliceString(from, to), onFold), true);
         }
         codeRanges.push([from, to]);
         return false;
@@ -805,8 +819,136 @@ function build(state) {
   }
 
   return { deco: Decoration.set(deco, true), atomic: Decoration.set(atomic, true),
-           hiddenGutter: RangeSet.of(hiddenLines.map((pos) => hiddenGutterMarker.range(pos)), true) };
+           hiddenGutter: RangeSet.of(hiddenLines.map((pos) => hiddenGutterMarker.range(pos)), true),
+           foldGutter: RangeSet.of(foldOpenLines.map((pos) => new FoldMarker(doc.lineAt(pos).number, 0).range(pos)), true) };
 }
+
+// ---- Table folds (vim mode, SPEC.md §4.6) --------------------------------------------------------
+// A rendered table is several lines drawn as one block, so the gutter had no number for it and the
+// cursor had nowhere to stand. In vim mode it is a fold, as vim itself would have it: "3 [+3]" in
+// the gutter, j/k step onto it and over it, and zo / za / a click on [+] shows its Markdown.
+
+// Starts of the tables pinned open, mapped through every edit.
+const toggleTableFold = StateEffect.define();   // { pos, open: true | false }
+const clearTableFolds = StateEffect.define();
+const tableFolds = StateField.define({
+  create: () => [],
+  update(pins, tr) {
+    let next = tr.docChanged ? pins.map((p) => tr.changes.mapPos(p, 1)) : pins;
+    for (const e of tr.effects) {
+      if (e.is(clearTableFolds)) next = [];
+      else if (e.is(toggleTableFold)) {
+        const rest = next.filter((p) => p !== e.value.pos);
+        next = e.value.open ? [...rest, e.value.pos] : rest;
+      }
+    }
+    return next;
+  },
+});
+
+/** The table covering `pos` as { from, to, fromLine, toLine } (1-based lines), or null. */
+function tableAt(state, pos) {
+  let found = null;
+  syntaxTree(state).iterate({ from: pos, to: pos, enter: (n) => {
+    if (found) return false;
+    if (n.name === "Table") { found = { from: n.from, to: n.to }; return false; }
+  } });
+  if (!found) return null;
+  return { ...found, fromLine: state.doc.lineAt(found.from).number, toLine: state.doc.lineAt(found.to).number };
+}
+
+/** Is this table drawn folded right now? The same test build() makes. */
+function tableClosed(state, t) {
+  const pins = state.field(tableFolds, false);
+  if (!pins) return false;                       // Source mode: tables are plain text, never folded
+  if (pins.some((p) => p >= t.from && p <= t.to)) return false;
+  return !state.selection.ranges.some((r) => r.to > t.from && r.from < t.to && !(r.empty && (r.head === t.from || r.head === t.to)));
+}
+
+/** For vim's line motions: the folded table on 1-based `line`, or null. */
+function closedTableOnLine(state, line) {
+  if (line < 1 || line > state.doc.lines) return null;
+  const t = tableAt(state, state.doc.line(line).from);
+  return t && tableClosed(state, t) ? t : null;
+}
+
+/** Opens (open=true), closes (false) or toggles (undefined) the table at `pos`. */
+function foldTable(view, pos, open) {
+  const t = tableAt(view.state, pos);
+  if (!t) return false;
+  const pins = view.state.field(tableFolds, false);
+  if (!pins) return false;
+  const pinnedOpen = pins.some((p) => p >= t.from && p <= t.to);
+  const want = open === undefined ? tableClosed(view.state, t) : open;
+  const effects = pins.filter((p) => p >= t.from && p <= t.to)
+    .map((p) => toggleTableFold.of({ pos: p, open: false }));
+  if (want) effects.push(toggleTableFold.of({ pos: t.from, open: true }));
+  const spec = { effects };
+  // Closing with the cursor inside would reopen it at once: the cursor goes to stand on the fold.
+  const head = view.state.selection.main.head;
+  if (!want && head > t.from && head < t.to) spec.selection = EditorSelection.cursor(t.from);
+  if (!want && !pinnedOpen && !spec.selection) return true;
+  view.dispatch(spec);
+  return true;
+}
+
+/** zR / zM: every table open, or every one closed. */
+function foldAllTables(view, open) {
+  if (!open) {
+    const spec = { effects: clearTableFolds.of(null) };
+    const t = tableAt(view.state, view.state.selection.main.head);
+    const head = view.state.selection.main.head;
+    if (t && head > t.from && head < t.to) spec.selection = EditorSelection.cursor(t.from);
+    view.dispatch(spec);
+    return;
+  }
+  const effects = [];
+  syntaxTree(view.state).iterate({ enter: (n) => {
+    if (n.name === "Table") { effects.push(toggleTableFold.of({ pos: n.from, open: true })); return false; }
+  } });
+  view.dispatch({ effects });
+}
+
+/** The gutter's entry for a table: its first line number and [+N] folded, or [−] open. */
+class FoldMarker extends GutterMarker {
+  constructor(line, hidden) { super(); this.line = line; this.hidden = hidden; }
+  eq(o) { return o.line === this.line && o.hidden === this.hidden; }
+  toDOM() {
+    const el = document.createElement("span");
+    el.className = "pt-fold-entry";
+    const num = document.createElement("span");
+    num.textContent = String(this.line);
+    const toggle = document.createElement("span");
+    toggle.className = "pt-fold" + (this.hidden ? "" : " pt-fold-open");
+    toggle.textContent = this.hidden ? `[+${this.hidden}]` : "[−]";
+    toggle.title = this.hidden ? "Show this table's Markdown (zo)" : "Fold this table again (zc)";
+    el.append(num, toggle);
+    return el;
+  }
+}
+
+const foldGutter = [
+  lineNumbers({ domEventHandlers: {
+    mousedown(view, block, event) {
+      if (!(event.target instanceof Element) || !event.target.closest(".pt-fold")) return false;
+      foldTable(view, block.from);
+      return true;
+    },
+  } }),
+  lineNumberWidgetMarker.of((view, widget, block) => {
+    if (!(widget instanceof TableWidget)) return null;
+    const first = view.state.doc.lineAt(block.from).number;
+    return new FoldMarker(first, view.state.doc.lineAt(block.to).number - first + 1);
+  }),
+  // After j lands on a folded table's first line, the cursor stands on the fold, not in a cell.
+  EditorState.transactionFilter.of((tr) => {
+    const snap = takeFoldSnap();
+    if (!snap || tr.docChanged || !tr.selection) return tr;
+    const main = tr.selection.main;
+    if (main.head <= snap.from || main.head >= snap.to) return tr;
+    return [tr, { selection: EditorSelection.range(main.empty ? snap.from : main.anchor, snap.from), sequential: true }];
+  }),
+];
 
 // A gutter number beside a line squashed to 4px would be a clipped smudge, so those lines keep
 // their number (it is still a real line: `12G` counts it) but do not show it.
@@ -815,7 +957,8 @@ const hiddenGutterMarker = new (class extends GutterMarker { get elementClass() 
 const livePreview = StateField.define({
   create: (state) => build(state),
   update(value, tr) {
-    const relevant = tr.docChanged || tr.selection || tr.effects.some((e) => e.is(setFocus) || e.is(refresh));
+    const relevant = tr.docChanged || tr.selection
+      || tr.effects.some((e) => e.is(setFocus) || e.is(refresh) || e.is(toggleTableFold) || e.is(clearTableFolds));
     return relevant ? build(tr.state) : value;
   },
   provide: (f) => [
@@ -823,10 +966,11 @@ const livePreview = StateField.define({
     // Arrow keys step over hidden syntax instead of into invisible characters.
     EditorView.atomicRanges.of((view) => view.state.field(f).atomic),
     gutterLineClass.from(f, (v) => v.hiddenGutter),
+    lineNumberMarkers.from(f, (v) => v.foldGutter),
   ],
 });
 
-const livePreviewExt = [focusField, livePreview, EditorView.editorAttributes.of({ class: "cm-mode-live" })];
+const livePreviewExt = [focusField, tableFolds, livePreview, EditorView.editorAttributes.of({ class: "cm-mode-live" })];
 
 // Source mode: raw markdown everywhere, lightly tinted. SPEC.md §4.1.
 const sourceHighlight = HighlightStyle.define([
@@ -1446,17 +1590,21 @@ async function setVim(on) {
   document.documentElement.dataset.vim = on ? "on" : "off";
   if (!on) {
     closePrompt();
-    view.dispatch({ effects: [vimCompartment.reconfigure([]), gutterCompartment.reconfigure([])] });
+    view.dispatch({ effects: [vimCompartment.reconfigure([]), gutterCompartment.reconfigure([]), clearTableFolds.of(null), refresh.of(null)] });
     post("vim.mode", { mode: null });
     return;
   }
   const ext = await vimExtension();
   if (!vimOn) return;                     // switched off again while the package was loading
-  view.dispatch({ effects: [vimCompartment.reconfigure(ext), gutterCompartment.reconfigure(lineNumbers())] });
+  view.dispatch({ effects: [vimCompartment.reconfigure(ext), gutterCompartment.reconfigure(foldGutter), refresh.of(null)] });
   attachVim(view, post, (mode) => {
     // Leaving insert mode must not leave a slash or template menu floating over normal mode.
     if (mode !== "INSERT") closeCompletion(view);
     post("vim.mode", { mode });
+  }, {
+    closedTableOnLine: (line) => closedTableOnLine(view.state, line),
+    fold: (pos, open) => foldTable(view, pos, open),
+    foldAll: (open) => foldAllTables(view, open),
   });
 }
 

@@ -654,7 +654,8 @@ enum VimNotice {
     static let title = "Vim mode is on — a word before you start"
     static let points: [String] = [
         "Notes start in NORMAL mode: press i to type, Esc to stop. The mode shows in the action bar.",
-        "Pictures and tables are drawn as single blocks in Live Preview. Moving through them works line by line, but the moment the cursor reaches one it opens up into its raw Markdown, so the note can jump in height as you pass, and a vim edit on that line edits its Markdown — x on a picture's first character turns it into a plain link. Resizing and cropping a picture still need the mouse. If anything feels off, switch the note to Source (⌥⌘M): everything is plain text there.",
+        "Tables are folds, the way vim folds text. The gutter shows one like 3 [+3]: j stands on it, j again steps past it. zo, za or a click on [+] shows its Markdown; zc folds it back, zR and zM open or fold every table. dd or x while standing on a folded table edits its first row, so open it first to edit a cell.",
+        "Pictures are drawn as blocks in Live Preview. The moment the cursor reaches one it opens up into its raw Markdown, so the note can jump in height as you pass, and x on a picture's first character turns it into a plain link. Resizing and cropping a picture still need the mouse. If anything feels off, switch the note to Source (⌥⌘M): everything is plain text there.",
         "Line numbers count the note's visible lines, starting after its hidden header. A hidden ``` fence keeps its number without showing it, so 12G always means the 12th line.",
         "There are no splits, tabs or :e — a note is one buffer. :w, :q, :wq, :x and ZZ work.",
     ]

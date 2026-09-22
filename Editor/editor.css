@@ -420,6 +420,17 @@ body {
    but does not show it: beside a 4px line it would be a clipped smudge. */
 .cm-lineNumbers .cm-gutterElement.pt-gutter-hidden { visibility: hidden; }
 
+/* A table is a fold in vim mode: "3 [+3]" beside it drawn, "3 [−]" on its first line open. The
+   toggle is the one part of the gutter that takes a click. */
+.cm-lineNumbers .pt-fold-entry { display: inline-flex; gap: .35em; align-items: baseline; }
+.cm-lineNumbers .pt-fold {
+  color: var(--accent); font-weight: 650; cursor: pointer; border-radius: 3px; padding: 0 1px;
+  transition: background-color .12s ease-out;
+}
+.cm-lineNumbers .pt-fold:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+/* The cursor standing on a folded table: the table itself is the cursor. */
+.pt-fold-cursor > .cm-table { outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent); outline-offset: 2px; }
+
 /* The block cursor of normal mode, in the note's accent rather than the package's pink. */
 .cm-vimMode .cm-fat-cursor { background: var(--accent) !important; opacity: .55; color: transparent !important; outline: none !important; }
 .cm-vimMode.cm-focused .cm-fat-cursor { opacity: .7; }

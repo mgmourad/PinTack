@@ -2065,7 +2065,7 @@ enum SelfTest {
           const raw = el.getBoundingClientRect().top - lineEl.getBoundingClientRect().top;
           if (base === null) base = raw;
           const d = Math.round(raw - base);
-          if (Math.abs(d) > 1) off.push(n + ":" + d);
+          if (Math.abs(d) > 1) off.push(n + ":" + d + "(" + el.textContent + ")");
         }
         return off.join(" ") || "none";
         } catch (e) { return "error " + e; }
@@ -2094,7 +2094,7 @@ enum SelfTest {
           return down.join(",") + " | " + up.join(",");
         };
         return JSON.stringify({
-          table: run("a\\nb\\n| x | y |\\n| - | - |\\n| 1 | 2 |\\nc\\nd"),
+          table: run("a\\nb\\n| x | y |\\n| - | - |\\n| 1 | 2 |\\n\\nd"),
           image: run("a\\nb\\n![p](attachments/none.png)\\nc\\nd"),
           code: run("a\\n```js\\nlet q = 1\\n```\\nb\\nc"),
           mixed: run("above\\n\\n| a | b |\\n| --- | --- |\\n| 1 | 2 |\\n| 3 | 4 |\\n\\nmiddle\\n\\n![pic](attachments/none.png)\\n\\nbelow"),
@@ -2107,10 +2107,72 @@ enum SelfTest {
                     + (1...lines).reversed().map(String.init).joined(separator: ",")
                 return text(json, key) == want
             }
-            check("j and k step one line at a time through a table", exact("table", 7), text(json, "table"))
+            // A folded table is ONE stop (SPEC.md §4.6): j stands on it at its first line, j again
+            // steps past it, k from below lands back on it. The extra presses at each end stay put.
+            // (The blank line after the table matters: in Markdown a line straight after a table is
+            // one more row of it.)
+            check("j and k treat a folded table as one line: onto it, then past it",
+                  text(json, "table") == "1,2,3,6,7,7,7 | 7,6,3,2,1,1,1", text(json, "table"))
             check("…through a picture", exact("image", 5), text(json, "image"))
             check("…through a code block and its hidden fences", exact("code", 6), text(json, "code"))
-            check("…and through a note mixing all of them", exact("mixed", 12), text(json, "mixed"))
+            check("…and through a note mixing all of them",
+                  text(json, "mixed") == "1,2,3,7,8,9,10,11,12,12,12,12 | 12,11,10,9,8,7,3,2,1,1,1,1", text(json, "mixed"))
+            tableFoldTest(panel: panel, then: next)
+        }
+    }
+
+    /// The table fold itself: what the gutter shows, zo/zc/za, zR/zM, the [+] click, and that j walks
+    /// line by line through a table once it is open.
+    private static func tableFoldTest(panel: NotePanel, then next: @escaping () -> Void) {
+        let js = vimKeysJS + """
+        view.focus();
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const drawn = () => !!document.querySelector(".cm-table-wrap");
+        const entry = () => { const e = document.querySelector(".pt-fold"); return e ? e.parentElement.textContent : ""; };
+        const out = {};
+        view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: "a\\nb\\n| x | y |\\n| - | - |\\n| 1 | 2 |\\n\\nc" }, selection: { anchor: 0 } });
+        await sleep(150);
+        out.closedEntry = entry(); out.closedDrawn = drawn();
+        keys("jj"); await sleep(50);
+        out.stand = line() + ":" + (view.state.selection.main.head - view.state.doc.line(line()).from);
+        out.standHighlighted = !!document.querySelector(".pt-fold-cursor");
+        keys("zo"); await sleep(100);
+        out.openDrawn = drawn(); out.openEntry = entry();
+        const walk = []; for (let i = 0; i < 2; i++) { keys("j"); walk.push(line()); } out.walk = walk.join(",");
+        keys("zc"); await sleep(100);
+        out.afterClose = drawn() + " " + line();
+        keys("za"); await sleep(100); out.za1 = drawn();
+        keys("za"); await sleep(100); out.za2 = drawn();
+        keys("zR"); await sleep(100); out.zR = drawn();
+        keys("zM"); await sleep(100); out.zM = drawn();
+        // A real click on the [+], found the way a pointer finds it.
+        const plus = document.querySelector(".pt-fold");
+        const r = plus.getBoundingClientRect();
+        const target = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        out.clickTarget = target ? (target.className || target.tagName) : "nothing under the pointer";
+        if (target) target.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, clientX: r.left + 2, clientY: r.top + r.height / 2, button: 0 }));
+        await sleep(100);
+        out.clickOpened = !drawn(); out.clickEntry = entry();
+        keys("zM"); await sleep(50);
+        return JSON.stringify(out);
+        """
+        vimJS(panel, js) { value in
+            let j = value as? String
+            check("a folded table shows its first line number and how many lines it holds",
+                  text(j, "closedEntry") == "3[+3]" && field(j, "closedDrawn") as? Bool == true, text(j, "closedEntry"))
+            check("j stands the cursor on the fold, at the table's start, and marks the table",
+                  text(j, "stand") == "3:0" && field(j, "standHighlighted") as? Bool == true, text(j, "stand"))
+            check("zo shows the table's Markdown and a [−] to fold it again",
+                  field(j, "openDrawn") as? Bool == false && text(j, "openEntry") == "3[−]", text(j, "openEntry"))
+            check("in an open table j walks row by row", text(j, "walk") == "4,5", text(j, "walk"))
+            check("zc folds it again with the cursor standing on it",
+                  text(j, "afterClose") == "true 3", text(j, "afterClose"))
+            check("za toggles, zR opens every table, zM folds every table",
+                  field(j, "za1") as? Bool == false && field(j, "za2") as? Bool == true
+                      && field(j, "zR") as? Bool == false && field(j, "zM") as? Bool == true, j ?? "")
+            check("clicking the gutter's [+] opens the table",
+                  field(j, "clickOpened") as? Bool == true && text(j, "clickEntry") == "3[−]",
+                  text(j, "clickEntry") + ", clicked " + text(j, "clickTarget"))
             next()
         }
     }
@@ -2141,14 +2203,16 @@ enum SelfTest {
             check("} stops at every blank line around a table and a picture",
                   text(j, "para") == "2:0 6:0 8:0 10:0 11:0", text(j, "para"))
             check("G and gg go to the last and first line", text(j, "G") == "11:0" && text(j, "gg") == "1:0")
-            check("a visual-mode delete across a table removes exactly the lines selected",
-                  text(j, "visualDelete").hasPrefix("\"| 1 | 2 |"), text(j, "visualDelete"))
-            check("dd on a table row removes that row", text(j, "ddOnTable") == "\"| --- | --- |\"")
+            // V j j j from line 1: line 2, the folded table (one stop), the blank line after it.
+            check("a visual-mode delete across a folded table removes it whole, and nothing more",
+                  text(j, "visualDelete").hasPrefix("\"middle words here"), text(j, "visualDelete"))
+            check("dd standing on a folded table removes its first row, as the notice says",
+                  text(j, "ddOnTable") == "\"| --- | --- |\"")
             // Column 0 all the way down. It used to end at 11:4: gj works in screen pixels, and the
             // table's height was booked 10px short, so the last step landed off its column.
-            check("gj and gk step one line at a time too",
-                  text(j, "gj") == "2:0 3:0 4:0 5:0 6:0 7:0 8:0 9:0 10:0 11:0"
-                      && text(j, "gk") == "10:0 9:0 8:0 7:0 6:0 5:0 4:0 3:0 2:0 1:0",
+            check("gj and gk step one line at a time too, the folded table as one",
+                  text(j, "gj") == "2:0 3:0 6:0 7:0 8:0 9:0 10:0 11:0 11:0 11:0"
+                      && text(j, "gk") == "10:0 9:0 8:0 7:0 6:0 3:0 2:0 1:0 1:0 1:0",
                   text(j, "gj") + " / " + text(j, "gk"))
             next()
         }
@@ -2204,8 +2268,9 @@ enum SelfTest {
     /// The one-time vim notice, as it appears in Settings the first time vim mode is switched on.
     private static func vimBannerTest(out: URL, then next: @escaping () -> Void) {
         let words = ([VimNotice.title] + VimNotice.points).joined(separator: " ")
-        check("the vim notice warns about pictures and tables, and names the way out",
-              words.contains("Pictures and tables") && words.contains("Source") && words.contains("press i"))
+        check("the vim notice warns about pictures and explains table folds, and names the way out",
+              words.contains("Pictures are drawn as blocks") && words.contains("Tables are folds") && words.contains("[+3]")
+                  && words.contains("Source") && words.contains("press i"))
         let wasShown = AppSettings.shared.vimNoticeShown
         AppSettings.shared.vimNoticeShown = false
         AppSettings.shared.vimMode = true
