@@ -2463,12 +2463,51 @@ enum SelfTest {
                               sm.stack(id: doomed.id)?.members == [notes[0].id, notes[1].id]
                                   && VaultStore.shared.note(id: notes[0].id) != nil)
                         if let s = sm.stack(id: doomed.id) { sm.unstack(s.id) }
-                        for n in notes + [loner] { wm.close(noteID: n.id) }
-                        next()
+                        stackDeleteAlertTest(notes: notes) {
+                            for n in notes + [loner] { wm.close(noteID: n.id) }
+                            next()
+                        }
                     }
                 }
             }
         }
+    }
+
+    /// All Notes' delete question for stacks, answered with the real keys: Return must UNSTACK (the
+    /// answer that keeps every note), Esc must cancel, and only the red button deletes.
+    private static func stackDeleteAlertTest(notes: [Note], then next: @escaping () -> Void) {
+        let sm = StackManager.shared
+        VaultStore.shared.move(notes[1], toFolder: VaultStore.shared.createFolder("Ops") ?? "Ops")
+        guard let s = sm.create(name: "Keep me", noteIDs: [notes[0].id, notes[1].id]) else { next(); return }
+        let alert = StackDeleteAlert.make(for: [s])
+        let titles = alert.buttons.map(\.title)
+        check("the stack delete question offers Unstack, Delete 2 Notes and Cancel, Unstack first",
+              titles == ["Unstack", "Delete 2 Notes", "Cancel"], titles.joined(separator: ", "))
+        check("…Delete is marked destructive and Return belongs to Unstack",
+              alert.buttons[1].hasDestructiveAction && alert.buttons[0].keyEquivalent == "\r" && alert.buttons[1].keyEquivalent != "\r")
+        check("…and it says a note is filed in a folder", alert.informativeText.contains("including 1 filed in Ops"),
+              alert.informativeText)
+
+        // Answer the real, running alert by posting a key to it, as the keyboard would.
+        func answer(with keyCode: UInt16, _ chars: String) -> StackDeleteAlert.Answer {
+            let timer = Timer(timeInterval: 0.4, repeats: false) { _ in
+                guard let window = NSApp.modalWindow,
+                      let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                               windowNumber: window.windowNumber, context: nil, characters: chars,
+                                               charactersIgnoringModifiers: chars, isARepeat: false, keyCode: keyCode) else { return }
+                NSApp.postEvent(e, atStart: false)
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            return StackDeleteAlert.run(for: [s])
+        }
+        let esc = answer(with: 53, "\u{1b}")
+        check("Esc on the stack delete question cancels and changes nothing",
+              esc == .cancel && sm.stack(id: s.id) != nil && VaultStore.shared.note(id: notes[0].id) != nil)
+        let ret = answer(with: 36, "\r")
+        check("Return on the stack delete question UNSTACKS and deletes no note",
+              ret == .unstack && sm.stack(id: s.id) == nil
+                  && VaultStore.shared.note(id: notes[0].id) != nil && VaultStore.shared.note(id: notes[1].id) != nil)
+        next()
     }
 
     /// Several note windows in one picture, where they sit on the screen, back to front.

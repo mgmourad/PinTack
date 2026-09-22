@@ -475,8 +475,11 @@ the cap so a stack never grows tall.
   themselves get nothing added. On load a missing note leaves its stack, a note listed twice stays in
   the first, and a stack of one is dissolved.
 - **All Notes → Stacks** tab (§8.2) lists, searches, shows / hides, deletes and files stacks.
-  **Deleting a stack deletes its notes** (owner decision), always after a confirmation naming how
-  many notes go; Undo on the toast brings the notes back and the stack with them.
+  **Deleting a stack deletes its notes** (owner decision), always after a question with three
+  answers: **Unstack** (the default, on Return: keeps every note, exactly like the stack bar's
+  Unstack), **Delete N Notes** (red, destructive, a deliberate click) and **Cancel** (Esc). It names
+  how many notes go and, when any are filed, "including N filed in ‹folder›" or "in N folders".
+  Undo on the toast brings the notes back and the stack with them. `StackDeleteAlert`.
 
 ---
 

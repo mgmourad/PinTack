@@ -328,19 +328,11 @@ struct AllNotesView: View {
     }
 
     /// Deleting a stack deletes its NOTES (owner decision, 2026-09-22), so it always asks first,
-    /// naming how many notes, whether one stack is going or all of them.
+    /// and Return in that question unstacks instead. See `StackDeleteAlert`.
     private func deleteStacks(_ ids: [String]) {
         let doomed = StackManager.shared.stacks.filter { ids.contains($0.id) }
-        guard !doomed.isEmpty else { return }
-        let notes = doomed.reduce(0) { $0 + StackManager.shared.notes(of: $1).count }
-        let everything = doomed.count == StackManager.shared.stacks.count && doomed.count > 1
-        let what = doomed.count == 1 ? "“\(doomed[0].name)”" : everything ? "all \(doomed.count) stacks" : "\(doomed.count) stacks"
-        guard Prompt.confirm(title: "Delete \(what) and \(notes == 1 ? "its note" : "the \(notes) notes in \(doomed.count == 1 ? "it" : "them")")?",
-                             message: "The notes go to the Trash, so you can still get them back from there. To keep the notes and only undo the stack, use Unstack on the stack bar instead.",
-                             button: "Move \(notes) note\(notes == 1 ? "" : "s") to Trash", destructive: true) else { return }
         // WindowManager.delete shows the Undo toast; a second toast here would replace it.
-        StackManager.shared.delete(doomed.map(\.id))
-        model.selectedStacks.subtract(ids)
+        if StackDeleteAlert.run(for: doomed) != .cancel { model.selectedStacks.subtract(ids) }
     }
 
     @ViewBuilder private var templateList: some View {

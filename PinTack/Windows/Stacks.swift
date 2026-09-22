@@ -400,3 +400,61 @@ final class StackManager {
         for id in s.members { WindowManager.shared.panel(for: id)?.card.refreshStackState() }
     }
 }
+
+/// What All Notes asks before deleting stacks (owner decision, 2026-09-22). Deleting a stack deletes
+/// its NOTES, so the safe answer is the default: Return unstacks, keeping every note; deleting
+/// takes a deliberate click on the red button; Esc cancels.
+enum StackDeleteAlert {
+
+    enum Answer { case delete, unstack, cancel }
+
+    static func make(for stacks: [NoteStack]) -> NSAlert {
+        let notes = stacks.flatMap { StackManager.shared.notes(of: $0) }
+        let n = notes.count
+        let what = stacks.count == 1 ? "“\(stacks[0].name)”"
+            : stacks.count == StackManager.shared.stacks.count ? "all \(stacks.count) stacks" : "\(stacks.count) stacks"
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Delete \(what) and \(n == 1 ? "its note" : "the \(n) notes in \(stacks.count == 1 ? "it" : "them")")?"
+        alert.informativeText = "\(n == 1 ? "The note goes" : "The \(n) notes go") to the Trash\(folderClause(notes)), "
+            + "so you can still get them back from there. Unstack keeps every note and only undoes the stack."
+        // The FIRST button is the one Return presses: Unstack, the answer that loses nothing.
+        alert.addButton(withTitle: "Unstack")
+        let delete = alert.addButton(withTitle: "Delete \(n) Note\(n == 1 ? "" : "s")")
+        delete.hasDestructiveAction = true
+        delete.keyEquivalent = ""
+        // A button titled Cancel is the one Esc presses.
+        alert.addButton(withTitle: "Cancel")
+        return alert
+    }
+
+    /// ", including 2 filed in Work", ", including 3 filed in 2 folders", or nothing.
+    static func folderClause(_ notes: [Note]) -> String {
+        let folders = notes.map { VaultStore.shared.folder(of: $0) }.filter { !$0.isEmpty }
+        guard !folders.isEmpty else { return "" }
+        let distinct = Set(folders)
+        return ", including \(folders.count) filed in " + (distinct.count == 1 ? distinct.first! : "\(distinct.count) folders")
+    }
+
+    static func answer(_ response: NSApplication.ModalResponse) -> Answer {
+        switch response {
+        case .alertFirstButtonReturn:  return .unstack
+        case .alertSecondButtonReturn: return .delete
+        default:                       return .cancel
+        }
+    }
+
+    /// Asks, then does what was answered.
+    @discardableResult
+    static func run(for stacks: [NoteStack]) -> Answer {
+        guard !stacks.isEmpty else { return .cancel }
+        NSApp.activate(ignoringOtherApps: true)
+        let result = answer(make(for: stacks).runModal())
+        switch result {
+        case .unstack: stacks.forEach { StackManager.shared.unstack($0.id) }
+        case .delete:  StackManager.shared.delete(stacks.map(\.id))
+        case .cancel:  break
+        }
+        return result
+    }
+}

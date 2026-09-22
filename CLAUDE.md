@@ -416,8 +416,9 @@ Owner decisions added after the rebuild (2026-09-19):
   because ⌥⇧2 is the global Templates key. Stack keys pass through unless a stacked note is key.
   In a stack the STACK is pinned (`NotePanel.isOnTop`), and the note's own pin art and glow are not
   drawn (`showsOwnPin`). Unstack restores each note's pre-stack frame from `before`. Deleting a stack
-  deletes its notes, always behind All Notes' confirmation, and `WindowManager.delete(_:onUndo:)`
-  brings the stack back on Undo.
+  deletes its notes, always behind `StackDeleteAlert`, whose DEFAULT (Return) is Unstack — the
+  answer that loses nothing — and whose destructive button needs a click. The self-test presses
+  Return on the real alert. `WindowManager.delete(_:onUndo:)` brings the stack back on Undo.
 - `MainWindowController.show` switches the tab INSTANTLY and then sends `objectWillChange` once
   more on the next run-loop turn. Without that nudge, a tab change landing while SwiftUI was mid-update
   was dropped: the model said Settings while the window drew All Notes, one run in two (measured
