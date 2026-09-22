@@ -422,7 +422,12 @@ Owner decisions added after the rebuild (2026-09-19):
   answer that loses nothing — and whose destructive button needs a click. The self-test presses
   Return on the real alert. `WindowManager.delete(_:onUndo:)` brings the stack back on Undo.
 - All Notes and Settings tooltips read "Name | description" through `Tip.text` / `.tip(_:_:)`, after
-  a 2-second delay. Every new control there gets one. Row actions live in `Central/RowActions.swift`
+  1 second; the All Notes glyph tabs draw their own (`GlyphTabs`, 0.5 s, orange). Every new control
+  there gets one. Row icons go through `RowActionIcons`: show/hide, rename, (Unstack), delete.
+- A stacked window TAKES clicks in its margin that lie over another member's title bar and hands
+  them on (`stackMemberUnder`). Without it, clicks low on a back title bar were dropped: macOS routes
+  them to the front window wherever its shadow is not fully transparent. Synthetic clicks sent
+  straight to the back window never showed this — the self-test routes points the way macOS does. Row actions live in `Central/RowActions.swift`
   (`RowIconButton`, `NoteRowActions`, `TemplateNaming`), shared by every tab.
 - A pinned note's glow is its own colour on light paper and LIGHT on dark paper
   (`NoteCardView.glowColor`); strength goes to 200%. The pushpin is drawn at `pinScale` 0.6.

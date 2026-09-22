@@ -450,7 +450,8 @@ once replaced the one carrying Undo.
 Owner decision, 2026-09-22: **2 to 5 open notes piled into one**, to clear a crowded desk. Five is
 the cap so a stack never grows tall.
 
-- **Making one:** the **paperclip**, just left of the pushpin in every note's title bar, opens a
+- **Making one:** the **paperclip**, just left of the pushpin in every note's title bar (or `/stack`
+  in the note, which opens the same popover from the paperclip), opens a
   popover listing the open notes with a checkbox each (the clicked note is checked and becomes #1),
   a name field and OK. A note already in a stack is listed, greyed, with its stack's name: a note is
   in one stack at a time. Past five, the rest cannot be checked.
@@ -472,7 +473,10 @@ the cap so a stack never grows tall.
 - **Bringing a note forward**, by a click on its title bar or by any other route that makes it the
   active window (Mission Control, ⌘`), re-lays the whole pile with the spring: that note to the front
   place, the rest back behind it. macOS raises a clicked window on the press, so a click is anything
-  under 4 pt of movement; more than that drags the whole pile. Resizing the front note resizes the
+  under 4 pt of movement; more than that drags the whole pile. **Every point of a back title bar
+  works:** the window in front's transparent margin (§5.2) lies over the lower part of the title bar
+  behind it, and where its shadow darkens that margin macOS gives the click to the front window —
+  which takes it and hands it to the note whose title bar is there. Resizing the front note resizes the
   pile. The front note, whichever it is, keeps the Live Preview / Source pencil.
 - **Pinned** is the stack's, not the notes': every window of it floats, and no note's own pin or
   glow is drawn while it is stacked. **Collapsed** folds every note to its title bar, with the front
@@ -630,15 +634,17 @@ corner switches to the Settings tab.
   any note's title, Add to Folder (every note of the stack moves into it and stays stacked) and
   Delete selected, which asks first because it deletes the notes.
 
-Every row, in every tab, carries its actions as icons at its right edge: rename, show / hide and
-delete (a template's rename changes its `@name`, under the same rules as `/template`). The Todos
+Every row, in every tab, carries its actions as icons at its right edge, always in one order:
+**show / hide, rename, then Unstack (Stacks only), and delete last** (`RowActionIcons`) (a template's rename changes its `@name`, under the same rules as `/template`). The Todos
 tab's circle is a **selection** box, like every other tab's; **Mark Complete** ticks every task in
 the selected todos and **Delete selected** bins them. The window's All Notes tab has the owner's own
 sticky-pad glyph (`Assets.xcassets/AllNotesTab`), so it no longer shares the Stacks icon.
 
 **Tooltips:** every control in All Notes and Settings has one, reading "Name | description"
-(`Tip.text`), and they wait 2 seconds (`NSInitialToolTipDelay`, registered as a default, never
-written into the user's preferences).
+(`Tip.text`), and they wait 1 second (`NSInitialToolTipDelay`, registered as a default, never
+written into the user's preferences). The All Notes glyph tabs draw their own, sooner (0.5 s) and
+more prominent: solid orange, the name in bold over what the tab holds. macOS has a single tooltip
+delay per app, so a faster one cannot be a system tooltip.
 
 ### 8.3 Quick capture
 

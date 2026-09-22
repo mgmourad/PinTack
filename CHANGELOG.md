@@ -12,6 +12,23 @@ it stands.
 
 ---
 
+## Unreleased
+
+### Fixed
+- **Clicking a stacked note's title bar did nothing on its lower part (owner).** The front window's
+  margin lies over the title bars behind it, and macOS gave those clicks to the front window, which
+  dropped them. It now hands them on; the self-test routes clicks across every title bar the way
+  macOS does, and fails without the fix.
+- **All Notes row icons are in one order everywhere (owner):** show/hide, rename, Unstack, delete.
+- **The Unstack strike crosses the paperclip** instead of running alongside it (owner).
+
+### Added
+- **`/stack`** opens the paperclip's stack popover, with the same rules (owner).
+
+### Changed
+- **Tooltips wait 1 second (owner),** and the All Notes tab glyphs show a bolder, orange tip after
+  half a second.
+
 ## Build 11 — 2026-09-22
 
 ### Added
