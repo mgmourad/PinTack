@@ -284,7 +284,7 @@ struct AllNotesView: View {
                 }
                 .buttonStyle(.plain).font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                Text(model.selectedStacks.isEmpty ? "\(stacks.count) stacks" : "\(model.selectedStacks.count) selected")
+                Text(model.selectedStacks.isEmpty ? "\(stacks.count) stack\(stacks.count == 1 ? "" : "s")" : "\(model.selectedStacks.count) selected")
                     .font(.caption).foregroundStyle(.secondary)
             }
             .padding(.horizontal, 14).padding(.bottom, 4)

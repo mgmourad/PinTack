@@ -1918,6 +1918,9 @@ enum SelfTest {
     /// was never pressed looked like a vim that did nothing.
     private static func vimJS(_ panel: NotePanel, _ body: String, _ done: @escaping (Any?) -> Void) {
         panel.card.editor.callAsyncJavaScript(vimKeysJS + body, arguments: [:], in: nil, in: .page) { result in
+            // A script that does not even compile comes back as an error, not a value: say so, or the
+            // checks built on it fail with nothing to go on.
+            if case .failure(let error) = result { log("PAGE SCRIPT ERROR: \(error)") }
             done(try? result.get())
         }
     }
@@ -2124,7 +2127,8 @@ enum SelfTest {
     /// The table fold itself: what the gutter shows, zo/zc/za, zR/zM, the [+] click, and that j walks
     /// line by line through a table once it is open.
     private static func tableFoldTest(panel: NotePanel, then next: @escaping () -> Void) {
-        let js = vimKeysJS + """
+        let js = """
+        try {
         view.focus();
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         const drawn = () => !!document.querySelector(".cm-table-wrap");
@@ -2155,11 +2159,12 @@ enum SelfTest {
         out.clickOpened = !drawn(); out.clickEntry = entry();
         keys("zM"); await sleep(50);
         return JSON.stringify(out);
+        } catch (e) { return JSON.stringify({ error: String(e) + " " + (e.stack || "").split("\\n")[1] }); }
         """
         vimJS(panel, js) { value in
             let j = value as? String
             check("a folded table shows its first line number and how many lines it holds",
-                  text(j, "closedEntry") == "3[+3]" && field(j, "closedDrawn") as? Bool == true, text(j, "closedEntry"))
+                  text(j, "closedEntry") == "3[+3]" && field(j, "closedDrawn") as? Bool == true, text(j, "closedEntry") + text(j, "error"))
             check("j stands the cursor on the fold, at the table's start, and marks the table",
                   text(j, "stand") == "3:0" && field(j, "standHighlighted") as? Bool == true, text(j, "stand"))
             check("zo shows the table's Markdown and a [−] to fold it again",
@@ -2324,7 +2329,9 @@ enum SelfTest {
             }
             check("a stack fans its notes out: one size, each a title bar above the one in front", fanned,
                   cards.map { "\(Int($0.minX)),\(Int($0.minY)) \(Int($0.width))×\(Int($0.height))" }.joined(separator: " | "))
-            let z = NSApp.orderedWindows.compactMap { $0 as? NotePanel }.filter { p in panels.contains { $0 === p } }.map(\.note.id)
+            // The window server's own front-to-back order. NSApp.orderedWindows leaves these panels out.
+            let numbers = (NSWindow.windowNumbers(options: []) ?? []).map(\.intValue)
+            let z = numbers.compactMap { n in panels.first { $0.windowNumber == n } }.map(\.note.id)
             check("the front note is drawn on top of the others", z == notes.map(\.id), z.joined(separator: ","))
             check("each title bar leads with the note's number",
                   panels.enumerated().allSatisfy { i, p in p.card.debugTitleText.string.hasPrefix("#\(i + 1)") },
@@ -2466,7 +2473,8 @@ enum SelfTest {
 
     /// Several note windows in one picture, where they sit on the screen, back to front.
     private static func snapshotPile(_ panels: [NotePanel], to url: URL, completion: @escaping () -> Void) {
-        let ordered = NSApp.orderedWindows.compactMap { $0 as? NotePanel }.filter { p in panels.contains { $0 === p } }.reversed()
+        let numbers = (NSWindow.windowNumbers(options: []) ?? []).map(\.intValue)
+        let ordered = numbers.compactMap { n in panels.first { $0.windowNumber == n } }.reversed()
         let union = ordered.reduce(NSRect.null) { $0.union($1.frame) }
         var parts: [(NSRect, URL)] = []
         func shoot(_ rest: [NotePanel]) {
@@ -2484,7 +2492,7 @@ enum SelfTest {
                 return
             }
             let file = FileManager.default.temporaryDirectory.appendingPathComponent("pile-\(parts.count).png")
-            snapshot(window: p, to: file) { parts.append((p.frame, file)); shoot(Array(rest.dropFirst())) }
+            snapshot(window: p, to: file, backdrop: nil) { parts.append((p.frame, file)); shoot(Array(rest.dropFirst())) }
         }
         shoot(Array(ordered))
     }
@@ -2619,7 +2627,9 @@ enum SelfTest {
 
     // MARK: Rendering
 
-    private static func snapshot(window: NSWindow, to url: URL, completion: @escaping () -> Void) {
+    /// `backdrop` nil keeps the transparent margin transparent, for pictures made of several windows.
+    private static func snapshot(window: NSWindow, to url: URL, backdrop: NSColor? = NSColor(srgbRed: 0.36, green: 0.40, blue: 0.48, alpha: 1),
+                                 completion: @escaping () -> Void) {
         guard let view = window.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { completion(); return }
         view.cacheDisplay(in: view.bounds, to: rep)
         let base = NSImage(size: view.bounds.size)
@@ -2636,9 +2646,8 @@ enum SelfTest {
             }
         }
         group.notify(queue: .main) {
-            let backdrop = NSColor(srgbRed: 0.36, green: 0.40, blue: 0.48, alpha: 1)
             let composed = NSImage(size: view.bounds.size, flipped: false) { rect in
-                backdrop.setFill(); rect.fill()
+                if let backdrop { backdrop.setFill(); rect.fill() }
                 base.draw(in: rect)
                 for (frame, image) in shots { image.draw(in: frame) }
                 return true

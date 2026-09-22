@@ -14,8 +14,10 @@ struct StackCreatorView: View {
 
     /// The open notes, the clicked one first and the rest front to back as they sit on the desk.
     static func candidates(for noteID: String) -> [Candidate] {
-        let ordered = NSApp.orderedWindows.compactMap { $0 as? NotePanel }
-        let rest = WindowManager.shared.openPanels.filter { p in !ordered.contains { $0 === p } }
+        // The window server's front-to-back order: NSApp.orderedWindows leaves note panels out.
+        let open = WindowManager.shared.openPanels
+        let ordered = (NSWindow.windowNumbers(options: []) ?? []).compactMap { n in open.first { $0.windowNumber == n.intValue } }
+        let rest = open.filter { p in !ordered.contains { $0 === p } }
         var panels = ordered + rest
         if let i = panels.firstIndex(where: { $0.note.id == noteID }) { panels.insert(panels.remove(at: i), at: 0) }
         return panels.map { p in
