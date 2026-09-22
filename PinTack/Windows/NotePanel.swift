@@ -67,8 +67,16 @@ final class NotePanel: NSPanel {
         // that window and the rest of the pile stayed where it was (owner-reported, 2026-09-22).
         // Next turn of the run loop: re-ordering windows from inside becomeKey is asking for trouble.
         if StackManager.shared.stack(containing: note.id) != nil, !StackManager.shared.isFront(note.id) {
-            let id = note.id
-            DispatchQueue.main.async { StackManager.shared.bringToFront(id) }
+            DispatchQueue.main.async { [weak self] in
+                // STILL key, and still not the front, by the time this runs. A click on a back note's
+                // title bar is delivered to the window in FRONT of it (its margin covers most of that
+                // title bar), and macOS makes THAT window key; the card hands the click on to the note
+                // the pointer was actually over. Without this guard the stale key event then dragged
+                // the wrong note forward a moment later — "it moves, but not the one I clicked"
+                // (owner-reported, 2026-09-22).
+                guard let self, self.isKeyWindow, !StackManager.shared.isFront(self.note.id) else { return }
+                StackManager.shared.bringToFront(self.note.id)
+            }
         }
     }
 
@@ -102,9 +110,17 @@ final class NotePanel: NSPanel {
             let height = NotePanel.headerHeight + (card?.stackBarHeight ?? 0)
             return NSRect(x: full.minX, y: full.maxY - height, width: full.width, height: height)
         }
-        let extra = card?.extraFooterHeight ?? 0
+        let extra = footerExtra
         guard extra > 0 else { return full }
         return NSRect(x: full.minX, y: full.minY - extra, width: full.width, height: full.height + extra)
+    }
+
+    /// How much a wrapped task tracker adds to this note's height. Behind the front of a stack it
+    /// adds nothing: only the front note's action bar is visible, and a taller card behind it poked
+    /// its bar out under the pile as a stray strip of another colour (owner-reported, 2026-09-22).
+    private var footerExtra: CGFloat {
+        guard let stack = StackManager.shared.stack(containing: note.id) else { return card?.extraFooterHeight ?? 0 }
+        return stack.front == note.id ? (card?.extraFooterHeight ?? 0) : 0
     }
 
     /// Persist the CARD rect, never the window rect. SPEC.md §5.2.
@@ -115,7 +131,7 @@ final class NotePanel: NSPanel {
                                     width: visible.width, height: note.cardFrame.height)
         } else {
             // Take the tracker's extra rows back out: what is stored is the plain-bar card.
-            let extra = card?.extraFooterHeight ?? 0
+            let extra = footerExtra
             note.cardFrame = NSRect(x: visible.minX, y: visible.minY + extra, width: visible.width,
                                     height: max(NotePanel.headerHeight, visible.height - extra))
         }

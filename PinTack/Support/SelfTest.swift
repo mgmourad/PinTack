@@ -2547,13 +2547,122 @@ enum SelfTest {
                               sm.stack(id: doomed.id)?.members == [notes[0].id, notes[1].id]
                                   && VaultStore.shared.note(id: notes[0].id) != nil)
                         if let s = sm.stack(id: doomed.id) { sm.unstack(s.id) }
+                        stackRapidClickTest {
                         stackDeleteAlertTest(notes: notes) {
                             for n in notes + [loner] { wm.close(noteID: n.id) }
                             next()
-                        }
+                        } }
                     }
                 }
             }
+        }
+    }
+
+    /// Five notes of different sizes, clicked one after another FASTER than the pile's animation —
+    /// the owner's own case (2026-09-22), where a note ended up somewhere other than the front and
+    /// one was left behind at its old size. After every click the windows on screen must agree with
+    /// the model: same size, one title bar apart, the clicked note in front and numbered #1.
+    private static func stackRapidClickTest(then next: @escaping () -> Void) {
+        let wm = WindowManager.shared, sm = StackManager.shared
+        let sizes = [NSSize(width: 320, height: 240), NSSize(width: 380, height: 300), NSSize(width: 300, height: 380),
+                     NSSize(width: 340, height: 260), NSSize(width: 360, height: 320)]
+        let notes = sizes.enumerated().map { i, size in
+            // Nine tasks on the todos: the tracker wraps past six, which is what makes the action bar
+            // grow a row and, before the fix, poke out under the pile.
+            VaultStore.shared.createNote(body: "Pile note \(i + 1)\n\n" + (1...9).map { "- [ ] step \($0)" }.joined(separator: "\n"),
+                                         tags: i % 2 == 0 ? ["todo"] : [],
+                                         frame: NSRect(x: 180 + CGFloat(i) * 40, y: 200 + CGFloat(i) * 30,
+                                                       width: size.width, height: size.height))
+        }
+        notes.forEach { wm.open($0) }
+        guard let made = sm.create(name: "Recipes", noteIDs: notes.map(\.id)) else {
+            check("a stack of five is made", false); return next()
+        }
+        let panels = notes.compactMap { wm.panel(for: $0.id) }
+
+        /// What the pile should look like: every card the front's size, each a title bar higher.
+        func faults(_ label: String) -> [String] {
+            guard let s = sm.stack(id: made.id), let front = wm.panel(for: s.front ?? "") else { return ["no stack"] }
+            // Measured by TOP edge: the front note's own action bar may be a row taller (a wrapped
+            // task tracker grows downward), which is its business and no part of the fan.
+            let base = NotePanel.cardRect(forWindow: front.frame)
+            var bad: [String] = []
+            for (depth, id) in s.order.enumerated() {
+                guard let p = wm.panel(for: id) else { bad.append("#\(depth + 1) has no window"); continue }
+                let card = NotePanel.cardRect(forWindow: p.frame)
+                let wantTop = base.maxY + CGFloat(depth) * NotePanel.headerHeight
+                if abs(card.width - base.width) > 1 || abs(card.minX - base.minX) > 1 || abs(card.maxY - wantTop) > 1 {
+                    bad.append("\(label) #\(depth + 1) top \(Int(card.minX)),\(Int(card.maxY)) \(Int(card.width))×\(Int(card.height))"
+                               + " wanted \(Int(base.minX)),\(Int(wantTop)) \(Int(base.width))")
+                }
+                if p.card.debugTitleText.string.hasPrefix("#\(depth + 1)") == false {
+                    bad.append("\(label) place \(depth + 1) is titled “\(p.card.debugTitleText.string.prefix(3))”")
+                }
+            }
+            return bad
+        }
+
+        // A click on a title bar, routed the way macOS routes one: to the window in front at that spot.
+        func click(_ panel: NotePanel) {
+            let card = NotePanel.cardRect(forWindow: panel.frame)
+            let point = NSPoint(x: card.midX, y: card.maxY - NotePanel.headerHeight / 2)
+            let numbers = (NSWindow.windowNumbers(options: []) ?? []).map(\.intValue)
+            let top = numbers.compactMap { n in panels.first { $0.windowNumber == n } }.first { $0.frame.contains(point) } ?? panel
+            // What macOS does BEFORE the click reaches the app: it raises the window under the
+            // pointer and makes it key — and over a pile that is often the note in FRONT, not the
+            // one being aimed at.
+            top.makeKeyAndOrderFront(nil)
+            let inWindow = top.convertPoint(fromScreen: point)
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                if let e = NSEvent.mouseEvent(with: type, location: inWindow, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                              windowNumber: top.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
+                    top.sendEvent(e)
+                }
+            }
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            check("a pile of five different-sized notes lines up", faults("settled").isEmpty, faults("settled").joined(separator: "; "))
+            // A todo behind the front used to hang its own action bar out below the pile — a strip of
+            // another colour under the front note, which is what the owner saw (2026-09-22).
+            let back = notes.dropFirst().compactMap { wm.panel(for: $0.id) }
+            if let front = wm.panel(for: sm.stack(id: made.id)?.front ?? "") {
+                let poking = back.filter { $0.frame.minY < front.frame.minY - 1 }
+                    .map { "\($0.note.title): \(Int(front.frame.minY - $0.frame.minY))pt below" }
+                check("no note behind the front hangs out below the pile", poking.isEmpty, poking.joined(separator: "; "))
+            }
+            var wrongFront: [String] = []
+            // Four clicks, each while the last one's spring is still running (the spring is 0.32 s).
+            let order = [4, 2, 5, 3]
+            func clickStep(_ rest: [Int]) {
+                guard let which = rest.first else {
+                    // Let everything settle, then look again.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                        let bad = faults("after clicks")
+                        check("the note you click is the note that comes forward, every time",
+                              wrongFront.isEmpty, wrongFront.joined(separator: "; "))
+                        check("clicking through a pile faster than it animates leaves every note in its place",
+                              bad.isEmpty, bad.joined(separator: "; "))
+                        for n in notes { wm.close(noteID: n.id) }
+                        if let s = sm.stack(id: made.id) { sm.unstack(s.id) }
+                        next()
+                    }
+                    return
+                }
+                guard let s = sm.stack(id: made.id), s.order.indices.contains(which - 1),
+                      let p = wm.panel(for: s.order[which - 1]) else { clickStep(Array(rest.dropFirst())); return }
+                let aimedAt = p.note.id
+                click(p)
+                // The note that was CLICKED must be the one in front — not merely some note.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    if sm.stack(id: made.id)?.front != aimedAt {
+                        let got = sm.stack(id: made.id).flatMap { st in notes.firstIndex { $0.id == st.front } }.map { $0 + 1 } ?? 0
+                        wrongFront.append("clicked place \(which) (note \(notes.firstIndex { $0.id == aimedAt }.map { $0 + 1 } ?? 0)), note \(got) came forward")
+                    }
+                    clickStep(Array(rest.dropFirst()))
+                }
+            }
+            clickStep(order)
         }
     }
 
