@@ -2415,16 +2415,25 @@ enum SelfTest {
                 ActionRouter.resetDedupeMemory()
                 return app?.handleShortcut(e)
             }
+            // Measured against the pile as it stands now, not against the order the notes were made
+            // in: earlier checks in this test move notes about.
+            let beforeCycle = sm.stack(id: made.id)?.order ?? []
             _ = press(.stackCycle)
-            let afterCycle = sm.stack(id: made.id)
+            let afterCycle = sm.stack(id: made.id)?.order ?? []
             check("⌥Tab brings the next note forward and sends the front one to the back",
-                  afterCycle?.order == [notes[1].id, notes[2].id, notes[0].id], afterCycle?.order.joined(separator: ",") ?? "")
+                  afterCycle == Array(beforeCycle.dropFirst()) + [beforeCycle.first ?? ""],
+                  "\(beforeCycle.count) → \(afterCycle.count)")
+            let beforeThree = sm.stack(id: made.id)?.order ?? []
             _ = press(.stackNote3)
-            let afterThree = sm.stack(id: made.id)
-            // After ⌥Tab the pile is [2nd, 3rd, 1st]; ⌘3 takes the third from the front — the first note.
-            check("⌘3 brings the third note from the front forward, and it becomes #1",
-                  afterThree?.front == notes[0].id && panels[0].card.debugTitleText.string.hasPrefix("#1")
-                      && panels[1].card.debugTitleText.string.hasPrefix("#2") && panels[2].card.debugTitleText.string.hasPrefix("#3"),
+            var wantThree = beforeThree
+            if wantThree.count == 3 { wantThree.swapAt(0, 2) }
+            let afterThree = sm.stack(id: made.id)?.order ?? []
+            // ⌘3 takes the third note from the front and SWAPS it with the front one (owner, 2026-09-22).
+            let titlesMatchPlaces = afterThree.enumerated().allSatisfy { place, id in
+                panels.first { $0.note.id == id }?.card.debugTitleText.string.hasPrefix("#\(place + 1)") == true
+            }
+            check("⌘3 brings the third note from the front forward, trading places with it",
+                  afterThree == wantThree && titlesMatchPlaces,
                   panels.map { $0.card.debugTitleText.string }.joined(separator: " | "))
             loner.visible = true
             wm.panel(for: loner.id)?.makeKeyAndOrderFront(nil)
@@ -2606,6 +2615,8 @@ enum SelfTest {
             log("PILE at rest: \(pile().joined(separator: " → "))")
             var wrong: [String] = []
             var lost: [String] = []
+            var notSwapped: [String] = []
+            let atRest = pile()
             // Each place clicked twice, in turn, letting the pile settle between clicks.
             var steps: [(Int, Int)] = []
             for place in 1...5 { steps.append((place, 1)); steps.append((place, 2)) }
@@ -2615,6 +2626,11 @@ enum SelfTest {
                     check("clicking a title bar brings THAT note to the front, at every place in the pile",
                           wrong.isEmpty, wrong.joined(separator: "; "))
                     check("…and every note is still in the pile afterwards", lost.isEmpty, lost.joined(separator: "; "))
+                    check("a note brought forward trades places with the front one, and nothing else moves",
+                          notSwapped.isEmpty, notSwapped.joined(separator: "; "))
+                    // Ten clicks, two at each place: every place ends up back where it started.
+                    check("clicking the same title bar twice puts the pile back as it was",
+                          pile() == atRest, "\(pile().joined(separator: ",")) against \(atRest.joined(separator: ","))")
                     for n in notes { wm.close(noteID: n.id) }
                     if let s = sm.stack(id: made.id) { sm.unstack(s.id) }
                     next()
@@ -2628,6 +2644,13 @@ enum SelfTest {
                         + "\(before.joined(separator: ",")) → \(after.joined(separator: ","))")
                     if after.first != aimed { wrong.append("place \(step.0)#\(step.1): clicked \(aimed), \(after.first ?? "?") came forward") }
                     if Set(after) != Set(before) || after.count != 5 { lost.append("place \(step.0)#\(step.1): pile became \(after.joined(separator: ","))") }
+                    // A SWAP (owner, 2026-09-22): the two notes trade places and nothing else moves.
+                    var want = before
+                    want.swapAt(0, step.0 - 1)
+                    if after != want {
+                        notSwapped.append("place \(step.0)#\(step.1): \(before.joined(separator: ",")) → \(after.joined(separator: ","))"
+                                          + ", expected \(want.joined(separator: ","))")
+                    }
                     run(Array(rest.dropFirst()))
                 }
             }
@@ -2761,14 +2784,28 @@ enum SelfTest {
         // Answer the real, running alert by posting a key to it, as the keyboard would.
         func answer(with keyCode: UInt16, _ chars: String) -> StackDeleteAlert.Answer {
             let timer = Timer(timeInterval: 0.4, repeats: false) { _ in
-                guard let window = NSApp.modalWindow,
-                      let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                guard let window = NSApp.modalWindow else { return }
+                // The key only reaches an alert that is the ACTIVE window, and PinTack is often not
+                // the active app while the suite runs.
+                NSApp.activate(ignoringOtherApps: true)
+                window.makeKeyAndOrderFront(nil)
+                guard let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                                                windowNumber: window.windowNumber, context: nil, characters: chars,
                                                charactersIgnoringModifiers: chars, isARepeat: false, keyCode: keyCode) else { return }
                 NSApp.postEvent(e, atStart: false)
             }
             RunLoop.main.add(timer, forMode: .common)
-            return StackDeleteAlert.run(for: [s])
+            // A modal sheet nobody answers would hang the whole suite; after three seconds it is
+            // abandoned and the check fails with something to read instead.
+            let rescue = Timer(timeInterval: 3.0, repeats: false) { _ in
+                guard NSApp.modalWindow != nil else { return }
+                log("STACK DELETE ALERT: no key reached it, abandoning the sheet")
+                NSApp.abortModal()
+            }
+            RunLoop.main.add(rescue, forMode: .common)
+            let answer = StackDeleteAlert.run(for: [s])
+            timer.invalidate(); rescue.invalidate()
+            return answer
         }
         let esc = answer(with: 53, "\u{1b}")
         check("Esc on the stack delete question cancels and changes nothing",

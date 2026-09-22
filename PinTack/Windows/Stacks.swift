@@ -246,9 +246,8 @@ final class StackManager {
     /// Puts a stack back on the desk, with `front` (or its old front) in front.
     func show(_ id: String, front: String? = nil) {
         guard let i = index(of: id) else { return }
-        if let front, stacks[i].order.contains(front) {
-            stacks[i].order.removeAll { $0 == front }
-            stacks[i].order.insert(front, at: 0)
+        if let front, let place = stacks[i].order.firstIndex(of: front), place != 0 {
+            stacks[i].order.swapAt(0, place)          // the same swap a click makes
             save()
         }
         let s = stacks[i]
@@ -302,18 +301,24 @@ final class StackManager {
         NotificationCenter.default.post(name: .stacksDidChange, object: nil)
     }
 
-    /// ⌘1–⌘5: the note that many places from the front comes forward, and becomes #1.
+    /// ⌘1–⌘5: the note at that place trades places with the front one, and becomes #1.
     func bringToFront(number: Int, from noteID: String) {
         guard let s = stack(containing: noteID), s.order.indices.contains(number - 1) else { return }
         bringToFront(s.order[number - 1])
     }
 
+    /// A note brought forward SWAPS places with the one in front (owner decision, 2026-09-22): the
+    /// note that was in front drops into the place just vacated and nothing else moves, so clicking
+    /// the same place twice puts the pile back exactly as it was. Taking the note out and pushing it
+    /// onto the front instead rotated everything between them, and the pile reshuffled under the
+    /// pointer — the note you clicked a moment ago was somewhere else by the time you looked.
     func bringToFront(_ noteID: String) {
         guard let i = stacks.firstIndex(where: { $0.members.contains(noteID) }) else { return }
-        guard stacks[i].front != noteID else { focusFront(of: stacks[i]); return }
+        guard let place = stacks[i].order.firstIndex(of: noteID), place != 0 else {
+            focusFront(of: stacks[i]); return
+        }
         let anchor = frontCard(of: stacks[i])
-        stacks[i].order.removeAll { $0 == noteID }
-        stacks[i].order.insert(noteID, at: 0)
+        stacks[i].order.swapAt(0, place)
         save()
         let s = stacks[i]
         layout(s, animated: true, anchor: anchor)
