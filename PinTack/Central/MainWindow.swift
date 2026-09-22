@@ -81,6 +81,7 @@ struct MainWindowView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(tab.rawValue)
+                .tip(tab.rawValue, tab == .allNotes ? "Every note, todo, template and stack" : "How PinTack looks and behaves")
                 .accessibilityAddTraits(chosen ? .isSelected : [])
             }
         }

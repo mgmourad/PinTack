@@ -15,6 +15,19 @@ struct SettingsView: View {
 
         /// Monochrome glyphs, no coloured tiles (owner decision, 2026-09-21): the tiles made the
         /// sidebar look like a copy of System Settings. Outline at rest, filled when chosen.
+        /// The pane's tooltip description.
+        var summary: String {
+            switch self {
+            case .appearance: return "App theme, note colours, corners, opacity and font"
+            case .notes:      return "Outline, pinned glow, faded notes, new-note size and the action bar"
+            case .shortcuts:  return "Every keyboard shortcut, and changing them"
+            case .editor:     return "Live Preview or Source, vim mode, pasting, code colours and link previews"
+            case .vault:      return "Where the notes live, moving, export, import and tidying up"
+            case .plugins:    return "Installed plugins, their permissions and approved commands"
+            case .about:      return "Version and licence"
+            }
+        }
+
         var symbol: String {
             switch self {
             case .appearance: return "paintpalette"
@@ -84,6 +97,7 @@ struct SettingsView: View {
                 .contentShape(Rectangle())
                 .onHover { inside in hovered = inside ? p : (hovered == p ? nil : hovered) }
                 .onTapGesture { withAnimation(ChromeMotion.spring) { window.settingsPane = p } }
+                .tip(p.rawValue, p.summary)
                 .accessibilityElement(children: .combine)
                 .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
             }
@@ -131,21 +145,27 @@ private struct AppearancePane: View {
             LabeledContent("App theme") {
                 ChromeSegmented(selection: $s.appTheme,
                                 options: [("System", "system"), ("Light", "light"), ("Dark", "dark")])
+                                    .tip("App theme", "Light, dark, or follow macOS, for this window and the popovers")
             }
             .labeledContentStyle(CentredRow())
 
             Toggle("Open PinTack at login", isOn: Binding(get: { launchAtLogin }, set: { setLaunchAtLogin($0) }))
+                .tip("Open at login", "Start PinTack when you log in to your Mac")
             if let loginMessage {
                 HStack {
                     Text(loginMessage).font(.caption).foregroundStyle(.secondary)
                     Spacer()
-                    if LoginItem.needsApproval { Button("Open Login Items") { LoginItem.openLoginItemsSettings() } }
+                    if LoginItem.needsApproval {
+                        Button("Open Login Items") { LoginItem.openLoginItemsSettings() }
+                            .tip("Open Login Items", "Approve PinTack starting at login, in System Settings")
+                    }
                 }
             }
 
             LabeledContent("New notes get") {
                 ChromeSegmented(selection: $s.newNoteColor,
                                 options: [("The default color", "default"), ("A random color", "random")])
+                                    .tip("New notes get", "Every new note in the default colour, or one picked at random")
             }
             .labeledContentStyle(CentredRow())
 
@@ -156,9 +176,10 @@ private struct AppearancePane: View {
                             .overlay(Circle().strokeBorder(.black.opacity(0.2)))
                             .overlay(Circle().strokeBorder(Color(nsColor: Brand.accentNS), lineWidth: s.defaultColorHex.uppercased() == p.hex ? 2.5 : 0).padding(-3))
                             .onTapGesture { s.defaultColorHex = p.hex; custom = Color(nsColor: NSColor(hex: p.hex) ?? .yellow) }
-                            .help(p.name)
+                            .tip(p.name, "Make this the colour new notes start in")
                     }
                     ColorPicker("Custom", selection: $custom, supportsOpacity: false).labelsHidden()
+                        .tip("Custom colour", "Pick any colour for new notes")
                         .onChange(of: custom) { _, new in s.defaultColorHex = NSColor(new).hexString }
                 }
                 .opacity(s.newNoteColor == "random" ? 0.35 : 1)
@@ -171,12 +192,14 @@ private struct AppearancePane: View {
 
             LabeledContent("Corners") {
                 ChromeSegmented(selection: $s.cornerStyle, options: [("Rounded", "rounded"), ("Square", "square")])
+                    .tip("Corners", "Rounded or square corners on every note")
             }
             .labeledContentStyle(CentredRow())
 
             LabeledContent("Default opacity") {
                 HStack {
                     Slider(value: $s.defaultOpacity, in: 0.3...1.0).frame(width: 180)
+                        .tip("Default opacity", "How see-through new notes start")
                     Text("\(Int((s.defaultOpacity * 100).rounded()))%").monospacedDigit().frame(width: 44, alignment: .trailing)
                 }
             }
@@ -185,7 +208,9 @@ private struct AppearancePane: View {
                 Text("System").tag("")
                 ForEach(NSFontManager.shared.availableFontFamilies, id: \.self) { Text($0).tag($0) }
             }
+                    .tip("Note font", "The typeface every note is written in")
             Stepper("Font size: \(Int(s.fontSize)) pt", value: $s.fontSize, in: 9...24)
+                .tip("Font size", "The text size in every note")
         }
         .chromeForm()
     }
@@ -201,19 +226,24 @@ private struct NotesPane: View {
         Form {
             Section("Outline") {
                 Toggle("Show outline", isOn: $s.outlineEnabled)
+                    .tip("Show outline", "Draw a border around every note")
                 ColorPicker("Outline color", selection: $outline, supportsOpacity: false)
+                    .tip("Outline colour", "The colour of that border")
                     .onChange(of: outline) { _, new in s.outlineColorHex = NSColor(new).hexString }
                 LabeledContent("Outline width") {
                     HStack {
                         Slider(value: $s.outlineWidth, in: 1...3, step: 0.5).frame(width: 160)
+                            .tip("Outline width", "How thick the border is")
                         Text(String(format: "%.1f pt", s.outlineWidth)).monospacedDigit().frame(width: 48, alignment: .trailing)
                     }
                 }
                 Text("This color is also the accent for plugin-contributed UI.").font(.caption).foregroundStyle(.secondary)
                 Toggle("Glow on pinned notes", isOn: $s.pinnedGlow)
+                    .tip("Pinned glow", "A halo around notes pinned on top")
                 LabeledContent("Glow strength") {
                     HStack {
                         Slider(value: $s.pinnedGlowStrength, in: 0.25...AppSettings.maxGlowStrength).frame(width: 160)
+                            .tip("Glow strength", "How bright the pinned glow is, up to 200%")
                         Text("\(Int((s.pinnedGlowStrength * 100).rounded()))%")
                             .monospacedDigit().frame(width: 44, alignment: .trailing)
                     }
@@ -222,27 +252,34 @@ private struct NotesPane: View {
             }
             Section("Faded notes") {
                 Toggle("Show a faded note fully while the pointer is over it", isOn: $s.hoverRevealsNote)
+                    .tip("Reveal on hover", "A see-through note turns solid while the pointer is over it")
                 Text("Keep notes see-through so they stay out of the way, and still read one the moment you reach for it.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("New notes") {
                 Stepper("Default width: \(Int(s.defaultNoteWidth)) pt", value: $s.defaultNoteWidth, in: 190...700, step: 10)
+                    .tip("Default width", "How wide a new note is")
                 Stepper("Default height: \(Int(s.defaultNoteHeight)) pt", value: $s.defaultNoteHeight, in: 120...700, step: 10)
+                    .tip("Default height", "How tall a new note is")
                 Picker("Placement", selection: $s.placement) {
                     Text("Cascade").tag("cascade"); Text("Centered").tag("centered"); Text("At cursor").tag("cursor")
                 }
+                        .tip("Placement", "Where a new note appears on the screen")
                 LabeledContent("Auto-save after") {
                     HStack {
                         Slider(value: $s.autosaveSeconds, in: 0.2...5, step: 0.1).frame(width: 160)
+                            .tip("Auto-save", "How long after you stop typing a note is saved")
                         Text(String(format: "%.1f s", s.autosaveSeconds)).monospacedDigit().frame(width: 48, alignment: .trailing)
                     }
                 }
             }
             Section("Action bar") {
                 Toggle("Collapse the action bar again automatically", isOn: $s.actionBarAutoCollapse)
+                    .tip("Auto-collapse", "Fold the action bar's tools away again by themselves")
                 LabeledContent("Collapse after") {
                     HStack {
                         Slider(value: $s.actionBarCollapseSeconds, in: 2...30, step: 1).frame(width: 160)
+                            .tip("Collapse after", "How long the action bar's tools stay open")
                         Text("\(Int(s.actionBarCollapseSeconds)) s").monospacedDigit().frame(width: 48, alignment: .trailing)
                     }
                 }
@@ -282,6 +319,7 @@ private struct ShortcutsPane: View {
                                 ShortcutRecorder(onRecord: { combo in record(combo, for: action) },
                                                  current: ShortcutStore.shared.combo(for: action))
                                     .frame(width: 118, height: 24)
+                                    .tip(action.title, "Click, then press the new keys; ⌫ resets it")
                                     .id(revision)
                             }
                         }
@@ -292,6 +330,7 @@ private struct ShortcutsPane: View {
                 Text("Click a shortcut, then press the new keys. ⌫ resets one.").font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button("Reset all") { ShortcutStore.shared.resetAll(); errors = [:]; revision += 1 }
+                    .tip("Reset all", "Put every shortcut back to its default")
             }
             .padding(10)
         }
@@ -312,6 +351,7 @@ private struct ShortcutsPane: View {
                         Spacer()
                         ShortcutRecorder(onRecord: { combo in recordPlugin(combo, for: cmd) }, current: ShortcutStore.shared.pluginCombo(for: cmd))
                             .frame(width: 118, height: 24)
+                            .tip(cmd.name, "Click, then press the new keys; ⌫ resets it")
                             .id(revision)
                     }
                 }
@@ -356,11 +396,13 @@ private struct EditorPane: View {
         Form {
             LabeledContent("Default mode") {
                 ChromeSegmented(selection: $s.defaultMode, options: [("Live Preview", "live"), ("Source", "source")])
+                    .tip("Default mode", "How notes open: formatted, or as plain Markdown")
             }
             .labeledContentStyle(CentredRow())
 
             Section("Vim mode") {
                 Toggle("Vim keys in every note", isOn: $s.vimMode)
+                    .tip("Vim mode", "Vim keys in every note, with a command bar and line numbers")
                 Text("For people who never want to reach for the mouse. Esc for normal mode; : or / turns the note's action bar into a command bar. :w saves, :q closes the note. A line-number gutter runs down every note.")
                     .font(.caption).foregroundStyle(.secondary)
                 if s.vimMode && !s.vimNoticeShown { VimNoticeBanner { s.vimNoticeShown = true } }
@@ -368,19 +410,24 @@ private struct EditorPane: View {
 
             Section {
             Toggle("Spellcheck", isOn: $s.spellcheck)
+                .tip("Spellcheck", "Underline misspelled words as you type")
             Toggle("Slash commands (type / for a menu)", isOn: $s.slashCommands)
+                .tip("Slash commands", "Type / in a note for a menu of formatting and actions")
             Toggle("Paste rich text as Markdown", isOn: $s.pasteAsMarkdown)
+                .tip("Paste as Markdown", "Keep headings, links, lists and tables when pasting from a web page")
             Text("Copying from a web page or an email keeps its headings, links, lists and tables. Hold Shift when pasting (⇧⌘V) to paste the plain text instead.")
                 .font(.caption).foregroundStyle(.secondary)
             Picker("Pasted or picked images", selection: $s.imagePaste) {
                 Text("Copy into the vault").tag("copy"); Text("Link in place").tag("link")
             }
+                    .tip("Pasted images", "Copy pictures into the vault, or link to where they already are")
             Text("Copying keeps notes self-contained. Linking keeps the original where it is, using its full path.")
                 .font(.caption).foregroundStyle(.secondary)
             LabeledContent("Bullet") {
                 HStack {
                     Text(s.bulletEmoji.isEmpty ? "•  default" : s.bulletEmoji).font(.system(size: 15))
                     Button("Use default") { s.bulletEmoji = "" }.disabled(s.bulletEmoji.isEmpty)
+                        .tip("Use default bullet", "Go back to the plain • bullet")
                 }
             }
             Text("Right-click the bullet button in a note's action bar to choose an emoji bullet.")
@@ -390,10 +437,12 @@ private struct EditorPane: View {
 
             Section("Inline code") {
                 ColorPicker("Background", selection: $inlineCode, supportsOpacity: false)
+                    .tip("Inline code background", "The colour behind `code` between single backticks")
                     .onChange(of: inlineCode) { _, new in s.inlineCodeColorHex = NSColor(new).hexString }
                 LabeledContent("Opacity") {
                     HStack {
                         Slider(value: $s.inlineCodeOpacity, in: 0...1).frame(width: 160)
+                            .tip("Inline code opacity", "How solid that background is")
                         Text("\(Int((s.inlineCodeOpacity * 100).rounded()))%")
                             .monospacedDigit().frame(width: 44, alignment: .trailing)
                     }
@@ -405,6 +454,7 @@ private struct EditorPane: View {
                         .font(.caption).foregroundStyle(.secondary)
                     Spacer()
                     Button("Automatic") { s.inlineCodeColorHex = "" }
+                        .tip("Automatic", "Dark on light notes, light on dark ones")
                         .disabled(s.inlineCodeColorHex.isEmpty)
                 }
                 Text("The background behind `code` written between single backticks.")
@@ -413,10 +463,12 @@ private struct EditorPane: View {
 
             Section("Code blocks") {
                 ColorPicker("Background", selection: $codeBlock, supportsOpacity: false)
+                    .tip("Code block background", "The panel behind a fenced code block")
                     .onChange(of: codeBlock) { _, new in s.codeBlockColorHex = NSColor(new).hexString }
                 LabeledContent("Opacity") {
                     HStack {
                         Slider(value: $s.codeBlockOpacity, in: 0...1).frame(width: 160)
+                            .tip("Code block opacity", "How solid that panel is")
                         Text("\(Int((s.codeBlockOpacity * 100).rounded()))%")
                             .monospacedDigit().frame(width: 44, alignment: .trailing)
                     }
@@ -428,11 +480,13 @@ private struct EditorPane: View {
                         .font(.caption).foregroundStyle(.secondary)
                     Spacer()
                     Button("Automatic") { s.codeBlockColorHex = "" }
+                        .tip("Automatic", "A dark panel on every note, whatever its colour")
                         .disabled(s.codeBlockColorHex.isEmpty)
                 }
                 Text("The panel behind a fenced block written between triple backticks. Syntax colours follow the panel, so a light background switches them back to the light set.")
                     .font(.caption).foregroundStyle(.secondary)
                 Toggle("Line numbers in code blocks", isOn: $s.codeLineNumbers)
+                    .tip("Code line numbers", "Number each code block's lines from 1")
                 Text(s.vimMode
                      ? "Vim mode is on, so the note numbers every line itself and code blocks follow it."
                      : "Each block numbers its own lines from 1. The numbers are drawn beside the code, never copied with it.")
@@ -442,6 +496,7 @@ private struct EditorPane: View {
 
             Section {
                 Toggle("Link previews", isOn: $s.linkPreviews)
+                    .tip("Link previews", "Show a web address on its own line as a card; contacts that site")
                 Text("""
                      A web address pasted on a line of its own is shown as a card with the page's \
                      title, description and picture. Hover the card and click ✕ to go back to the \
@@ -454,6 +509,7 @@ private struct EditorPane: View {
                      """)
                     .font(.caption).foregroundStyle(.secondary)
                 Button("Clear saved previews") { LinkPreviewStore.shared.clearCache() }
+                    .tip("Clear saved previews", "Forget every preview card fetched so far")
                     .disabled(!s.linkPreviews)
             }
         }
@@ -472,18 +528,23 @@ private struct VaultPane: View {
         Form {
             LabeledContent("Location") {
                 Text(VaultStore.shared.vaultURL.path).textSelection(.enabled).lineLimit(2)
+                    .tip("Vault location", "The folder that holds every note; point your sync client at it")
                     .font(.system(.body, design: .monospaced))
             }
             HStack {
                 Button("Open in Finder") { NSWorkspace.shared.open(VaultStore.shared.vaultURL) }
+                    .tip("Open in Finder", "Show the vault folder in Finder")
                 Button("Move vault…") { moveVault() }
+                    .tip("Move vault", "Move the whole vault to another folder, then relaunch")
             }
             Text("Point your sync client (iCloud Drive, Dropbox, Syncthing) at this folder. It is the whole database.")
                 .font(.caption).foregroundStyle(.secondary)
             Divider()
             HStack {
                 Button("Export all as JSON…") { ArchiveIO.exportAll() }
+                    .tip("Export all", "Save every note into one JSON archive")
                 Button("Import archive…") { ArchiveIO.importArchive() }
+                    .tip("Import archive", "Bring notes in from a PinTack archive")
             }
             Divider()
             Button("Find unused attachments…") {
@@ -492,6 +553,7 @@ private struct VaultPane: View {
                 scannedNotes = result.scannedNotes
                 showOrphans = true
             }
+            .tip("Find unused attachments", "List pictures no note mentions any more, to clear them out")
             Text("Editing a picture writes a new file and keeps the original, so spare copies build up over time.")
                 .font(.caption).foregroundStyle(.secondary)
         }
@@ -571,6 +633,7 @@ private struct OrphanSheet: View {
                     Button(selected.count == orphans.count ? "Select None" : "Select All") {
                         selected = selected.count == orphans.count ? [] : Set(orphans)
                     }
+                    .tip(selected.count == orphans.count ? "Select None" : "Select All", "Pick every unused file, or none")
                     Text(selected.isEmpty
                          ? "\(orphans.count) unused, \(OrphanSheet.formatter.string(fromByteCount: Int64(orphans.reduce(0) { $0 + $1.bytes }))) in total"
                          : "\(selected.count) selected, \(OrphanSheet.formatter.string(fromByteCount: Int64(totalBytes)))")
@@ -586,7 +649,9 @@ private struct OrphanSheet: View {
                     selected = []
                 }
                 .disabled(selected.isEmpty || scannedNotes == 0)
+                .tip("Move Selected to Trash", "Put the picked files in the Trash; notes are not touched")
                 Button("Done") { isPresented = false }.keyboardShortcut(.defaultAction)
+                    .tip("Done", "Close this list")
             }
         }
         .padding(18).frame(width: 460)
@@ -607,6 +672,7 @@ private struct AboutPane: View {
                 Image(nsImage: icon)
                     .resizable().interpolation(.high)
                     .frame(width: 96, height: 96)
+                    .tip("PinTack", "Sticky notes backed by plain Markdown files")
             }
             VStack(spacing: 5) {
                 Text("PinTack").font(.system(size: 26, weight: .bold))
@@ -683,6 +749,7 @@ private struct VimNoticeBanner: View {
             HStack {
                 Spacer()
                 Button(VimNotice.dismiss, action: onDismiss).buttonStyle(ChromeProminentButtonStyle())
+                    .tip("Got it", "Dismiss this notice for good")
             }
         }
         .padding(12)

@@ -175,11 +175,11 @@ struct AllNotesView: View {
             // Each segment carries its own tip: one .help() on the Picker described all four at
             // once, which told you nothing about the icon under the pointer.
             GlyphTabs(selection: $model.mode, items: [
-                .init(value: .folders, symbol: "folder.fill", text: "", help: "Folders"),
-                .init(value: .tags, symbol: "number", text: "", help: "Tags"),
-                .init(value: .todo, symbol: nil, text: "@", help: "Todos"),
-                .init(value: .templates, symbol: "cube.box.fill", text: "", help: "Templates"),
-                .init(value: .stacks, symbol: "square.stack.3d.up.fill", text: "", help: "Temporary piles of open notes to save screen space."),
+                .init(value: .folders, symbol: "folder.fill", text: "", help: Tip.text("Folders", "Your notes, by the folder they are filed in")),
+                .init(value: .tags, symbol: "number", text: "", help: Tip.text("Tags", "Your notes, by #tag")),
+                .init(value: .todo, symbol: nil, text: "@", help: Tip.text("Todos", "Every todo note and how done it is")),
+                .init(value: .templates, symbol: "cube.box.fill", text: "", help: Tip.text("Templates", "Notes saved as @name, to drop into any note")),
+                .init(value: .stacks, symbol: "square.stack.3d.up.fill", text: "", help: Tip.text("Stacks", "Temporary piles of open notes to save screen space.")),
             ])
             .padding(.horizontal, 12).padding(.top, 14).padding(.bottom, 4)
 
@@ -206,6 +206,7 @@ struct AllNotesView: View {
                             Label("New folder", systemImage: "folder.badge.plus").font(.system(size: 12.5))
                         }
                         .buttonStyle(.plain)
+                        .tip("New folder", "Make a folder in the vault to file notes in")
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 10).padding(.top, 8)
                     } else {
@@ -239,8 +240,10 @@ struct AllNotesView: View {
                 ForEach(AllNotesModel.TodoSort.allCases) { Text($0.rawValue).tag($0) }
             }
             .labelsHidden()
+            .tip("Sort", "Order the todos by date, how done they are, or due date")
             Toggle("Show done todos", isOn: $model.showDoneTodos)
                 .font(.system(size: 12))
+                .tip("Show done todos", "List finished todos too, struck through")
             Text("\(model.todoNotes.count) todo\(model.todoNotes.count == 1 ? "" : "s")")
                 .font(.caption).foregroundStyle(.secondary)
         }
@@ -283,6 +286,7 @@ struct AllNotesView: View {
                     model.selectedStacks = model.selectedStacks.isEmpty ? Set(stacks.map(\.id)) : []
                 }
                 .buttonStyle(.plain).font(.caption).foregroundStyle(.secondary)
+                .tip(model.selectedStacks.isEmpty ? "Select all" : "Clear selection", "Pick every stack listed, or none")
                 Spacer()
                 Text(model.selectedStacks.isEmpty ? "\(stacks.count) stack\(stacks.count == 1 ? "" : "s")" : "\(model.selectedStacks.count) selected")
                     .font(.caption).foregroundStyle(.secondary)
@@ -310,10 +314,12 @@ struct AllNotesView: View {
                 .menuStyle(.button)
                 .fixedSize()
                 .disabled(model.selectedStacks.isEmpty)
+                .tip("Add to Folder", "Move every note of the selected stacks into a folder; they stay stacked")
 
                 Button(role: .destructive) { deleteStacks(Array(model.selectedStacks)) } label: { Text("Delete selected") }
                     .fixedSize()
                     .disabled(model.selectedStacks.isEmpty)
+                    .tip("Delete selected", "Delete the selected stacks and their notes, after asking")
                 Spacer()
             }
             .padding(10)
@@ -348,6 +354,7 @@ struct AllNotesView: View {
                     model.selected = model.selected.isEmpty ? Set(templates.map(\.id)) : []
                 }
                 .buttonStyle(.plain).font(.caption).foregroundStyle(.secondary)
+                .tip(model.selected.isEmpty ? "Select all" : "Clear selection", "Pick every template listed, or none")
                 Spacer()
                 Text(model.selected.isEmpty ? "\(templates.count) templates" : "\(model.selected.count) selected")
                     .font(.caption).foregroundStyle(.secondary)
@@ -374,10 +381,12 @@ struct AllNotesView: View {
                 }
                 .disabled(model.selected.isEmpty)
                 .fixedSize()
+                .tip("Add to Folder", "Move the selected templates into a folder")
 
                 Button("Delete selected", role: .destructive) { deleteSelected() }
                     .disabled(model.selected.isEmpty)
                     .fixedSize()
+                    .tip("Delete selected", "Move the selected templates to the Trash, after asking")
                 Spacer()
             }
             .padding(10)
@@ -395,7 +404,7 @@ struct AllNotesView: View {
         }
         .buttonStyle(.plain)
         .foregroundStyle(.secondary)
-        .help("PinTack Settings")
+        .tip("Settings", "Open PinTack's settings")
     }
 
     private func row(icon: String, title: String, sel: AllNotesModel.Selection, indent: Int) -> some View {
@@ -421,6 +430,11 @@ struct AllNotesView: View {
         }
         .contentShape(Rectangle())
         .onTapGesture { withAnimation(ChromeMotion.spring) { model.selection = sel } }
+        .tip(title, { switch sel {
+            case .all: return "Every note in the vault"
+            case .folder: return "The notes filed in this folder"
+            case .tag: return "The notes tagged #" + title
+        } }())
     }
 
     // MARK: Main
@@ -430,9 +444,11 @@ struct AllNotesView: View {
             HStack {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                 TextField(model.mode == .stacks ? "Search stacks" : "Search notes", text: $model.query).textFieldStyle(.plain)
+                    .tip("Search", model.mode == .stacks ? "Find a stack by its name or any note in it" : "Find notes by their words, title or tags")
                 if !model.query.isEmpty {
                     Button { model.query = "" } label: { Image(systemName: "xmark.circle.fill") }
                         .buttonStyle(.plain).foregroundStyle(.secondary)
+                        .tip("Clear search", "Show everything again")
                 }
             }
             .padding(.horizontal, 12).frame(height: 36)
@@ -460,6 +476,19 @@ struct AllNotesView: View {
                 .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center).padding()
             Spacer()
         } else {
+            let chosen = todos.filter { model.selected.contains($0.id) }
+            HStack {
+                Button(chosen.isEmpty ? "Select all" : "Clear selection") {
+                    if chosen.isEmpty { model.selected.formUnion(todos.map(\.id)) } else { model.selected.subtract(todos.map(\.id)) }
+                }
+                .buttonStyle(.plain).font(.caption).foregroundStyle(.secondary)
+                .tip(chosen.isEmpty ? "Select all" : "Clear selection", chosen.isEmpty ? "Pick every todo listed" : "Unpick every todo")
+                Spacer()
+                Text(chosen.isEmpty ? "\(todos.count) todo\(todos.count == 1 ? "" : "s")" : "\(chosen.count) selected")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 14).padding(.bottom, 4)
+
             ScrollView {
                 LazyVStack(spacing: 2) {
                     ForEach(todos, id: \.id) { note in TodoRow(note: note, model: model) }
@@ -469,7 +498,20 @@ struct AllNotesView: View {
             Divider()
             HStack(spacing: 8) {
                 Button("New todo") { WindowManager.shared.newTodo() }.fixedSize()
+                    .tip("New todo", "Start a todo note on the desktop")
                 Spacer()
+                // Finishing a todo ticks every box in it (owner, 2026-09-22: this replaced the
+                // per-row checkbox, which is now a selection box).
+                Button("Mark Complete") { markComplete(chosen) }
+                    .buttonStyle(ChromeProminentButtonStyle())
+                    .fixedSize()
+                    .disabled(chosen.isEmpty)
+                    .opacity(chosen.isEmpty ? 0.45 : 1)
+                    .tip("Mark Complete", "Tick every task in the selected todos")
+                Button(role: .destructive) { deleteTodos(chosen) } label: { Text("Delete selected") }
+                    .fixedSize()
+                    .disabled(chosen.isEmpty)
+                    .tip("Delete selected", "Move the selected todos to the Trash, with Undo")
             }
             .padding(10)
         }
@@ -483,6 +525,7 @@ struct AllNotesView: View {
                     if model.selected.isEmpty { model.selected = Set(notes.map(\.id)) } else { model.selected = [] }
                 }
                 .buttonStyle(.plain).font(.caption).foregroundStyle(.secondary)
+                .tip(model.selected.isEmpty ? "Select all" : "Clear selection", "Pick every note listed, or none")
                 Spacer()
                 Text(model.selected.isEmpty ? "\(notes.count) notes" : "\(model.selected.count) selected")
                     .font(.caption).foregroundStyle(.secondary)
@@ -512,7 +555,9 @@ struct AllNotesView: View {
                 }
                 .buttonStyle(ChromeProminentButtonStyle())
                 .fixedSize()
+                .tip("New note", "Start a note on the desktop, in the folder you are looking at")
                 Button("New folder") { newFolder() }.fixedSize()
+                    .tip("New folder", "Make a folder in the vault to file notes in")
                 Spacer()
 
                 // Acts on the checked notes.
@@ -532,14 +577,18 @@ struct AllNotesView: View {
                 .menuStyle(.button)
                 .fixedSize()
                 .disabled(model.selected.isEmpty)
+                .tip("Add to Folder", "Move the selected notes into a folder")
 
                 Button(role: .destructive) { deleteSelected() } label: { Text("Delete selected") }
                     .fixedSize()
                     .disabled(model.selected.isEmpty)
+                    .tip("Delete selected", "Move the selected notes to the Trash, after asking")
 
                 Divider().frame(height: 18)
                 Button("Export all") { ArchiveIO.exportAll() }.fixedSize()
+                    .tip("Export all", "Save every note into one JSON archive")
                 Button("Import") { ArchiveIO.importArchive() }.fixedSize()
+                    .tip("Import", "Bring notes in from a PinTack archive")
             }
             .padding(10)
         }
@@ -569,6 +618,22 @@ struct AllNotesView: View {
         model.selected = []
     }
 
+    private func markComplete(_ todos: [Note]) {
+        for note in todos { NoteRowActions.setAllDone(note, true) }
+        Toast.show(todos.count == 1 ? "Marked complete" : "Marked \(todos.count) todos complete")
+        model.selected.subtract(todos.map(\.id))
+    }
+
+    private func deleteTodos(_ todos: [Note]) {
+        let n = todos.count
+        guard n > 0, Prompt.confirm(title: "Move \(n) todo\(n == 1 ? "" : "s") to the Trash?",
+                                    message: "The files go to the Trash, so you can still get them back from there.",
+                                    button: "Move to Trash", destructive: true) else { return }
+        // WindowManager.delete shows the toast, with Undo. A second toast here would replace it.
+        WindowManager.shared.delete(todos)
+        model.selected.subtract(todos.map(\.id))
+    }
+
     private func deleteSelected() {
         let notes = model.selectedNotes
         guard !notes.isEmpty else { return }
@@ -589,10 +654,14 @@ private struct StackRow: View {
     @ObservedObject var model: AllNotesModel
     let onDelete: () -> Void
     @State private var hovering = false
+    @State private var renaming = false
+    @State private var renameText = ""
+    @FocusState private var renameFocused: Bool
 
     private var isSelected: Bool { model.selectedStacks.contains(stack.id) }
     private var shown: Bool { StackManager.shared.isShown(stack) }
     private var notes: [Note] { StackManager.shared.notes(of: stack) }
+    private var inPileOrder: [Note] { stack.order.compactMap { VaultStore.shared.note(id: $0) } }
 
     var body: some View {
         HStack(spacing: 10) {
@@ -616,21 +685,37 @@ private struct StackRow: View {
             .frame(width: 16, height: 26, alignment: .top)
 
             VStack(alignment: .leading, spacing: 1) {
-                HStack(spacing: 4) {
-                    Text(stack.name).font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
-                    if stack.pinned { Image(systemName: "pin.fill").font(.caption2).foregroundStyle(.secondary) }
+                if renaming {
+                    TextField("Stack name", text: $renameText)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .focused($renameFocused)
+                        .onSubmit { commitRename() }
+                        .onExitCommand { renaming = false }
+                } else {
+                    HStack(spacing: 4) {
+                        Text(stack.name).font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
+                        if stack.pinned { Image(systemName: "pin.fill").font(.caption2).foregroundStyle(.secondary) }
+                    }
+                    // Numbered by place in the pile, #1 in front, exactly as the title bars are.
+                    Text(inPileOrder.enumerated().map { "#\($0.offset + 1) \($0.element.titleWithoutTodoMarker)" }.joined(separator: "  ·  "))
+                        .font(.system(size: 11.5)).foregroundStyle(.secondary).lineLimit(1)
                 }
-                Text(notes.enumerated().map { "#\($0.offset + 1) \($0.element.titleWithoutTodoMarker)" }.joined(separator: "  ·  "))
-                    .font(.system(size: 11.5)).foregroundStyle(.secondary).lineLimit(1)
             }
             .opacity(shown ? 1 : 0.6)
             Spacer()
 
             HStack(spacing: 2) {
-                iconButton(shown ? "eye" : "eye.slash", help: shown ? "Hide the stack from the desktop" : "Show the stack on the desktop") {
+                RowIconButton("pencil", "Rename", "Change this stack's name") { beginRename() }
+                RowIconButton(shown ? "eye" : "eye.slash", shown ? "Hide" : "Show",
+                              shown ? "Take the whole stack off the desktop; it stays here" : "Put the whole stack back on the desktop") {
                     if shown { StackManager.shared.hide(stack.id) } else { StackManager.shared.show(stack.id) }
                 }
-                iconButton("trash", help: "Delete the stack and its notes") { onDelete() }
+                RowIconButton(image: NoteCardView.struckPaperclip(), "Unstack",
+                              "Undo the stack; every note goes back where it was and is kept") {
+                    StackManager.shared.unstack(stack.id)
+                }
+                RowIconButton("trash", "Delete", "Delete the stack and its notes, after asking") { onDelete() }
             }
         }
         .padding(.vertical, 7).padding(.horizontal, 8)
@@ -639,37 +724,41 @@ private struct StackRow: View {
         .animation(.easeOut(duration: 0.12), value: hovering)
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
-        .onTapGesture { StackManager.shared.show(stack.id) }
+        .onTapGesture { if !renaming { StackManager.shared.show(stack.id) } }
         .contextMenu {
             Button("Show on Desktop") { StackManager.shared.show(stack.id) }
             Button("Hide from Desktop") { StackManager.shared.hide(stack.id) }
+            Button("Rename…") { beginRename() }
             Button("Unstack") { StackManager.shared.unstack(stack.id) }
             Divider()
             Button("Delete Stack and Notes…", role: .destructive) { onDelete() }
         }
     }
 
-    private func iconButton(_ symbol: String, help: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol).frame(width: 22, height: 22).contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(.secondary)
-        .help(help)
+    private func beginRename() {
+        renameText = stack.name
+        renaming = true
+        DispatchQueue.main.async { renameFocused = true }
+    }
+
+    private func commitRename() {
+        renaming = false
+        StackManager.shared.rename(stack.id, to: renameText)
     }
 }
 
-/// One todo note in the todo tab: a checkbox that finishes the whole note, its title, a one-line
-/// preview, and its progress as squares with a count. SPEC.md §6.
-/// One template in the templates tab: its @name, the note it came from, and a checkbox so several
-/// can be moved into a folder or deleted at once.
+/// One template in the templates tab: its @name, the note it came from, a checkbox so several can be
+/// moved into a folder or deleted at once, and show / rename / delete at its right edge.
 private struct TemplateRow: View {
 
     let note: Note
     @ObservedObject var model: AllNotesModel
     @State private var hovering = false
+    @State private var renameText = ""
+    @FocusState private var renameFocused: Bool
 
     private var isSelected: Bool { model.selected.contains(note.id) }
+    private var isRenaming: Bool { model.renamingID == note.id }
 
     var body: some View {
         HStack(spacing: 10) {
@@ -679,33 +768,71 @@ private struct TemplateRow: View {
                     .foregroundStyle(isSelected ? Color(nsColor: Brand.accentNS) : .secondary)
             }
             .buttonStyle(.plain)
+            .tip(isSelected ? "Deselect" : "Select", "Pick this template for Add to Folder or Delete selected")
 
             VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text("@" + note.templateName)
+                if isRenaming {
+                    // Renaming a template renames its @name: that is what this row shows and what
+                    // recalls it. Same rules as /template.
+                    TextField("template-name", text: $renameText)
+                        .textFieldStyle(.roundedBorder)
                         .font(.system(size: 12.5, weight: .semibold, design: .monospaced))
-                    let folder = VaultStore.shared.folder(of: note)
-                    if !folder.isEmpty {
-                        Text(folder).font(.caption2).foregroundStyle(.secondary)
+                        .focused($renameFocused)
+                        .onSubmit { commitRename() }
+                        .onExitCommand { model.renamingID = nil }
+                } else {
+                    HStack(spacing: 6) {
+                        Text("@" + note.templateName)
+                            .font(.system(size: 12.5, weight: .semibold, design: .monospaced))
+                        let folder = VaultStore.shared.folder(of: note)
+                        if !folder.isEmpty {
+                            Text(folder).font(.caption2).foregroundStyle(.secondary)
+                        }
                     }
+                    Text(note.previewLine.isEmpty ? note.title : note.previewLine)
+                        .font(.system(size: 11.5)).foregroundStyle(.secondary).lineLimit(1)
                 }
-                Text(note.previewLine.isEmpty ? note.title : note.previewLine)
-                    .font(.system(size: 11.5)).foregroundStyle(.secondary).lineLimit(1)
             }
+            .opacity(note.visible ? 1 : 0.6)
             .contentShape(Rectangle())
-            .onTapGesture { WindowManager.shared.reveal(note) }
+            .onTapGesture { if !isRenaming { WindowManager.shared.reveal(note) } }
 
             Spacer(minLength: 0)
+
+            HStack(spacing: 2) {
+                RowIconButton(note.visible ? "eye" : "eye.slash",
+                              note.visible ? "Hide" : "Show",
+                              note.visible ? "Take this template off the desktop; it stays here" : "Put this template on the desktop") {
+                    NoteRowActions.toggleShown(note)
+                }
+                RowIconButton("pencil", "Rename", "Change the @name this template is recalled by") { beginRename() }
+                RowIconButton("trash", "Delete", "Move this template's note to the Trash, with Undo") {
+                    WindowManager.shared.delete([note])
+                }
+            }
         }
         .padding(.vertical, 7).padding(.horizontal, 10)
         .background(RoundedRectangle(cornerRadius: 9).fill(hovering ? Color.chromeSurfaceHover : .clear))
         .onHover { hovering = $0 }
         .contextMenu {
             Button("Open") { WindowManager.shared.reveal(note) }
+            Button("Rename…") { beginRename() }
             Button("Stop being a template") { unmark() }
             Divider()
             Button("Move to Trash", role: .destructive) { WindowManager.shared.delete([note]) }
         }
+    }
+
+    private func beginRename() {
+        renameText = note.templateName
+        model.renamingID = note.id
+        DispatchQueue.main.async { renameFocused = true }
+    }
+
+    private func commitRename() {
+        model.renamingID = nil
+        guard renameText != note.templateName else { return }
+        TemplateNaming.apply(renameText, to: note)
     }
 
     /// Keeps the note, drops the template marker — the harmless half of "delete".
@@ -716,39 +843,57 @@ private struct TemplateRow: View {
     }
 }
 
+/// One stack in the Stacks tab: its name, its notes by number, and show/hide. SPEC.md §5.10.
+
+/// One todo note in the todo tab: a selection box, its title, a one-line preview, its progress as
+/// squares with a count, and rename / show / delete at its right edge. SPEC.md §6.
 private struct TodoRow: View {
 
     let note: Note
     @ObservedObject var model: AllNotesModel
     @State private var hovering = false
+    @State private var renameText = ""
+    @FocusState private var renameFocused: Bool
 
     private var counts: (done: Int, total: Int) { note.taskCounts }
+    private var isSelected: Bool { model.selected.contains(note.id) }
+    private var isRenaming: Bool { model.renamingID == note.id }
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            // Ticks or unticks every box in the note at once.
-            Button { setAllDone(!note.isDone) } label: {
-                Image(systemName: note.isDone ? "checkmark.circle.fill" : "circle")
+            // A SELECTION box (owner, 2026-09-22), like every other tab's: finishing happens with
+            // Mark Complete at the bottom, for one todo or many.
+            Button { model.toggle(note) } label: {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 15))
-                    .foregroundStyle(note.isDone ? Color(nsColor: Brand.accentNS) : .secondary)
+                    .foregroundStyle(isSelected ? Color(nsColor: Brand.accentNS) : .secondary)
             }
             .buttonStyle(.plain)
-            .help(note.isDone ? "Mark everything as not done" : "Mark everything as done")
+            .tip(isSelected ? "Deselect" : "Select", "Pick this todo for Mark Complete or Delete selected")
             .padding(.top, 1)
 
             VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    // Every row here is a todo, so the @Todo marker is noise.
-                    Text(note.titleWithoutTodoMarker)
+                if isRenaming {
+                    TextField("Title", text: $renameText)
+                        .textFieldStyle(.roundedBorder)
                         .font(.system(size: 12.5, weight: .semibold))
-                        .strikethrough(note.isDone)
-                        .lineLimit(1)
-                    if let due = note.due {
-                        Text(due.formatted(date: .abbreviated, time: .shortened))
-                            .font(.caption2)
-                            .foregroundStyle(due < Date() ? .red : .secondary)
+                        .focused($renameFocused)
+                        .onSubmit { commitRename() }
+                        .onExitCommand { model.renamingID = nil }
+                } else {
+                    HStack(spacing: 6) {
+                        // Every row here is a todo, so the @Todo marker is noise.
+                        Text(note.titleWithoutTodoMarker)
+                            .font(.system(size: 12.5, weight: .semibold))
+                            .strikethrough(note.isDone)
+                            .lineLimit(1)
+                        if let due = note.due {
+                            Text(due.formatted(date: .abbreviated, time: .shortened))
+                                .font(.caption2)
+                                .foregroundStyle(due < Date() ? .red : .secondary)
+                        }
+                        if note.frozen { Image(systemName: "snowflake").font(.caption2).foregroundStyle(.secondary) }
                     }
-                    if note.frozen { Image(systemName: "snowflake").font(.caption2).foregroundStyle(.secondary) }
                 }
                 if !note.previewLine.isEmpty {
                     Text(note.previewLine)
@@ -760,32 +905,48 @@ private struct TodoRow: View {
                     Text("No tasks yet").font(.caption2).foregroundStyle(.tertiary)
                 }
             }
+            .opacity(note.visible ? 1 : 0.6)
             // The title area opens the note; the checkbox above keeps its own click.
             .contentShape(Rectangle())
-            .onTapGesture { WindowManager.shared.reveal(note) }
+            .onTapGesture { if !isRenaming { WindowManager.shared.reveal(note) } }
 
             Spacer(minLength: 0)
+
+            HStack(spacing: 2) {
+                RowIconButton("pencil", "Rename", "Change this todo's title") { beginRename() }
+                RowIconButton(note.visible ? "eye" : "eye.slash",
+                              note.visible ? "Hide" : "Show",
+                              note.visible ? "Take this todo off the desktop; it stays here" : "Put this todo on the desktop") {
+                    NoteRowActions.toggleShown(note)
+                }
+                RowIconButton("trash", "Delete", "Move this todo to the Trash, with Undo") { WindowManager.shared.delete([note]) }
+            }
         }
         .opacity(note.isDone ? 0.55 : 1)
         .padding(.vertical, 7).padding(.horizontal, 10)
-        .background(RoundedRectangle(cornerRadius: 9).fill(hovering ? Color.chromeSurfaceHover : .clear))
+        .background(RoundedRectangle(cornerRadius: 9).fill(isSelected ? Color.chromeHighlight.opacity(0.2)
+                                                            : hovering ? Color.chromeSurfaceHover : .clear))
         .onHover { hovering = $0 }
         .contextMenu {
             Button("Open") { WindowManager.shared.reveal(note) }
-            Button(note.isDone ? "Mark as not done" : "Mark all done") { setAllDone(!note.isDone) }
+            Button("Rename…") { beginRename() }
+            Button(note.isDone ? "Mark as not done" : "Mark all done") { NoteRowActions.setAllDone(note, !note.isDone) }
             Divider()
             Button("Move to Trash", role: .destructive) { WindowManager.shared.delete([note]) }
         }
     }
 
-    private func setAllDone(_ done: Bool) {
-        // Flush first: the open window may hold edits this would otherwise overwrite.
-        SaveCoordinator.shared.flush(noteID: note.id)
-        note.markAllTasks(done: done)
-        VaultStore.shared.save(note)
-        WindowManager.shared.panel(for: note.id)?.card.editor.reloadBody()
-        NotificationCenter.default.post(name: .noteBodyDidChange, object: note)
-        NotificationCenter.default.post(name: .vaultDidChange, object: nil)
+    private func beginRename() {
+        renameText = note.titleWithoutTodoMarker
+        model.renamingID = note.id
+        DispatchQueue.main.async { renameFocused = true }
+    }
+
+    private func commitRename() {
+        let text = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+        model.renamingID = nil
+        guard !text.isEmpty, text != note.titleWithoutTodoMarker else { return }
+        WindowManager.shared.rename(note, to: text)
     }
 }
 
@@ -809,10 +970,11 @@ private struct NoteRow: View {
                     .foregroundStyle(isSelected ? Color(nsColor: Brand.accentNS) : Color.secondary.opacity(0.7))
             }
             .buttonStyle(.plain)
-            .help(isSelected ? "Deselect" : "Select")
+            .tip(isSelected ? "Deselect" : "Select", "Pick this note for Add to Folder or Delete selected")
 
             Circle().fill(Color(nsColor: note.color)).frame(width: 10, height: 10)
                 .overlay(Circle().strokeBorder(.black.opacity(0.2), lineWidth: 0.5))
+                .tip("Colour", "The note's paper colour")
 
             VStack(alignment: .leading, spacing: 1) {
                 if isRenaming {
@@ -837,7 +999,7 @@ private struct NoteRow: View {
                             }
                             .buttonStyle(.plain)
                             .foregroundStyle(Color(nsColor: Brand.accentNS))
-                            .help("Frozen: clicks pass through it. Click to thaw.")
+                            .tip("Thaw", "Frozen: clicks pass through it. Click to thaw.")
                         }
                     }
                     Text(snippet).font(.system(size: 11.5)).foregroundStyle(.secondary).lineLimit(1)
@@ -847,11 +1009,12 @@ private struct NoteRow: View {
             Spacer()
 
             HStack(spacing: 2) {
-                iconButton(note.visible ? "eye" : "eye.slash", help: note.visible ? "Hide from desktop" : "Show on desktop") {
-                    if note.visible { hide() } else { WindowManager.shared.reveal(note) }
+                RowIconButton(note.visible ? "eye" : "eye.slash", note.visible ? "Hide" : "Show",
+                              note.visible ? "Take this note off the desktop; it stays here" : "Put this note on the desktop") {
+                    NoteRowActions.toggleShown(note)
                 }
-                iconButton("pencil", help: "Rename") { beginRename() }
-                iconButton("trash", help: "Move to Trash") { WindowManager.shared.delete([note]) }
+                RowIconButton("pencil", "Rename", "Change this note's title") { beginRename() }
+                RowIconButton("trash", "Delete", "Move this note to the Trash, with Undo") { WindowManager.shared.delete([note]) }
             }
         }
         .padding(.vertical, 7).padding(.horizontal, 8)
@@ -875,15 +1038,6 @@ private struct NoteRow: View {
             Divider()
             Button("Move to Trash", role: .destructive) { WindowManager.shared.delete([note]) }
         }
-    }
-
-    private func iconButton(_ symbol: String, help: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol).frame(width: 22, height: 22).contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(.secondary)
-        .help(help)
     }
 
     /// Thaws from the list, for a frozen note that cannot be clicked where it sits.
@@ -916,14 +1070,6 @@ private struct NoteRow: View {
         // The title is the first line already; show what comes after it.
         let rest = cleaned.hasPrefix(note.title) ? String(cleaned.dropFirst(note.title.count)).trimmingCharacters(in: .whitespaces) : cleaned
         return String(rest.prefix(70)).isEmpty ? "Empty" : String(rest.prefix(70))
-    }
-
-    private func hide() {
-        SaveCoordinator.shared.flush(noteID: note.id)
-        note.visible = false
-        VaultStore.shared.save(note)
-        WindowManager.shared.close(noteID: note.id)
-        NotificationCenter.default.post(name: .vaultDidChange, object: nil)
     }
 }
 

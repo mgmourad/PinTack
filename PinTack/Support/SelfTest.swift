@@ -2583,6 +2583,42 @@ enum SelfTest {
         shoot(Array(ordered))
     }
 
+    /// The All Notes rows' new actions and the tooltips (owner, 2026-09-22), then a picture of the
+    /// Todos and Templates tabs with their row icons.
+    private static func rowActionsTest(out: URL, then next: @escaping () -> Void) {
+        check("tooltips wait two seconds before they show",
+              UserDefaults.standard.integer(forKey: "NSInitialToolTipDelay") == 2000)
+        check("tooltips read “Name | description”", Tip.text("Rename", "Change the title") == "Rename | Change the title")
+        check("the unstack glyph is drawn (SF Symbols has no struck paperclip)", NoteCardView.struckPaperclip() != nil)
+
+        let template = VaultStore.shared.createNote(body: "Standup\n- yesterday\n- today")
+        TemplateNaming.apply("standup", to: template)
+        let renamed = TemplateNaming.apply("daily standup!", to: template)
+        check("renaming a template from its row keeps the one-word rule", renamed && template.templateName == "dailystandup",
+              template.templateName)
+        check("…and refuses the reserved name todo", !TemplateNaming.apply("todo", to: template) && template.templateName == "dailystandup")
+
+        let todo = VaultStore.shared.createNote(body: "@Todo Release\n- [ ] tag\n- [ ] notes", tags: ["todo"])
+        NoteRowActions.setAllDone(todo, true)
+        check("Mark Complete ticks every task in a todo", todo.isDone && todo.taskCounts.done == 2, "\(todo.taskCounts)")
+
+        AllNotesModel.shared.mode = .todo
+        AllNotesWindowController.shared.show()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            guard let w = MainWindowController.shared.window else { next(); return }
+            snapshot(window: w, to: out.appendingPathComponent("all-notes-todos.png")) {
+                AllNotesModel.shared.mode = .templates
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                    snapshot(window: w, to: out.appendingPathComponent("all-notes-templates.png")) {
+                        AllNotesModel.shared.mode = .folders
+                        MainWindowController.shared.close()
+                        next()
+                    }
+                }
+            }
+        }
+    }
+
     /// Which tab pill is orange in what the window actually drew. The model saying Settings proves
     /// nothing if the window still shows All Notes — which it once did.
     static func drawnTab(_ window: NSWindow) -> MainWindowModel.Tab? {
@@ -2608,7 +2644,7 @@ enum SelfTest {
     }
 
     private static func renderWindows(out: URL) {
-        runnerTest(out: out) { linkPreviewTest(out: out) { imageEditTest(out: out) { freezeTest { reminderTest(out: out) { findTest(out: out) { quickCaptureTest { templateTest { actionBarTest { testerBugsTest { todoBarTest(out: out) { onboardingTest(out: out) { strandedNotesTest { collapsedTodoTest(out: out) { blankCloseTest { undoDeleteTest { tagColourTest(out: out) { glowStrengthTest { vimTest(out: out) { codeLineNumbersTest(out: out) { vimBannerTest(out: out) { stackTest(out: out) { renderWindowsNow(out: out) } } } } } } } } } } } } } } } } } } } } } }
+        runnerTest(out: out) { linkPreviewTest(out: out) { imageEditTest(out: out) { freezeTest { reminderTest(out: out) { findTest(out: out) { quickCaptureTest { templateTest { actionBarTest { testerBugsTest { todoBarTest(out: out) { onboardingTest(out: out) { strandedNotesTest { collapsedTodoTest(out: out) { blankCloseTest { undoDeleteTest { tagColourTest(out: out) { glowStrengthTest { vimTest(out: out) { codeLineNumbersTest(out: out) { vimBannerTest(out: out) { stackTest(out: out) { rowActionsTest(out: out) { renderWindowsNow(out: out) } } } } } } } } } } } } } } } } } } } } } } }
     }
 
     private static func renderWindowsNow(out: URL) {

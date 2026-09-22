@@ -236,34 +236,7 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
                                     placeholder: suggestion.isEmpty ? "meeting-notes" : suggestion,
                                     confirm: "Save") else { return }
 
-        let name = Note.sanitizedTemplateName(raw)
-        guard !name.isEmpty else {
-            Toast.show("A template name needs at least one letter or number")
-            return
-        }
-        guard !Note.reservedTemplateNames.contains(name.lowercased()) else {
-            // @todo already means "turn this into a todo note"; a template of that name could
-            // never be recalled.
-            Toast.show("“\(name)” is reserved — @todo already converts a note")
-            return
-        }
-        if let clash = VaultStore.shared.notes.first(where: {
-            $0.id != note.id && $0.templateName.caseInsensitiveCompare(name) == .orderedSame
-        }) {
-            guard Prompt.confirm(title: "Replace the “\(name)” template?",
-                                 message: "“\(clash.title)” is already saved under that name. It stays a note, "
-                                        + "but it stops being a template.",
-                                 button: "Replace") else { return }
-            clash.templateName = ""
-            VaultStore.shared.save(clash)
-        }
-
-        SaveCoordinator.shared.flush(noteID: note.id)
-        note.templateName = name
-        VaultStore.shared.save(note)
-        NotificationCenter.default.post(name: .vaultDidChange, object: nil)
-        WindowManager.shared.refreshTemplates()
-        Toast.show("Saved as @\(name)")
+        TemplateNaming.apply(raw, to: note)
     }
 
     /// Every template the vault holds, for the @ menu.

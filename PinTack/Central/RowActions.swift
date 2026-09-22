@@ -1,0 +1,118 @@
+import SwiftUI
+import AppKit
+
+/// Tooltips in All Notes and Settings, all in the owner's format (2026-09-22): the control's name,
+/// a bar, then what it does. One place, so the format can change in one place.
+enum Tip {
+    static func text(_ name: String, _ description: String) -> String { "\(name) | \(description)" }
+
+    /// Tooltips wait 2 seconds (owner, 2026-09-22) so they never flash up while the pointer is
+    /// merely passing. Registered, not written: it is a default, and nothing lands in the user's
+    /// preferences file.
+    static func registerDelay() {
+        UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 2000])
+    }
+}
+
+extension View {
+    /// A tooltip in the owner's "Name | description" format.
+    func tip(_ name: String, _ description: String) -> some View { help(Tip.text(name, description)) }
+}
+
+/// The small inline icons at the right edge of every All Notes row.
+struct RowIconButton: View {
+    var symbol: String?
+    var image: NSImage?
+    let name: String
+    let description: String
+    let action: () -> Void
+
+    init(_ symbol: String, _ name: String, _ description: String, action: @escaping () -> Void) {
+        self.symbol = symbol; self.name = name; self.description = description; self.action = action
+    }
+
+    init(image: NSImage?, _ name: String, _ description: String, action: @escaping () -> Void) {
+        self.image = image; self.name = name; self.description = description; self.action = action
+    }
+
+    var body: some View {
+        Button(action: action) {
+            Group {
+                if let image { Image(nsImage: image).renderingMode(.template) }
+                else if let symbol { Image(systemName: symbol) }
+            }
+            .frame(width: 22, height: 22).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
+        .tip(name, description)
+        .accessibilityLabel(name)
+    }
+}
+
+/// What a row does to its note, shared by every tab so a note behaves the same wherever it is listed.
+enum NoteRowActions {
+
+    /// Off the desktop, still in All Notes. The window's own close, without the blank-note discard.
+    static func hide(_ note: Note) {
+        SaveCoordinator.shared.flush(noteID: note.id)
+        note.visible = false
+        VaultStore.shared.save(note)
+        WindowManager.shared.close(noteID: note.id)
+        NotificationCenter.default.post(name: .vaultDidChange, object: nil)
+    }
+
+    static func toggleShown(_ note: Note) {
+        if note.visible { hide(note) } else { WindowManager.shared.reveal(note) }
+    }
+
+    /// Ticks (or unticks) every checkbox in the note.
+    static func setAllDone(_ note: Note, _ done: Bool) {
+        // Flush first: the open window may hold edits this would otherwise overwrite.
+        SaveCoordinator.shared.flush(noteID: note.id)
+        note.markAllTasks(done: done)
+        VaultStore.shared.save(note)
+        WindowManager.shared.panel(for: note.id)?.card.editor.reloadBody()
+        NotificationCenter.default.post(name: .noteBodyDidChange, object: note)
+        NotificationCenter.default.post(name: .vaultDidChange, object: nil)
+    }
+}
+
+/// Naming a template, from the /template command or from the Templates tab: the same rules either
+/// way. One word (the name is parsed back out of `@name`), `todo` reserved, and a clash asks first.
+enum TemplateNaming {
+
+    /// Returns true when the note now carries the name.
+    @discardableResult
+    static func apply(_ raw: String, to note: Note) -> Bool {
+        let name = Note.sanitizedTemplateName(raw)
+        guard !name.isEmpty else {
+            Toast.show("A template name needs at least one letter or number")
+            return false
+        }
+        guard !Note.reservedTemplateNames.contains(name.lowercased()) else {
+            // @todo already means "turn this into a todo note"; a template of that name could
+            // never be recalled.
+            Toast.show("“\(name)” is reserved — @todo already converts a note")
+            return false
+        }
+        if name == note.templateName { return true }
+        if let clash = VaultStore.shared.notes.first(where: {
+            $0.id != note.id && $0.templateName.caseInsensitiveCompare(name) == .orderedSame
+        }) {
+            guard Prompt.confirm(title: "Replace the “\(name)” template?",
+                                 message: "“\(clash.title)” is already saved under that name. It stays a note, "
+                                        + "but it stops being a template.",
+                                 button: "Replace") else { return false }
+            clash.templateName = ""
+            VaultStore.shared.save(clash)
+        }
+        SaveCoordinator.shared.flush(noteID: note.id)
+        note.templateName = name
+        VaultStore.shared.save(note)
+        NotificationCenter.default.post(name: .vaultDidChange, object: nil)
+        WindowManager.shared.refreshTemplates()
+        Toast.show("Saved as @\(name)")
+        return true
+    }
+}

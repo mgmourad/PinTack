@@ -29,7 +29,9 @@ struct PluginsSettingsPane: View {
                         try? FileManager.default.createDirectory(at: manager.vault.pluginsURL, withIntermediateDirectories: true)
                         NSWorkspace.shared.open(manager.vault.pluginsURL)
                     }
+                    .tip("Open plugins folder", "Show the folder plugins are installed in")
                     Button("Rescan") { manager.reload(); WindowManager.shared.reloadEditors() }
+                        .tip("Rescan", "Look for plugins added to or removed from the plugins folder")
                     Spacer()
                 }
                 Text("To install a plugin, put its folder in the plugins folder and choose Rescan (or restart PinTack). Only install plugins you trust: they run inside your notes.")
@@ -63,6 +65,7 @@ private struct PluginCard: View {
                 Toggle("", isOn: Binding(get: { plugin.enabled }, set: { setEnabled($0) }))
                     .labelsHidden().toggleStyle(.switch)
                     .disabled(!plugin.isValid)
+    .tip(plugin.enabled ? "Disable" : "Enable", "Turn this plugin on or off in every note")
             }
 
             if let error = plugin.error {
@@ -81,13 +84,14 @@ private struct PluginCard: View {
 
             if plugin.enabled, let specs = plugin.manifest?.settings, !specs.isEmpty {
                 Divider()
-                ForEach(specs, id: \.key) { spec in settingRow(spec) }
+                ForEach(specs, id: \.key) { spec in settingRow(spec).tip(spec.label, "A setting this plugin provides") }
                     .id(settingsTick)
             }
 
             if plugin.enabled {
                 Button("Plugin settings…") { PluginSettingsWindows.shared.show(pluginID: plugin.id, title: plugin.name) }
                     .buttonStyle(.link).font(.caption)
+                    .tip("Plugin settings", "Open this plugin's own settings")
             }
 
             if plugin.enabled && canRunCommands { approvals }
@@ -147,6 +151,7 @@ private struct PluginCard: View {
             Spacer()
             if !entries.isEmpty {
                 Button("Revoke all") { TrustStore.shared.revokeAll(); trustRevision += 1 }.buttonStyle(.link).font(.caption)
+                    .tip("Revoke all", "Forget every approval; each command asks again")
             }
         }
         if entries.isEmpty {
@@ -161,6 +166,7 @@ private struct PluginCard: View {
                 }
                 Spacer()
                 Button("Revoke") { TrustStore.shared.revoke(hash: e.hash); trustRevision += 1 }.buttonStyle(.link).font(.caption)
+                    .tip("Revoke", "Forget this approval; the command asks again next time")
             }
         }
         .id(trustRevision)

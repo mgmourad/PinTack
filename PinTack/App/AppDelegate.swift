@@ -27,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The Dock icon comes from the bundle (AppIcon.icon) and nothing else. An earlier version also set
         // NSApp.applicationIconImage at launch, which made the Dock show one icon and then swap to another.
 
+        Tip.registerDelay()
         let vault = VaultStore.shared
         vault.bootstrap()
         AppSettings.shared.load(from: vault.metaURL)
