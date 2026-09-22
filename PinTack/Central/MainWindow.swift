@@ -10,7 +10,7 @@ final class MainWindowModel: ObservableObject {
     enum Tab: String, CaseIterable, Identifiable {
         case allNotes = "All Notes", settings = "Settings"
         var id: String { rawValue }
-        var symbol: String { self == .allNotes ? "square.stack.3d.up.fill" : "gearshape.fill" }
+        var symbol: String { self == .allNotes ? "note.text" : "gearshape.fill" }   // All Notes draws its own asset
     }
 
     static let shared = MainWindowModel()
@@ -42,6 +42,18 @@ struct MainWindowView: View {
         .tint(Color.chromeHighlight)
     }
 
+    /// All Notes has the owner's own sticky-pad glyph (2026-09-22): the stack glyph it used to share
+    /// is the Stacks tab's inside All Notes. A template image, so it takes the tab's colour exactly
+    /// like the gear beside it.
+    @ViewBuilder private func tabIcon(_ tab: MainWindowModel.Tab) -> some View {
+        if tab == .allNotes {
+            Image("AllNotesTab").renderingMode(.template).resizable().interpolation(.high)
+                .aspectRatio(contentMode: .fit).frame(width: 16, height: 16)
+        } else {
+            Image(systemName: tab.symbol).font(.system(size: 14, weight: .semibold))
+        }
+    }
+
     /// The two tabs, centred in the title bar next to the traffic lights, as in the owner's sketch.
     private var tabBar: some View {
         HStack(spacing: 10) {
@@ -51,7 +63,7 @@ struct MainWindowView: View {
                     withAnimation(ChromeMotion.spring) { model.tab = tab }
                 } label: {
                     HStack(spacing: 8) {
-                        Image(systemName: tab.symbol).font(.system(size: 14, weight: .semibold))
+                        tabIcon(tab)
                         Text(tab.rawValue).font(.system(size: 14, weight: .semibold))
                     }
                     .foregroundStyle(chosen ? Color.chromeOnHighlight : Color.primary.opacity(0.75))
