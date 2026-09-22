@@ -31,6 +31,8 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     // The stack bar, under the title bar of every note in a stack. Only the front note's shows.
     private let stackIcon = NSImageView()
     private let stackNameField = TitleField()
+    /// The orange pill behind the stack's name (owner, 2026-09-22), as wide as the name needs.
+    private let stackPill = NSView()
     private let unstackButton = ToolButton()
     private let stackPinButton = ToolButton()
     private let stackCollapseButton = ToolButton()
@@ -437,7 +439,8 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
          boldButton, italicButton, codeButton, clipButton, unstackButton, stackCollapseButton, stackCloseButton]
             .forEach { $0.contentTintColor = icon }
         stackIcon.contentTintColor = icon
-        stackNameField.textColor = foreground.withAlphaComponent(0.8)
+        // On the orange pill, always near-black lettering, like every orange selection in the app.
+        stackNameField.textColor = .black
         refreshStackPinGlyph()
         refreshPinGlyph()
         refreshBulletButton()
@@ -457,6 +460,10 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         stackIcon.image = symbol("square.stack.3d.up.fill")
         stackIcon.imageScaling = .scaleProportionallyDown
         addSubview(stackIcon)
+        stackPill.wantsLayer = true
+        stackPill.layer?.backgroundColor = Brand.accentNS.cgColor
+        stackPill.layer?.cornerRadius = 8
+        addSubview(stackPill)
         stackNameField.isEditable = false
         stackNameField.isSelectable = false
         stackNameField.isBordered = false
@@ -512,9 +519,15 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         stackPinButton.frame = NSRect(x: stackCollapseButton.frame.minX - btn, y: y, width: btn, height: btn)
         unstackButton.frame = NSRect(x: stackPinButton.frame.minX - btn, y: y, width: btn, height: btn)
         stackIcon.frame = NSRect(x: c.minX + 11, y: barY + (NoteCardView.stackBarHeight - 15) / 2, width: 15, height: 15)
-        let nameX = stackIcon.frame.maxX + 7
-        stackNameField.frame = NSRect(x: nameX, y: barY + (NoteCardView.stackBarHeight - 16) / 2,
-                                      width: max(20, unstackButton.frame.minX - 6 - nameX), height: 16)
+        let pillX = stackIcon.frame.maxX + 6
+        let room = max(28, unstackButton.frame.minX - 6 - pillX)
+        let textWidth = ceil((stackNameField.stringValue as NSString)
+            .size(withAttributes: [.font: stackNameField.font ?? .systemFont(ofSize: 11.5, weight: .semibold)]).width) + 6
+        // While renaming, the pill takes all the room there is, so the typing never runs off its end.
+        let pillWidth = stackNameField.isRenaming ? room : min(room, textWidth + 16)
+        stackPill.frame = NSRect(x: pillX, y: barY + (NoteCardView.stackBarHeight - 18) / 2, width: pillWidth, height: 18)
+        stackNameField.frame = NSRect(x: pillX + 8, y: barY + (NoteCardView.stackBarHeight - 16) / 2,
+                                      width: max(12, pillWidth - 16), height: 16)
     }
 
     private var stackBarRect: NSRect {
@@ -533,7 +546,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         let s = stack
         let inStack = s != nil
         let front = s?.front == note.id
-        for v in [stackIcon, stackNameField, unstackButton, stackPinButton, stackCollapseButton, stackCloseButton] as [NSView] {
+        for v in [stackIcon, stackPill, stackNameField, unstackButton, stackPinButton, stackCollapseButton, stackCloseButton] as [NSView] {
             v.isHidden = !inStack
         }
         clipButton.isHidden = inStack
@@ -588,12 +601,14 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         stackNameField.isSelectable = true
         window?.makeFirstResponder(stackNameField)
         stackNameField.currentEditor()?.selectAll(nil)
+        needsLayout = true
     }
 
     private func endStackRename() {
         stackNameField.isRenaming = false
         stackNameField.isEditable = false
         stackNameField.isSelectable = false
+        needsLayout = true
     }
 
     // MARK: - Vim mode (SPEC.md §4.6)
