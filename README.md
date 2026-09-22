@@ -17,6 +17,13 @@ Open source, GPL-3.0.
 
 ---
 
+## What it is for
+
+PinTack is for **short notes on the fly**: condensed data, important data, or both. Developers get
+special attention, for the snippets that move between tools and workflows: a command, a hostname, a
+config block, a checklist for the deploy. It is **not** a knowledge base, a wiki or a place for
+documentation. Obsidian and tools like it exist for those, and do them well.
+
 ## Why this exists
 
 A commercial sticky-notes app on the Mac App Store does the basics well and sits around #58 in Productivity with a 4.2-star rating. It is also roughly 377 MB, which is what an Electron bundle costs you.

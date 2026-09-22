@@ -1,12 +1,17 @@
 # PinTack — Technical Specification
 
-**Version:** 0.1.0 (build 8) — last brought up to date 2026-09-21
+**Version:** 0.1.0 (build 10) — last brought up to date 2026-09-22
 **Status:** Built and running; in beta with testers. Phases 1–4 complete; Phase 5 (signing,
 notarization, Sparkle) and the WidgetKit widget are not built — see §11 and §15. `CHANGELOG.md`
 records how it got here.
 **Target platform:** macOS 14 (Sonoma) and later
 **License:** GPL-3.0-or-later
 **Bundle identifier:** `io.cymentix.pintack`
+
+> **Product thesis (owner).** PinTack is for short notes on the fly: condensed data, important data,
+> or both. It gives developers special attention for snippets that move between tools and
+> workflows. It is **not** for knowledge bases, wikis or documentation; Obsidian and similar tools
+> exist for those. Every feature in this document should be judged against that sentence.
 
 ---
 

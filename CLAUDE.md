@@ -425,6 +425,11 @@ Owner decisions added after the rebuild (2026-09-19):
 
 ### Scope: a sticky-note app, not a note-taking app
 
+**Check every proposed feature against the product thesis at the top of SPEC.md before suggesting
+it:** short notes on the fly (condensed data, important data, or both), with special attention for
+developers' snippets that move between tools and workflows; not knowledge bases, wikis or
+documentation. If a feature only makes sense for long documents, say so and do not propose it.
+
 The owner turned these down by name (2026-09-20) as scope creep. **Do not propose them again**
 without new reasoning; the goal is concentrated, important information that takes little screen
 space and can be referenced fast. Obsidian already exists for the rest.
