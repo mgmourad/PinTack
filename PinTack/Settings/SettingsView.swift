@@ -658,6 +658,7 @@ enum VimNotice {
         "Pictures are drawn as blocks in Live Preview. The moment the cursor reaches one it opens up into its raw Markdown, so the note can jump in height as you pass, and x on a picture's first character turns it into a plain link. Resizing and cropping a picture still need the mouse. If anything feels off, switch the note to Source (⌥⌘M): everything is plain text there.",
         "Line numbers count the note's visible lines, starting after its hidden header. A hidden ``` fence keeps its number without showing it, so 12G always means the 12th line.",
         "There are no splits, tabs or :e — a note is one buffer. :w, :q, :wq, :x and ZZ work.",
+        "Vim keys here are for moving around short notes. For full vim-style writing of longer documents, Obsidian or VS Code is the better fit.",
     ]
     static let dismiss = "Got it"
 }

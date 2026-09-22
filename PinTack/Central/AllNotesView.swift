@@ -179,7 +179,7 @@ struct AllNotesView: View {
                 .init(value: .tags, symbol: "number", text: "", help: "Tags"),
                 .init(value: .todo, symbol: nil, text: "@", help: "Todos"),
                 .init(value: .templates, symbol: "cube.box.fill", text: "", help: "Templates"),
-                .init(value: .stacks, symbol: "square.stack.3d.up.fill", text: "", help: "Stacks"),
+                .init(value: .stacks, symbol: "square.stack.3d.up.fill", text: "", help: "Temporary piles of open notes to save screen space."),
             ])
             .padding(.horizontal, 12).padding(.top, 14).padding(.bottom, 4)
 

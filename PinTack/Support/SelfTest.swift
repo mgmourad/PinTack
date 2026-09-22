@@ -2275,7 +2275,7 @@ enum SelfTest {
         let words = ([VimNotice.title] + VimNotice.points).joined(separator: " ")
         check("the vim notice warns about pictures and explains table folds, and names the way out",
               words.contains("Pictures are drawn as blocks") && words.contains("Tables are folds") && words.contains("[+3]")
-                  && words.contains("Source") && words.contains("press i"))
+                  && words.contains("Source") && words.contains("press i") && words.contains("Obsidian or VS Code"))
         let wasShown = AppSettings.shared.vimNoticeShown
         AppSettings.shared.vimNoticeShown = false
         AppSettings.shared.vimMode = true
