@@ -2622,10 +2622,18 @@ enum SelfTest {
     /// The All Notes rows' new actions and the tooltips (owner, 2026-09-22), then a picture of the
     /// Todos and Templates tabs with their row icons.
     private static func rowActionsTest(out: URL, then next: @escaping () -> Void) {
-        check("tooltips wait two seconds before they show",
-              UserDefaults.standard.integer(forKey: "NSInitialToolTipDelay") == 2000)
+        check("tooltips wait one second, the All Notes tab glyphs half a second",
+              UserDefaults.standard.integer(forKey: "NSInitialToolTipDelay") == 1000 && GlyphTabs<Int>.tipDelay == 0.5)
         check("tooltips read “Name | description”", Tip.text("Rename", "Change the title") == "Rename | Change the title")
         check("the unstack glyph is drawn (SF Symbols has no struck paperclip)", NoteCardView.struckPaperclip() != nil)
+        // The strike runs top-left to bottom-right, ACROSS the clip, which itself leans the other way.
+        if let glyph = NoteCardView.struckPaperclip(), let tiff = glyph.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff) {
+            let w = rep.pixelsWide, h = rep.pixelsHigh
+            let upperLeft = rep.colorAt(x: w / 8, y: h / 8)?.alphaComponent ?? 0          // bitmap rows count from the top
+            let lowerRight = rep.colorAt(x: w - 1 - w / 8, y: h - 1 - h / 8)?.alphaComponent ?? 0
+            check("the Unstack strike crosses the paperclip instead of running alongside it",
+                  upperLeft > 0.4 && lowerRight > 0.4, String(format: "ends %.2f, %.2f", upperLeft, lowerRight))
+        }
 
         let template = VaultStore.shared.createNote(body: "Standup\n- yesterday\n- today")
         TemplateNaming.apply("standup", to: template)

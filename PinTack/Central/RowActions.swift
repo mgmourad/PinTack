@@ -6,11 +6,12 @@ import AppKit
 enum Tip {
     static func text(_ name: String, _ description: String) -> String { "\(name) | \(description)" }
 
-    /// Tooltips wait 2 seconds (owner, 2026-09-22) so they never flash up while the pointer is
-    /// merely passing. Registered, not written: it is a default, and nothing lands in the user's
-    /// preferences file.
+    /// Tooltips wait 1 second (owner, 2026-09-22; first 2 s, which felt slow) so they never flash up
+    /// while the pointer is merely passing. Registered, not written: it is a default, and nothing
+    /// lands in the user's preferences file. The All Notes glyph tabs have their own, faster ones.
+    static let delay: TimeInterval = 1.0
     static func registerDelay() {
-        UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 2000])
+        UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": Int(delay * 1000)])
     }
 }
 
@@ -114,5 +115,32 @@ enum TemplateNaming {
         WindowManager.shared.refreshTemplates()
         Toast.show("Saved as @\(name)")
         return true
+    }
+}
+
+/// Every All Notes row's icons, in ONE order everywhere (owner, 2026-09-22): show / hide, rename,
+/// then anything particular to the tab (Unstack), and delete always last, furthest from the rest.
+/// Rows build their icons through this, so the order cannot drift apart again.
+struct RowActionIcons: View {
+    let shown: Bool
+    let showTip: String
+    let hideTip: String
+    let renameTip: String
+    let deleteTip: String
+    let onToggleShown: () -> Void
+    let onRename: () -> Void
+    var onUnstack: (() -> Void)? = nil
+    let onDelete: () -> Void
+
+    var body: some View {
+        HStack(spacing: 2) {
+            RowIconButton(shown ? "eye" : "eye.slash", shown ? "Hide" : "Show", shown ? hideTip : showTip, action: onToggleShown)
+            RowIconButton("pencil", "Rename", renameTip, action: onRename)
+            if let onUnstack {
+                RowIconButton(image: NoteCardView.struckPaperclip(), "Unstack",
+                              "Undo the stack; every note goes back where it was and is kept", action: onUnstack)
+            }
+            RowIconButton("trash", "Delete", deleteTip, action: onDelete)
+        }
     }
 }

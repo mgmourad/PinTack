@@ -524,9 +524,12 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         let image = NSImage(size: size, flipped: false) { rect in
             clip.draw(in: rect)
             // Clear a channel either side of the stroke so it reads as crossed out, not scribbled on.
+            // The paperclip glyph itself leans bottom-left to top-right, so the strike runs the OTHER
+            // diagonal, top-left to bottom-right, across it; along its own lean it looked like a
+            // second wire beside the clip (owner, 2026-09-22).
             let path = NSBezierPath()
-            path.move(to: NSPoint(x: rect.minX + 1, y: rect.minY + 1))
-            path.line(to: NSPoint(x: rect.maxX - 1, y: rect.maxY - 1))
+            path.move(to: NSPoint(x: rect.minX + 1, y: rect.maxY - 1))
+            path.line(to: NSPoint(x: rect.maxX - 1, y: rect.minY + 1))
             path.lineCapStyle = .round
             NSGraphicsContext.current?.compositingOperation = .clear
             path.lineWidth = 4.2

@@ -74,23 +74,33 @@ extension View {
 
 /// A row of glyph tabs with a solid orange pill that slides to the chosen one. Replaces the system
 /// segmented control, whose selection on macOS is a grey that no tint reaches.
+///
+/// Its tooltips are its own, not the system's: a glyph on its own says little, so the owner wanted
+/// these sooner (0.5 s, against 1 s everywhere else) and easier to see (2026-09-22). macOS has one
+/// tooltip delay per app, so a faster one has to be drawn here.
 struct GlyphTabs<Value: Hashable>: View {
 
     struct Item: Identifiable {
         let value: Value
         let symbol: String?       // an SF Symbol, or nil to show `text`
         let text: String
-        let help: String
-        var id: String { help }
+        let name: String
+        let detail: String
+        var id: String { name }
     }
+
+    static var tipDelay: TimeInterval { 0.5 }
 
     @Binding var selection: Value
     let items: [Item]
     @Namespace private var pill
+    @State private var hovered: Value?
+    @State private var tipFor: Value?
+    @State private var hoverToken = 0
 
     var body: some View {
         HStack(spacing: 2) {
-            ForEach(items) { item in
+            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                 let chosen = item.value == selection
                 Button {
                     withAnimation(ChromeMotion.spring) { selection = item.value }
@@ -114,13 +124,48 @@ struct GlyphTabs<Value: Hashable>: View {
                     .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
-                .help(item.help)
-                .accessibilityLabel(item.help)
+                .onHover { inside in hover(inside ? item.value : nil, leaving: item.value) }
+                // Anchored to the side it is nearest, so a tip under the first or last tab stays in
+                // the sidebar instead of running off its edge.
+                .overlay(alignment: index == 0 ? .topLeading : index == items.count - 1 ? .topTrailing : .top) {
+                    if tipFor == item.value { bubble(item).offset(y: 36).allowsHitTesting(false) }
+                }
+                .zIndex(tipFor == item.value ? 1 : 0)
+                .accessibilityLabel(item.name)
+                .accessibilityHint(item.detail)
                 .accessibilityAddTraits(chosen ? .isSelected : [])
             }
         }
         .padding(3)
         .background(Capsule().fill(Color.chromeSurface))
+    }
+
+    /// Solid orange with near-black lettering, like every selection in this window: the name in bold
+    /// on top, what it holds underneath.
+    private func bubble(_ item: Item) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(item.name).font(.system(size: 12.5, weight: .bold))
+            Text(item.detail).font(.system(size: 11.5)).fixedSize(horizontal: false, vertical: true)
+        }
+        .foregroundStyle(Color.chromeOnHighlight)
+        .padding(.horizontal, 10).padding(.vertical, 7)
+        .frame(width: 180, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.chromeHighlight)
+            .shadow(color: .black.opacity(0.35), radius: 8, y: 3))
+        .transition(.opacity.combined(with: .offset(y: Motion.enabled ? -4 : 0)))
+    }
+
+    private func hover(_ value: Value?, leaving: Value) {
+        if value == nil && hovered != leaving { return }       // a late exit from a tab already left
+        hovered = value
+        hoverToken += 1
+        let token = hoverToken
+        withAnimation(.easeOut(duration: 0.1)) { tipFor = nil }
+        guard let value else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + GlyphTabs.tipDelay) {
+            guard token == hoverToken, hovered == value else { return }
+            withAnimation(.easeOut(duration: 0.14)) { tipFor = value }
+        }
     }
 }
 

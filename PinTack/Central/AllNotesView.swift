@@ -175,13 +175,15 @@ struct AllNotesView: View {
             // Each segment carries its own tip: one .help() on the Picker described all four at
             // once, which told you nothing about the icon under the pointer.
             GlyphTabs(selection: $model.mode, items: [
-                .init(value: .folders, symbol: "folder.fill", text: "", help: Tip.text("Folders", "Your notes, by the folder they are filed in")),
-                .init(value: .tags, symbol: "number", text: "", help: Tip.text("Tags", "Your notes, by #tag")),
-                .init(value: .todo, symbol: nil, text: "@", help: Tip.text("Todos", "Every todo note and how done it is")),
-                .init(value: .templates, symbol: "cube.box.fill", text: "", help: Tip.text("Templates", "Notes saved as @name, to drop into any note")),
-                .init(value: .stacks, symbol: "square.stack.3d.up.fill", text: "", help: Tip.text("Stacks", "Temporary piles of open notes to save screen space.")),
+                .init(value: .folders, symbol: "folder.fill", text: "", name: "Folders", detail: "Your notes, by the folder they are filed in"),
+                .init(value: .tags, symbol: "number", text: "", name: "Tags", detail: "Your notes, by #tag"),
+                .init(value: .todo, symbol: nil, text: "@", name: "Todos", detail: "Every todo note and how done it is"),
+                .init(value: .templates, symbol: "cube.box.fill", text: "", name: "Templates", detail: "Notes saved as @name, to drop into any note"),
+                .init(value: .stacks, symbol: "square.stack.3d.up.fill", text: "", name: "Stacks", detail: "Temporary piles of open notes to save screen space."),
             ])
             .padding(.horizontal, 12).padding(.top, 14).padding(.bottom, 4)
+            // The tabs' tooltips hang down over the list below; they must draw on top of it.
+            .zIndex(2)
 
             if model.mode == .todo { todoControls }
             if model.mode == .templates { templateControls }
@@ -705,18 +707,15 @@ private struct StackRow: View {
             .opacity(shown ? 1 : 0.6)
             Spacer()
 
-            HStack(spacing: 2) {
-                RowIconButton("pencil", "Rename", "Change this stack's name") { beginRename() }
-                RowIconButton(shown ? "eye" : "eye.slash", shown ? "Hide" : "Show",
-                              shown ? "Take the whole stack off the desktop; it stays here" : "Put the whole stack back on the desktop") {
-                    if shown { StackManager.shared.hide(stack.id) } else { StackManager.shared.show(stack.id) }
-                }
-                RowIconButton(image: NoteCardView.struckPaperclip(), "Unstack",
-                              "Undo the stack; every note goes back where it was and is kept") {
-                    StackManager.shared.unstack(stack.id)
-                }
-                RowIconButton("trash", "Delete", "Delete the stack and its notes, after asking") { onDelete() }
-            }
+            RowActionIcons(shown: shown,
+                           showTip: "Put the whole stack back on the desktop",
+                           hideTip: "Take the whole stack off the desktop; it stays here",
+                           renameTip: "Change this stack's name",
+                           deleteTip: "Delete the stack and its notes, after asking",
+                           onToggleShown: { if shown { StackManager.shared.hide(stack.id) } else { StackManager.shared.show(stack.id) } },
+                           onRename: { beginRename() },
+                           onUnstack: { StackManager.shared.unstack(stack.id) },
+                           onDelete: onDelete)
         }
         .padding(.vertical, 7).padding(.horizontal, 8)
         .background(RoundedRectangle(cornerRadius: 9).fill(isSelected ? Color.chromeHighlight.opacity(0.2)
@@ -799,17 +798,14 @@ private struct TemplateRow: View {
 
             Spacer(minLength: 0)
 
-            HStack(spacing: 2) {
-                RowIconButton(note.visible ? "eye" : "eye.slash",
-                              note.visible ? "Hide" : "Show",
-                              note.visible ? "Take this template off the desktop; it stays here" : "Put this template on the desktop") {
-                    NoteRowActions.toggleShown(note)
-                }
-                RowIconButton("pencil", "Rename", "Change the @name this template is recalled by") { beginRename() }
-                RowIconButton("trash", "Delete", "Move this template's note to the Trash, with Undo") {
-                    WindowManager.shared.delete([note])
-                }
-            }
+            RowActionIcons(shown: note.visible,
+                           showTip: "Put this template on the desktop",
+                           hideTip: "Take this template off the desktop; it stays here",
+                           renameTip: "Change the @name this template is recalled by",
+                           deleteTip: "Move this template's note to the Trash, with Undo",
+                           onToggleShown: { NoteRowActions.toggleShown(note) },
+                           onRename: { beginRename() },
+                           onDelete: { WindowManager.shared.delete([note]) })
         }
         .padding(.vertical, 7).padding(.horizontal, 10)
         .background(RoundedRectangle(cornerRadius: 9).fill(hovering ? Color.chromeSurfaceHover : .clear))
@@ -912,15 +908,14 @@ private struct TodoRow: View {
 
             Spacer(minLength: 0)
 
-            HStack(spacing: 2) {
-                RowIconButton("pencil", "Rename", "Change this todo's title") { beginRename() }
-                RowIconButton(note.visible ? "eye" : "eye.slash",
-                              note.visible ? "Hide" : "Show",
-                              note.visible ? "Take this todo off the desktop; it stays here" : "Put this todo on the desktop") {
-                    NoteRowActions.toggleShown(note)
-                }
-                RowIconButton("trash", "Delete", "Move this todo to the Trash, with Undo") { WindowManager.shared.delete([note]) }
-            }
+            RowActionIcons(shown: note.visible,
+                           showTip: "Put this todo on the desktop",
+                           hideTip: "Take this todo off the desktop; it stays here",
+                           renameTip: "Change this todo's title",
+                           deleteTip: "Move this todo to the Trash, with Undo",
+                           onToggleShown: { NoteRowActions.toggleShown(note) },
+                           onRename: { beginRename() },
+                           onDelete: { WindowManager.shared.delete([note]) })
         }
         .opacity(note.isDone ? 0.55 : 1)
         .padding(.vertical, 7).padding(.horizontal, 10)
@@ -1008,14 +1003,14 @@ private struct NoteRow: View {
             .opacity(note.visible ? 1 : 0.6)
             Spacer()
 
-            HStack(spacing: 2) {
-                RowIconButton(note.visible ? "eye" : "eye.slash", note.visible ? "Hide" : "Show",
-                              note.visible ? "Take this note off the desktop; it stays here" : "Put this note on the desktop") {
-                    NoteRowActions.toggleShown(note)
-                }
-                RowIconButton("pencil", "Rename", "Change this note's title") { beginRename() }
-                RowIconButton("trash", "Delete", "Move this note to the Trash, with Undo") { WindowManager.shared.delete([note]) }
-            }
+            RowActionIcons(shown: note.visible,
+                           showTip: "Put this note on the desktop",
+                           hideTip: "Take this note off the desktop; it stays here",
+                           renameTip: "Change this note's title",
+                           deleteTip: "Move this note to the Trash, with Undo",
+                           onToggleShown: { NoteRowActions.toggleShown(note) },
+                           onRename: { beginRename() },
+                           onDelete: { WindowManager.shared.delete([note]) })
         }
         .padding(.vertical, 7).padding(.horizontal, 8)
         .background(RoundedRectangle(cornerRadius: 9).fill(isSelected ? Color.chromeHighlight.opacity(0.2)
