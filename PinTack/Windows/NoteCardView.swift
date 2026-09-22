@@ -192,13 +192,16 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
 
     /// The pushpin art (assets: Pushpin). Its needle enters a crack in the paper, and that crack
     /// is anchored on the card's top-left corner while the head overhangs into the transparent
-    /// margin. SPEC.md §5.4. The crack sits 74% across and 87% down the trimmed image; the
-    /// height is chosen so the head's top stays inside the 24pt margin (17 + 0.87 × 46 ≈ 23).
+    /// margin. SPEC.md §5.4. The crack sits 74% across and 87% down the trimmed image.
+    /// 40% smaller than it first was (owner, 2026-09-22): the height AND the crack's distance from
+    /// the corner both scale by 0.6, so the pin sits exactly as before, only smaller. Its head's top
+    /// is 0.87 × 27.6 − 10.2 ≈ 14pt above the card, well inside the 24pt margin.
+    static let pinScale: CGFloat = 0.6
     private var pinImageRect: NSRect {
-        let h: CGFloat = 46
+        let h: CGFloat = 46 * NoteCardView.pinScale
         let aspect: CGFloat = 188.0 / 285.0
         let w = h * aspect
-        let crack = CGPoint(x: cardRect.minX + 24, y: cardRect.maxY - 17)
+        let crack = CGPoint(x: cardRect.minX + 24 * NoteCardView.pinScale, y: cardRect.maxY - 17 * NoteCardView.pinScale)
         return NSRect(x: crack.x - 0.74 * w, y: crack.y - 0.13 * h, width: w, height: h)
     }
 
@@ -896,7 +899,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         let headerY = c.maxY - NotePanel.headerHeight
         let buttonY = headerY + (NotePanel.headerHeight - btn) / 2
         // The title clears the overhanging pin when the note is pinned. SPEC.md §5.2.
-        let left = c.minX + (note.pinned ? 34 : 12)
+        let left = c.minX + (showsOwnPin ? 24 : 12)
 
         var titleRight: CGFloat
         if stack != nil {

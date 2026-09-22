@@ -375,7 +375,7 @@ is rather than always being black.
 ### 5.4 Pin
 
 ⌥⌘P. A pinned note floats above other windows and draws the owner's pushpin PNG, anchored by the
-crack in the paper, with a glow in the note's own colour. **Settings → Notes → Glow strength** runs
+crack in the paper (drawn 40% smaller than the first version, owner 2026-09-22), with a glow in the note's own colour. **Settings → Notes → Glow strength** runs
 from 25% to 160%; it is mostly brightness, and the halo never widens past the 24 pt margin, where
 the window edge would slice it flat.
 
