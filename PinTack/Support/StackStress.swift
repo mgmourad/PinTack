@@ -39,6 +39,35 @@ enum StackStress {
         NSApp.activate(ignoringOtherApps: true)
         MainWindowController.shared.close()
 
+        // Against a vault that already HAS a stack (a copy of the owner's, say), use his notes rather
+        // than making new ones: their sizes, colours, pins and todo bars are the point.
+        if ProcessInfo.processInfo.environment["PINTACK_STACK_STRESS_EXISTING"] != nil,
+           let existing = StackManager.shared.stacks.first {
+            let members = StackManager.shared.notes(of: existing)
+            print("STACK STRESS using the vault's own stack “\(existing.name)”: "
+                  + members.map { "\($0.title.isEmpty ? "Untitled" : $0.title)"
+                                  + " \(Int($0.cardFrame.width))×\(Int($0.cardFrame.height))"
+                                  + ($0.pinned ? " PINNED" : "") + ($0.collapsed ? " COLLAPSED" : "")
+                                  + ($0.isTodo ? " todo" : "") }.joined(separator: " | "))
+            for note in members {
+                note.visible = true
+                VaultStore.shared.save(note)
+                WindowManager.shared.open(note)
+            }
+            func nameOf(_ id: String?) -> String {
+                let t = VaultStore.shared.note(id: id ?? "")?.title ?? "?"
+                return String((t.isEmpty ? "Untitled" : t).prefix(14))
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                StackManager.shared.layoutAll()
+                showMarker()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    step(1, of: clicks, stackID: existing.id, notes: members, name: nameOf, lastPlace: 0)
+                }
+            }
+            return
+        }
+
         let colours = ["#FFE9A8", "#D9F3C9", "#CFE6FF", "#F6D6E8", "#E7DFFA"]
         let names = ["Butter", "Mint", "Sky", "Rose", "Lilac"]
         let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)

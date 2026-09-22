@@ -345,11 +345,30 @@ final class StackManager {
         return name.isEmpty ? "Untitled" : String(name.prefix(18))
     }
 
+    /// What the SCREEN shows: the pile front to back as the window server has it, and any window
+    /// sitting at a level of its own — a floating window can never be overtaken by an ordinary one,
+    /// however right the pile's own order is.
+    private func drawnState() -> String {
+        guard let s = stacks.first else { return "" }
+        let panels = s.order.compactMap { WindowManager.shared.panel(for: $0) }
+        guard !panels.isEmpty else { return "" }
+        let numbers = (NSWindow.windowNumbers(options: []) ?? []).map(\.intValue)
+        let drawn = numbers.compactMap { n in panels.first { $0.windowNumber == n } }.map { title($0.note.id) }
+        let levels = panels.filter { $0.level != .normal }
+            .map { "\(title($0.note.id)) at level \($0.level.rawValue)" }
+        let missing = s.order.filter { WindowManager.shared.panel(for: $0) == nil }.map(title)
+        var parts = ["drawn \(drawn.joined(separator: ","))"]
+        if !levels.isEmpty { parts.append("LEVELS " + levels.joined(separator: ", ")) }
+        if !missing.isEmpty { parts.append("NOT ON THE DESK: " + missing.joined(separator: ",")) }
+        if drawn != s.order.map(title) { parts.append("≠ pile \(s.order.map(title).joined(separator: ","))") }
+        return "  [" + parts.joined(separator: "; ") + "]"
+    }
+
     func record(_ reason: String, _ what: String) {
         guard let logURL else { return }
         let stamp = Date().formatted(date: .omitted, time: .standard)
         var lines = ((try? String(contentsOf: logURL, encoding: .utf8))?.split(separator: "\n").map(String.init) ?? [])
-        lines.append("\(stamp)  \(reason.padding(toLength: 16, withPad: " ", startingAt: 0)) \(what)")
+        lines.append("\(stamp)  \(reason.padding(toLength: 16, withPad: " ", startingAt: 0)) \(what)\(drawnState())")
         if lines.count > StackManager.logLimit { lines.removeFirst(lines.count - StackManager.logLimit) }
         try? AtomicWriter.write(lines.joined(separator: "\n") + "\n", to: logURL)
     }
