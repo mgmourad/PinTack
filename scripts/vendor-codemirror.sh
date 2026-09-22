@@ -17,21 +17,35 @@ trap 'rm -rf "$WORK"' EXIT
 
 cd "$WORK"
 npm init -y >/dev/null
+# EVERY package is pinned, dependencies of dependencies included, so re-running this reproduces the
+# vendored files exactly instead of quietly upgrading dozens of them. Only a deliberate edit to this
+# list changes what ships. (Until 2026-09-21 only the core was pinned; adding vim would otherwise
+# have pulled the newest of every language package with it.)
+#
+# The language packages are for fenced code blocks and are NOT loaded with the editor: editor.js
+# imports each one only when a note actually contains a block in that language. See
+# Editor/languages.js.
+#
+# @codemirror/search and @replit/codemirror-vim (MIT) are for vim mode, owner-approved 2026-09-21.
 npm install --no-audit --no-fund --ignore-scripts --save-exact \
   @codemirror/state@6.7.5 @codemirror/view@6.43.12 @codemirror/language@6.12.4 \
-  @codemirror/commands@6.11.1 @codemirror/autocomplete@6.20.3 \
-  @codemirror/lang-markdown@6.5.2 @lezer/highlight@1.2.3 >/dev/null
+  @codemirror/commands@6.11.1 @codemirror/autocomplete@6.20.3 @codemirror/lint@6.9.7 \
+  @codemirror/lang-markdown@6.5.2 @lezer/highlight@1.2.3 @lezer/common@1.5.2 @lezer/lr@1.4.10 \
+  @lezer/markdown@1.7.2 @marijn/find-cluster-break@1.0.4 crelt@1.0.7 style-mod@4.1.4 \
+  w3c-keyname@2.2.8 \
+  @codemirror/search@6.7.2 @replit/codemirror-vim@6.4.0 @replit/codemirror-vim-core@0.1.0 >/dev/null
 
-# Every language CodeMirror ships, for fenced code blocks. These are NOT loaded with the editor:
-# editor.js imports each one only when a note actually contains a block in that language, so a
-# note with no code still parses one markdown module. See LANGUAGES in Editor/editor.js.
 npm install --no-audit --no-fund --ignore-scripts --save-exact \
-  @codemirror/lang-angular @codemirror/lang-cpp @codemirror/lang-css @codemirror/lang-go \
-  @codemirror/lang-html @codemirror/lang-java @codemirror/lang-javascript @codemirror/lang-json \
-  @codemirror/lang-less @codemirror/lang-liquid @codemirror/lang-php @codemirror/lang-python \
-  @codemirror/lang-rust @codemirror/lang-sass @codemirror/lang-sql @codemirror/lang-vue \
-  @codemirror/lang-wast @codemirror/lang-xml @codemirror/lang-yaml \
-  @codemirror/legacy-modes >/dev/null
+  @codemirror/lang-angular@0.1.4 @codemirror/lang-cpp@6.0.3 @codemirror/lang-css@6.3.1 \
+  @codemirror/lang-go@6.0.1 @codemirror/lang-html@6.4.12 @codemirror/lang-java@6.0.2 \
+  @codemirror/lang-javascript@6.2.5 @codemirror/lang-json@6.0.2 @codemirror/lang-less@6.0.2 \
+  @codemirror/lang-liquid@6.3.2 @codemirror/lang-php@6.0.2 @codemirror/lang-python@6.2.1 \
+  @codemirror/lang-rust@6.0.2 @codemirror/lang-sass@6.0.2 @codemirror/lang-sql@6.10.0 \
+  @codemirror/lang-vue@0.1.3 @codemirror/lang-wast@6.0.2 @codemirror/lang-xml@6.1.0 \
+  @codemirror/lang-yaml@6.1.3 @codemirror/legacy-modes@6.5.4 \
+  @lezer/cpp@1.1.6 @lezer/css@1.3.6 @lezer/go@1.0.1 @lezer/html@1.3.13 @lezer/java@1.1.4 \
+  @lezer/javascript@1.5.4 @lezer/json@1.0.3 @lezer/php@1.0.6 @lezer/python@1.1.19 \
+  @lezer/rust@1.0.2 @lezer/sass@1.1.0 @lezer/xml@1.0.6 @lezer/yaml@1.0.4 >/dev/null
 
 node - "$ROOT" <<'EOF'
 const fs = require("fs"), path = require("path"), crypto = require("crypto");
@@ -70,7 +84,8 @@ for (const dir of packages("node_modules")) {
   }
 
   const ex = pkg.exports && (pkg.exports["."] || pkg.exports);
-  const entry = (ex && ex.import) || pkg.module;
+  // "import" for most packages; @replit/codemirror-vim-core declares its ES module as "default".
+  const entry = (ex && (ex.import || ex.default)) || pkg.module;
   if (!entry) throw new Error(pkg.name + " has no ESM entry");
   const flat = pkg.name.replace(/^@/, "").replace("/", "-") + ".js";
   fs.copyFileSync(path.join(dir, entry), path.join(vendor, flat));
