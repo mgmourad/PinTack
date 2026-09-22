@@ -1858,12 +1858,38 @@ enum SelfTest {
             let x = Int((NotePanel.margin - 10) * scale), y = Int(view.bounds.midY * scale)
             return rep.colorAt(x: x, y: y)?.alphaComponent ?? -1
         }
+        /// The halo's colour 6pt outside the card, as brightness 0…1 weighted by how opaque it is.
+        func haloLight() -> CGFloat {
+            view.needsDisplay = true
+            view.displayIfNeeded()
+            guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return -1 }
+            view.cacheDisplay(in: view.bounds, to: rep)
+            let scale = CGFloat(rep.pixelsWide) / view.bounds.width
+            let x = Int((NotePanel.margin - 6) * scale), y = Int(view.bounds.midY * scale)
+            guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB), c.alphaComponent > 0.05 else { return 0 }
+            return (c.redComponent + c.greenComponent + c.blueComponent) / 3
+        }
         AppSettings.shared.pinnedGlowStrength = 0.25
         let faint = halo()
-        AppSettings.shared.pinnedGlowStrength = 1.6
-        let strong = halo()
+        AppSettings.shared.pinnedGlowStrength = 1.0
+        let normal = halo()
+        AppSettings.shared.pinnedGlowStrength = 2.0
+        let strongest = halo()
         check("the glow strength setting changes how bright a pinned note's halo is",
-              strong > faint + 0.1, String(format: "halo %.2f at 25%%, %.2f at 160%%", faint, strong))
+              normal > faint + 0.05, String(format: "halo %.2f at 25%%, %.2f at 100%%", faint, normal))
+        check("the glow goes up to 200%, brighter than 100%",
+              strongest > normal + 0.05 && AppSettings.maxGlowStrength == 2.0,
+              String(format: "halo %.2f at 100%%, %.2f at 200%%", normal, strongest))
+        // A dark note glows LIGHT: a glow in its own dark colour is a haze nobody can see.
+        AppSettings.shared.pinnedGlowStrength = 1.0
+        let original = note.colorHex
+        note.colorHex = "#262A33"
+        panel.card.refreshFromNote()
+        let darkNote = haloLight()
+        note.colorHex = original
+        panel.card.refreshFromNote()
+        check("a pinned note with dark paper glows light, not in its own dark colour",
+              darkNote > 0.6, String(format: "halo brightness %.2f", darkNote))
         AppSettings.shared.pinnedGlowStrength = was
         view.needsDisplay = true
         next()

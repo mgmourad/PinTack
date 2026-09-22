@@ -213,7 +213,7 @@ private struct NotesPane: View {
                 Toggle("Glow on pinned notes", isOn: $s.pinnedGlow)
                 LabeledContent("Glow strength") {
                     HStack {
-                        Slider(value: $s.pinnedGlowStrength, in: 0.25...1.6).frame(width: 160)
+                        Slider(value: $s.pinnedGlowStrength, in: 0.25...AppSettings.maxGlowStrength).frame(width: 160)
                         Text("\(Int((s.pinnedGlowStrength * 100).rounded()))%")
                             .monospacedDigit().frame(width: 44, alignment: .trailing)
                     }

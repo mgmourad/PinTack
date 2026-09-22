@@ -247,11 +247,16 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
             // Settings → Notes → Glow strength. Mostly brightness; the halo also widens a little, but
             // never past the 24pt margin, or the window edge would slice it off flat (SPEC.md §5.2).
             let strength = settings.pinnedGlowStrength
-            for (blur, alpha) in [(22.0, 0.62), (9.0, 0.85)] {
-                let spread = min(Double(NotePanel.margin), blur * (0.75 + 0.25 * strength))
+            let glow = NoteCardView.glowColor(for: note)
+            // Past 100% both passes are already fully opaque, so a third, tight pass carries the rest:
+            // at 200% it is as strong again as the other two.
+            var passes: [(Double, Double)] = [(22.0, 0.62), (9.0, 0.85)]
+            if strength > 1 { passes.append((4.0, strength - 1)) }
+            for (blur, alpha) in passes {
+                let spread = min(Double(NotePanel.margin), blur * (0.75 + 0.25 * min(strength, 1.6)))
                 ctx.saveGState()
                 ctx.setShadow(offset: .zero, blur: CGFloat(spread),
-                              color: note.color.withAlphaComponent(CGFloat(min(1, alpha * strength))).cgColor)
+                              color: glow.withAlphaComponent(CGFloat(min(1, alpha * strength))).cgColor)
                 note.color.setFill()
                 card.fill()
                 ctx.restoreGState()
@@ -304,6 +309,14 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         if showsOwnPin {
             if let art = NSImage(named: "Pushpin") { art.draw(in: pinImageRect) } else { drawPin(in: ctx) }
         }
+    }
+
+    /// The pinned glow's colour: the note's own on light paper, but a LIGHT glow on dark paper (a
+    /// dark note colour, or a note in Dark mode). A glow in a dark note's own colour is a dark haze
+    /// that simply does not show (owner, 2026-09-22). Still tinted by the note, so it reads as its glow.
+    static func glowColor(for note: Note) -> NSColor {
+        guard !note.isDarkText else { return note.color }
+        return note.color.usingColorSpace(.sRGB)?.blended(withFraction: 0.78, of: .white) ?? .white
     }
 
     /// Fallback vector pushpin, used only if the Pushpin asset is missing.
