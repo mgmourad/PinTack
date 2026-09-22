@@ -228,6 +228,25 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         let path = NSBezierPath(roundedRect: cardRect, xRadius: cornerRadius, yRadius: cornerRadius)
         if path.contains(local) { return super.hitTest(point) }
         if showsOwnPin && pinRect.contains(local) { return self }
+        // In a stack this window's margin lies over the title bars behind it, and where the card's
+        // shadow darkens that margin macOS delivers the click HERE, not to the note underneath.
+        // Returning nil dropped it: clicks near the bottom of a back title bar did nothing, near the
+        // top they worked (owner-reported, 2026-09-22). Take it, and hand it on in mouseDown.
+        if stack != nil, stackMemberUnder(local) != nil { return self }
+        return nil
+    }
+
+    /// The other note of this stack whose visible title bar is under a point in this view.
+    private func stackMemberUnder(_ local: NSPoint) -> NotePanel? {
+        guard let s = stack, let window else { return nil }
+        let screen = window.convertPoint(toScreen: convert(local, to: nil))
+        // Front to back: the first title bar that contains the point is the one that is showing.
+        for id in s.order where id != note.id {
+            guard let p = WindowManager.shared.panel(for: id) else { continue }
+            let card = NotePanel.cardRect(forWindow: p.frame)
+            let header = NSRect(x: card.minX, y: card.maxY - NotePanel.headerHeight, width: card.width, height: NotePanel.headerHeight)
+            if header.contains(screen) { return p }
+        }
         return nil
     }
 
@@ -1397,6 +1416,12 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
 
     override func mouseDown(with event: NSEvent) {
         let local = convert(event.locationInWindow, from: nil)
+        // A click that landed on this window's margin over another stacked note's title bar is that
+        // note's click (see hitTest): it comes to the front, as a click on its title bar would.
+        if !cardRect.contains(local), let other = stackMemberUnder(local) {
+            StackManager.shared.bringToFront(other.note.id)
+            return
+        }
         if showsOwnPin && pinRect.contains(local) && !cardRect.contains(local) { togglePin(); return }
         // The header, the stack bar and any empty footer space drag the note; controls sit above and
         // take their own clicks.
@@ -1691,6 +1716,14 @@ extension NoteCardView {
         (!stackNameField.isHidden, !clipButton.isHidden, !modeButton.isHidden, stackNameField.stringValue)
     }
     func debugShowStackCreator() { showStackCreator() }
+    /// Which stacked note this window hands a click at `screen` to, or nil if it would not take it.
+    func debugClickTarget(atScreen screen: NSPoint) -> String? {
+        guard let window, let parent = superview else { return nil }
+        let inWindow = window.convertPoint(fromScreen: screen)
+        guard hitTest(parent.convert(inWindow, from: nil)) != nil else { return nil }
+        let local = convert(inWindow, from: nil)
+        return cardRect.contains(local) ? note.id : stackMemberUnder(local)?.note.id
+    }
     /// A click on an empty part of the title bar, through mouseDown/mouseUp as a pointer sends it.
     func debugClickHeader() {
         guard let window else { return }

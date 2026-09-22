@@ -2362,6 +2362,42 @@ enum SelfTest {
             check("each title bar leads with its place in the pile, #1 in front",
                   panels.enumerated().allSatisfy { i, p in p.card.debugTitleText.string.hasPrefix("#\(i + 1)") },
                   panels.map { $0.card.debugTitleText.string }.joined(separator: " | "))
+            // Every part of every back title bar, routed the way macOS routes a click: to the window in
+            // FRONT at that spot. Either that is the note itself, or that window must take the click
+            // and hand it to the right note. The front window's transparent margin lies over the
+            // lower part of the title bar behind it, and used to drop those clicks.
+            let windowOrder = (NSWindow.windowNumbers(options: []) ?? []).map(\.intValue)
+            var misses: [String] = []
+            for (i, owner) in panels.enumerated().dropFirst() {
+                let card = NotePanel.cardRect(forWindow: owner.frame)
+                for fx in [0.1, 0.5, 0.9] { for fy in [0.12, 0.5, 0.88] {
+                    let point = NSPoint(x: card.minX + card.width * fx,
+                                        y: card.maxY - NotePanel.headerHeight + NotePanel.headerHeight * fy)
+                    guard let top = windowOrder.compactMap({ n in panels.first { $0.windowNumber == n } })
+                        .first(where: { $0.frame.contains(point) }) else { continue }
+                    let target = top.card.debugClickTarget(atScreen: point)
+                    if target != owner.note.id { misses.append("#\(i + 1) at \(Int(fx * 100))%,\(Int(fy * 100))% → \(target == nil ? "dropped" : "wrong note")") }
+                }}
+            }
+            check("a click anywhere on a stacked note's title bar reaches that note", misses.isEmpty, misses.joined(separator: "; "))
+            // And one real click through AppKit's own dispatch, low on the back-most title bar, where
+            // the front window's margin covers it.
+            let backCard = NotePanel.cardRect(forWindow: panels[2].frame)
+            let low = NSPoint(x: backCard.midX, y: backCard.maxY - NotePanel.headerHeight + 4)
+            if let top = windowOrder.compactMap({ n in panels.first { $0.windowNumber == n } }).first(where: { $0.frame.contains(low) }) {
+                let inWindow = top.convertPoint(fromScreen: low)
+                for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                    if let e = NSEvent.mouseEvent(with: type, location: inWindow, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                  windowNumber: top.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
+                        top.sendEvent(e)
+                    }
+                }
+                check("a real click low on the back note's title bar brings it to the front",
+                      sm.stack(id: made.id)?.front == notes[2].id, "front is #\(sm.stack(id: made.id).flatMap { s in notes.firstIndex { $0.id == s.front } }.map { $0 + 1 } ?? 0)")
+                // Back to the pile the rest of this test expects: #1, #2, #3 in making order.
+                sm.bringToFront(notes[1].id)
+                sm.bringToFront(notes[0].id)
+            }
             let front = panels[0].card.debugStack, back = panels[1].card.debugStack
             check("the stack bar carries the stack's name; the paperclip gives way to it",
                   front.bar && front.name == "Release" && !front.clip)
