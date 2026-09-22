@@ -2638,6 +2638,20 @@ enum SelfTest {
         NoteRowActions.setAllDone(todo, true)
         check("Mark Complete ticks every task in a todo", todo.isDone && todo.taskCounts.done == 2, "\(todo.taskCounts)")
 
+        // /stack: the slash menu posts the same message the page would.
+        let asker = VaultStore.shared.createNote(body: "Stack me", frame: NSRect(x: 300, y: 300, width: 300, height: 250))
+        let askerPanel = WindowManager.shared.open(asker)
+        askerPanel.card.editor.evaluateJavaScript(
+            "window.webkit.messageHandlers.pintack.postMessage({ type: 'note.action', noteId: '\(asker.id)', payload: { action: 'stack' } })")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            check("/stack opens the paperclip's stack popover", askerPanel.card.debugPopoverShown)
+            askerPanel.card.debugPopoverWindow?.close()
+            WindowManager.shared.close(noteID: asker.id)
+            rowActionsTabs(out: out, then: next)
+        }
+    }
+
+    private static func rowActionsTabs(out: URL, then next: @escaping () -> Void) {
         AllNotesModel.shared.mode = .todo
         AllNotesWindowController.shared.show()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {

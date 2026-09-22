@@ -604,6 +604,13 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         refreshStackState()
     }
 
+    /// `/stack` in a note: the paperclip's popover, same rules, from the paperclip. A note already in
+    /// a stack says so instead.
+    func showStackCreatorFromCommand() {
+        if let s = stack { Toast.show("Already in “\(s.name)” — Unstack it first"); return }
+        showStackCreator()
+    }
+
     @objc private func showStackCreator() {
         let candidates = StackCreatorView.candidates(for: note.id)
         guard candidates.count >= NoteStack.minMembers else {

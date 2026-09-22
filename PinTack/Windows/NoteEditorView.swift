@@ -435,6 +435,8 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
                     NotificationCenter.default.post(name: .vaultDidChange, object: nil)
                 }
                 WindowManager.shared.panel(for: note.id)?.card.refreshFromNote()
+            } else if payload["action"] as? String == "stack" {
+                WindowManager.shared.panel(for: note.id)?.card.showStackCreatorFromCommand()
             } else if payload["action"] as? String == "save" {
                 // Vim's :w. Notes save themselves anyway; this just does it now and says so.
                 SaveCoordinator.shared.flush(noteID: note.id)
