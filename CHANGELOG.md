@@ -12,6 +12,15 @@ it stands.
 
 ---
 
+## Build 15 — 2026-09-22
+
+### Added
+- **A stack click log** in `.pintack/stack-clicks.log` (Release builds too): one line per attempt to
+  bring a note forward, with what asked for it and the pile before and after. A hundred simulated
+  clicks at one a second found nothing wrong, so the owner's own clicks have to be recorded.
+- **`scripts/stack-click-stress.sh`:** a hundred clicks on a pile of five, with a marker showing each
+  one, checking the swap, the drawing, the window order and that nothing is left renaming.
+
 ## Build 14 — 2026-09-22
 
 ### Fixed
