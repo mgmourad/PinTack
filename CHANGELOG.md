@@ -12,7 +12,7 @@ it stands.
 
 ---
 
-## Unreleased
+## Build 12-canary — 2026-09-22
 
 ### Fixed
 - **In a stack, the note you clicked was not always the one that came forward (owner, twice).**
