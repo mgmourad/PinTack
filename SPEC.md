@@ -279,15 +279,27 @@ switched on**, never with the editor, the same rule as the language parsers.
 - **A line-number gutter** runs down every note while vim is on, so counts and `12G` can be read off
   it. It counts the note's **visible** lines, starting after the hidden frontmatter; a hidden code
   fence keeps its number without showing it, so the numbers stay the ones vim uses.
-- **`j` and `k` always land on the next line.** The engine assumes a vertical move that jumps
-  further on screen than expected is stepping over folded text, and skips it whole; Live Preview's
-  tables and squashed fences look like that, so `j` jumped a whole table. `cm.findPosV` is clamped
-  to the next line (measured, then fixed).
-- **Live Preview is unchanged**, and pictures and tables are still drawn as blocks. The first time
+- **`j` and `k` land on the next line**, and a rendered **table is a fold** (build 10, the owner's
+  idea). A table is several lines drawn as one block, so the gutter had no number for it. Now it
+  shows its first line number and how many lines it holds, `3 [+3]`, and it behaves as vim's own
+  folds do: `j` onto it stands the cursor on the fold (the table is outlined), `j` again steps past
+  it, `k` from below lands back on it. `zo` / `za` / a click on `[+]` show its Markdown with real
+  numbers and a `[−]` to fold it back; `zc` folds it with the cursor standing on it; `zR` / `zM`
+  open or fold every table. Any other way in (`w`, a search, a click on the table itself) opens it
+  while the cursor is inside, as before. `dd` or `x` standing on a folded table edits its first row,
+  not the whole table. `cm.findPosV` steps one line at a time and clamps, because the engine
+  otherwise mistook squashed code fences for folds and jumped them whole.
+- **The gutter stays level with the text.** A block widget's margin is not in the editor's height
+  map, and a block measured mid pop-in animation was booked at its shrunken size, so every number
+  below a table rode ~14px high (owner caught it). Block widgets use padding, their pop-in animates
+  what is inside them, and a picture that loads late asks for a re-measure. The self-test measures
+  every number against its line.
+- **Live Preview is otherwise unchanged**, and pictures are still drawn as blocks. The first time
   vim mode is switched on, a notice in Settings (`VimNotice`, dismissed with Got it, recorded as
-  `vimNoticeShown`) says what that means: moving through them works line by line but opens the raw
-  Markdown, the note can jump in height, `x` on a picture's first character turns it into a link,
-  resizing and cropping still need the mouse, and Source mode (⌥⌘M) is the way out.
+  `vimNoticeShown`) says what that means: tables are folds and how to open them; moving onto a
+  picture opens its raw Markdown, the note can jump in height, `x` on a picture's first character
+  turns it into a link, resizing and cropping still need the mouse, and Source mode (⌥⌘M) is the
+  way out.
 
 ---
 
@@ -426,6 +438,41 @@ window if it was open, and refuses rather than overwrite if something new has ta
 of it goes through `WindowManager.delete`; nothing may show another toast after calling it, which
 once replaced the one carrying Undo.
 
+### 5.10 Note Stacks
+
+Owner decision, 2026-09-22: **2 to 5 open notes piled into one**, to clear a crowded desk. Five is
+the cap so a stack never grows tall.
+
+- **Making one:** the **paperclip**, just left of the pushpin in every note's title bar, opens a
+  popover listing the open notes with a checkbox each (the clicked note is checked and becomes #1),
+  a name field and OK. A note already in a stack is listed, greyed, with its stack's name: a note is
+  in one stack at a time. Past five, the rest cannot be checked.
+- **The pile:** every note takes the front note's size, and each sits one title bar higher than the
+  one in front of it, so only title bars show above the front note. A pile that would leave the top
+  of the screen is moved down as a whole.
+- **The stack bar**, under the front note's title bar: the stack's name (double-click to rename)
+  and, on the right, Unstack (a struck-through paperclip), pin the stack on top, collapse the stack,
+  close the stack. In a stack a note's own pin, collapse, close and paperclip give way to these; the
+  front note keeps its Live Preview / Source switch. ⌥⌘P, ⌥⌘K and ⌥⌘W act on the whole stack.
+- **Numbers:** each title bar leads with `#1`…`#5`, shown only while the note is in a stack. A number
+  belongs to its **note**, not to a place in the pile: #1 is the note that was in front when the
+  stack was made, and it keeps #1 wherever it moves. **⌘1–⌘5** bring that note to the front (not
+  ⌥⇧1–5, which collided with the global ⌥⇧2 and type characters). **⌥Tab** sends the front note to
+  the back, so pressing it walks the whole stack. Both only act while a stacked note is key; anywhere
+  else the key is left alone. Clicking a back note's title bar brings it forward; dragging any title
+  bar moves the whole pile; resizing the front note resizes the pile.
+- **Pinned** is the stack's, not the notes': every window of it floats, and no note's own pin or
+  glow is drawn while it is stacked. **Collapsed** folds every note to its title bar, with the front
+  note's stack bar still under it.
+- **Unstack** puts every note back exactly where it was, at its own size and collapse state.
+- **Stored in `.pintack/stacks.json`** (atomic, like every vault write): name, the notes in number
+  order, the front-to-back order, pin, collapse, and each note's frame from before. The notes
+  themselves get nothing added. On load a missing note leaves its stack, a note listed twice stays in
+  the first, and a stack of one is dissolved.
+- **All Notes → Stacks** tab (§8.2) lists, searches, shows / hides, deletes and files stacks.
+  **Deleting a stack deletes its notes** (owner decision), always after a confirmation naming how
+  many notes go; Undo on the toast brings the notes back and the stack with them.
+
 ---
 
 ## 6. Slash commands, templates, todos, quick open
@@ -562,6 +609,10 @@ corner switches to the Settings tab.
   **no** date sort last: no date is not the same as overdue. "Show done todos" strikes them through
   rather than hiding them.
 - **Templates** — every template, with multi-select, Add to Folder and Delete selected.
+- **Stacks** (a stack glyph) — every stack (§5.10): its name, its notes by number, a fan of their
+  colours, show / hide, search by stack name or by any note's title, Add to Folder (every note of the
+  stack moves into it and stays stacked) and Delete selected, which asks first because it deletes
+  the notes.
 
 ### 8.3 Quick capture
 
@@ -631,6 +682,8 @@ All Notes by tag ⌥⌘T, Todos ⌥⇧T, Templates ⌥⇧2, Auto-arrange ⌥⌘A
 App-scoped (a PinTack window must be key): Pin ⌥⌘P, Collapse ⌥⌘K, Close ⌥⌘W, Mode ⌥⌘M, Freeze ⌥⌘F,
 Delete ⌥⌘D, Emoji ⌥⌘E, colours ⌥⌘1–6, corners ⌥⌘R, opacity ⌥⌘, / ⌥⌘., export ⌥⌘X, import ⌥⌘I,
 shortcut list ⌥⌘/.
+
+Stacks (§5.10; only while a note in a stack is key): next note ⌥Tab, note #1–#5 to the front ⌘1–⌘5.
 
 In the editor: **⌘↩** ticks the checkbox on the current line (§6.3). It is a keystroke of the editor,
 not a rebindable action.

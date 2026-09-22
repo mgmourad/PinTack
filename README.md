@@ -9,7 +9,7 @@
 Plain Markdown files. Live Preview rendering. Todos with reminders. A plugin system.
 Open source, GPL-3.0.
 
-`Status: built, running, in beta with testers (0.1.0, build 9). Phases 1–4 complete.`
+`Status: built, running, in beta with testers (0.1.0, build 10). Phases 1–4 complete.`
 `Not yet signed or notarized — see Distribution.`
 `Seeking a macOS developer to own the codebase.`
 
@@ -84,7 +84,8 @@ Runner is built strictly against the public plugin API with no private hooks int
 | 🗂️ Organization | One window for All Notes and Settings, with folders, tags, todos and templates, full-text search, show/hide per note |
 | ⌨️ Keyboard | System-wide hotkeys with no Accessibility permission required, fully rebindable with a recorder UI |
 | 🧩 Extension | JavaScript plugin API with a capability/permission/approval model, Runner bundled. WidgetKit widget designed but not built |
-| ⌨️ Vim | Optional vim keys (off by default): NORMAL/INSERT/VISUAL shown in the action bar, `:` and `/` open in the action bar, `:w` `:q` `:wq` `ZZ`, a line-number gutter; line numbers in code blocks as their own setting |
+| ⌨️ Vim | Optional vim keys (off by default): NORMAL/INSERT/VISUAL shown in the action bar, `:` and `/` open in the action bar, `:w` `:q` `:wq` `ZZ`, a line-number gutter where a table is a fold (`[+3]`, `zo`/`zc`); line numbers in code blocks as their own setting |
+| 🗃️ Stacks | Pile 2 to 5 notes into one with the paperclip: title bars fanned, a stack bar to rename, pin, collapse, close or unstack, #1–#5 on ⌘1–⌘5, ⌥Tab to cycle, and a Stacks tab in All Notes |
 | 🧊 Extras | Templates recalled with `@name`, quick capture from any app, `/find` fuzzy open, link previews (off by default), Undo for five seconds after a delete, empty notes that clean up after themselves, a one-screen welcome on first launch |
 
 ## Architecture in one paragraph

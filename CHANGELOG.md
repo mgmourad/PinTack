@@ -12,6 +12,31 @@ it stands.
 
 ---
 
+## Build 10 — 2026-09-22
+
+### Added
+- **Note Stacks (owner).** The paperclip beside a note's pushpin piles 2 to 5 open notes into one:
+  every title bar shows, fanned above the front note, and a stack bar under its title bar holds the
+  stack's name (double-click to rename), Unstack, pin, collapse and close. Title bars carry `#1`…`#5`,
+  which stay with their notes; ⌘1–⌘5 bring a note to the front and ⌥Tab walks the stack. Dragging
+  any title bar moves the pile; clicking a back one brings it forward. Unstack puts every note back
+  where it was, at its own size. Stacks live in `.pintack/stacks.json`; the notes stay plain Markdown.
+- **A Stacks tab in All Notes (owner):** list, search (by stack or by any note in it), show/hide,
+  Add to Folder, and delete. Deleting a stack deletes its notes, always after a confirmation that
+  says how many; Undo brings back the notes and the stack.
+- **Tables are folds in vim mode (owner's idea).** The gutter shows `3 [+3]` beside a rendered table;
+  `j` stands on it, then steps past it; `zo`, `za` or a click on `[+]` shows its Markdown, `zc` folds
+  it back, `zR`/`zM` do every table. The vim notice says so.
+
+### Fixed
+- **Gutter numbers drifted below a rendered table (owner).** The editor's height map ignored the
+  table's margin, and measured it mid pop-in animation, so every number underneath rode ~14px high.
+  Block widgets now use padding and animate their contents; a late-loading picture asks for a
+  re-measure. A self-test check measures every number against its line.
+
+### Changed
+- ⌘1–⌘5 rather than ⌥⇧1–5 for stack notes (owner): ⌥⇧2 is already the global Templates key.
+
 ## Build 9 — 2026-09-21
 
 ### Added

@@ -231,8 +231,8 @@ preservation, atomic writes, import safety and search.
 **Phase 4, plugins and Runner: built.** The WidgetKit widget is **shelved by the owner**: it needs a real
 Apple signing team (app group must carry the Team ID, trap 2), so it waits on that decision.
 
-**As of 2026-09-21: 0.1.0, build 9, in beta with testers.** `verify.sh` covers a Release build, 230
-unit tests and 167 self-test checks. `CHANGELOG.md` records every change, day by day, with the reason
+**As of 2026-09-22: 0.1.0, build 10, in beta with testers.** `verify.sh` covers a Release build, 236
+unit tests and 203 self-test checks. `CHANGELOG.md` records every change, day by day, with the reason
 — read it before assuming something is an accident. Honest view of what separates this from a 1.0:
 signing and notarization, a stretch of daily use with no new bugs (bugs were still being found by
 use at a rate of about ten a session), a measurement with many notes open and a large vault, and a
@@ -399,6 +399,25 @@ Owner decisions added after the rebuild (2026-09-19):
   first-time notice (`VimNotice`, `vimNoticeShown`) is the owner's condition for shipping: it names
   the risk of moving through pictures and tables. Do not drop it or water it down.
 - Code-block line numbers are a setting, off by default; with vim on they give way to the gutter.
+- In vim mode a rendered TABLE IS A FOLD (owner, build 10): `3 [+3]` in the gutter, j stands on it
+  then steps past it, zo/zc/za/zR/zM and the [+]/[−] click. The cursor "stands on the fold" at the
+  table's first or last position, which `build()` treats as NOT inside it; `takeFoldSnap` moves a j
+  that the engine landed mid-row back onto the fold. `tableFolds` must be listed in the fields that
+  make Live Preview rebuild, or zo changes nothing on screen (it did, first time).
+- Block widgets (table, plugin block, link card) take PADDING, never margin, and animate what is
+  inside them, never themselves: CodeMirror's height map ignores a block's margin and books a block
+  measured mid-scale at the shrunken size. Both made every gutter number below a table drift ~14px.
+  `gutterAlignmentProbe` measures it.
+- In GFM a line straight after a table with no blank line between is another ROW of it. A test note
+  that forgets the blank line is testing a different table.
+- Note Stacks (owner, 2026-09-22, SPEC §5.10): `Windows/Stacks.swift`. A stack is a relationship
+  between notes, so it lives in `.pintack/stacks.json` and the notes get NOTHING in their
+  frontmatter. Numbers belong to notes (owner chose identity over position); ⌘1–⌘5, not ⌥⇧1–5,
+  because ⌥⇧2 is the global Templates key. Stack keys pass through unless a stacked note is key.
+  In a stack the STACK is pinned (`NotePanel.isOnTop`), and the note's own pin art and glow are not
+  drawn (`showsOwnPin`). Unstack restores each note's pre-stack frame from `before`. Deleting a stack
+  deletes its notes, always behind All Notes' confirmation, and `WindowManager.delete(_:onUndo:)`
+  brings the stack back on Undo.
 - `MainWindowController.show` switches the tab INSTANTLY and then sends `objectWillChange` once
   more on the next run-loop turn. Without that nudge, a tab change landing while SwiftUI was mid-update
   was dropped: the model said Settings while the window drew All Notes, one run in two (measured
