@@ -12,7 +12,7 @@ it stands.
 
 ---
 
-## Unreleased
+## Build 17 — 2026-09-22
 
 ### Fixed
 - **In a stack, the note clicked now comes forward even when macOS raises the clicked window late
