@@ -12,6 +12,13 @@ it stands.
 
 ---
 
+## Build 16 — 2026-09-22
+
+### Added
+- **The stack click log also records what is DRAWN:** the front-to-back order the window server has,
+  any window at a level of its own, and any member not on the desk. A pile whose order is right can
+  still be drawn wrong, and only the log can say which it is on the owner's Mac.
+
 ## Build 15 — 2026-09-22
 
 ### Added
