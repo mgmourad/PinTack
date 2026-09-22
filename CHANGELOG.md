@@ -12,7 +12,7 @@ it stands.
 
 ---
 
-## Unreleased
+## Build 13 — 2026-09-22
 
 ### Changed
 - **Bringing a note forward in a stack is now a swap (owner).** The note you click trades places

@@ -18,7 +18,7 @@ Three sections in particular will save you time, because each documents a proble
 
 ## Current state
 
-**Built, running, and in beta with testers** (0.1.0, build 12-canary). Phases 1–4 are complete: the vault,
+**Built, running, and in beta with testers** (0.1.0, build 13). Phases 1–4 are complete: the vault,
 note windows, Live Preview editor, todos and reminders, Note Stacks, vim mode, All Notes and Settings in
 one window, hotkeys, and the plugin system with Runner. **Phase 5 has not started**: Developer ID
 signing, notarization, Sparkle and the Homebrew cask. Also not built: the WidgetKit widget (shelved
