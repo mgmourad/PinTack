@@ -69,10 +69,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The first-run card. Skipped under the self-test, which drives it deliberately later on:
         // a modal panel taking key status at launch would break every check that types into a note.
         #if DEBUG
-        if !SelfTest.isRequested && MemoryProbe.requested == nil && TutorialShots.requestedDirectory == nil { OnboardingWindow.showIfFirstRun() }
+        if !SelfTest.isRequested && MemoryProbe.requested == nil && TutorialShots.requestedDirectory == nil
+            && StackStress.requested == nil { OnboardingWindow.showIfFirstRun() }
         SelfTest.runIfRequested(appDelegate: self, statusItem: statusItemController)
         MemoryProbe.runIfRequested()
         TutorialShots.runIfRequested()
+        StackStress.runIfRequested()
         #else
         OnboardingWindow.showIfFirstRun()
         #endif
