@@ -32,7 +32,7 @@ final class NotePanel: NSPanel {
                    defer: false)
 
         isFloatingPanel = true
-        level = note.pinned ? .floating : .normal
+        level = isOnTop ? .floating : .normal
         // .canJoinAllSpaces makes every note follow you across Spaces. SPEC.md §5.1.
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         hidesOnDeactivate = false
@@ -89,8 +89,9 @@ final class NotePanel: NSPanel {
     private var visibleCardRect: NSRect {
         let full = note.cardFrame
         guard !note.collapsed else {
-            return NSRect(x: full.minX, y: full.maxY - NotePanel.headerHeight,
-                          width: full.width, height: NotePanel.headerHeight)
+            // A collapsed note in a stack keeps its stack bar, which holds the way back out.
+            let height = NotePanel.headerHeight + (card?.stackBarHeight ?? 0)
+            return NSRect(x: full.minX, y: full.maxY - height, width: full.width, height: height)
         }
         let extra = card?.extraFooterHeight ?? 0
         guard extra > 0 else { return full }
@@ -134,6 +135,14 @@ final class NotePanel: NSPanel {
         if animated { Motion.springFrame(self, to: target) } else { setFrame(target, display: true) }
     }
 
+    /// Moves the card, springing through `Motion` when animated: AppKit's own window animator does
+    /// not run at all while the app is inactive, which is most of the time (CLAUDE.md).
+    func placeCard(_ rect: NSRect, animated: Bool) {
+        note.cardFrame = rect
+        let target = NotePanel.windowRect(forCard: visibleCardRect)
+        if animated { Motion.springFrame(self, to: target) } else { setFrame(target, display: true) }
+    }
+
     func applyCardFrame(_ rect: NSRect, animated: Bool = false) {
         note.cardFrame = rect
         setFrame(NotePanel.windowRect(forCard: visibleCardRect), display: true, animate: animated)
@@ -173,8 +182,11 @@ final class NotePanel: NSPanel {
         FreezeMode.update()
     }
 
+    /// In a stack, the STACK is pinned or not; the note's own pin waits until it is unstacked.
+    var isOnTop: Bool { StackManager.shared.stack(containing: note.id)?.pinned ?? note.pinned }
+
     func applyPinned() {
-        level = note.pinned ? .floating : .normal
+        level = isOnTop ? .floating : .normal
         card?.applyColors()             // refreshes the header pin glyph and the redraw
         card?.updateLayoutForPin()
     }

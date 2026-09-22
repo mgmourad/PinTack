@@ -11,7 +11,7 @@ struct ShortcutsOverlayView: View {
             Text("Appearance shortcuts and most Notes ones act on the focused note. Everything under Windows, plus New note, New todo and New note from the clipboard, works from any app.")
                 .font(.system(size: 12)).foregroundStyle(.secondary).padding(.bottom, 14)
 
-            let groups = ["Notes", "Appearance", "Windows", "Data"]
+            let groups = ["Notes", "Appearance", "Windows", "Stacks", "Data"]
             LazyVGrid(columns: [GridItem(.flexible(), alignment: .topLeading), GridItem(.flexible(), alignment: .topLeading)],
                       alignment: .leading, spacing: 18) {
                 ForEach(groups, id: \.self) { group in

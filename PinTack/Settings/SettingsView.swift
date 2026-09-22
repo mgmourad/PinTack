@@ -267,7 +267,7 @@ private struct ShortcutsPane: View {
         VStack(spacing: 0) {
             List {
                 pluginSections
-                ForEach(["Notes", "Appearance", "Windows", "Data"], id: \.self) { group in
+                ForEach(["Notes", "Appearance", "Windows", "Stacks", "Data"], id: \.self) { group in
                     Section(group) {
                         ForEach(ShortcutAction.allCases.filter { $0.group == group }, id: \.self) { action in
                             HStack {

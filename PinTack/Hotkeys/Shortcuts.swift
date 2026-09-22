@@ -92,6 +92,7 @@ enum ShortcutAction: String, CaseIterable, Codable {
     case color1, color2, color3, color4, color5, color6
     case toggleCorners, lessOpaque, moreOpaque
     case exportAll, importArchive, showShortcuts
+    case stackCycle, stackNote1, stackNote2, stackNote3, stackNote4, stackNote5
 
     var title: String {
         switch self {
@@ -123,6 +124,12 @@ enum ShortcutAction: String, CaseIterable, Codable {
         case .exportAll: return "Export all notes"
         case .importArchive: return "Import archive"
         case .showShortcuts: return "Show shortcut list"
+        case .stackCycle: return "Next note in the stack"
+        case .stackNote1: return "Stack note #1 to the front"
+        case .stackNote2: return "Stack note #2 to the front"
+        case .stackNote3: return "Stack note #3 to the front"
+        case .stackNote4: return "Stack note #4 to the front"
+        case .stackNote5: return "Stack note #5 to the front"
         }
     }
 
@@ -135,6 +142,7 @@ enum ShortcutAction: String, CaseIterable, Codable {
         case .deleteNote: return "Notes" 
         case .quickCapture: return "Notes"
         case .exportAll, .importArchive: return "Data"
+        case .stackCycle, .stackNote1, .stackNote2, .stackNote3, .stackNote4, .stackNote5: return "Stacks"
         }
     }
 
@@ -180,7 +188,30 @@ enum ShortcutAction: String, CaseIterable, Codable {
         case .exportAll: return .alt(kVK_ANSI_X)
         case .importArchive: return .alt(kVK_ANSI_I)
         case .showShortcuts: return .alt(kVK_ANSI_Slash)
+        // ⌘1–⌘5, not ⌥⇧1–5 (owner decision, 2026-09-22): ⌥⇧2 is already the global Templates key,
+        // and ⌥⇧ + a digit types a character. ⌘N for "tab N" is the Safari / Terminal convention.
+        case .stackCycle: return KeyCombo(keyCode: UInt32(kVK_Tab), modifiers: UInt32(optionKey))
+        case .stackNote1: return KeyCombo(keyCode: UInt32(kVK_ANSI_1), modifiers: UInt32(cmdKey))
+        case .stackNote2: return KeyCombo(keyCode: UInt32(kVK_ANSI_2), modifiers: UInt32(cmdKey))
+        case .stackNote3: return KeyCombo(keyCode: UInt32(kVK_ANSI_3), modifiers: UInt32(cmdKey))
+        case .stackNote4: return KeyCombo(keyCode: UInt32(kVK_ANSI_4), modifiers: UInt32(cmdKey))
+        case .stackNote5: return KeyCombo(keyCode: UInt32(kVK_ANSI_5), modifiers: UInt32(cmdKey))
         }
+    }
+}
+
+extension ShortcutAction {
+    /// The stack keys act on the note in front of you, so they only count while a note in a stack
+    /// is the key window. Anywhere else (Settings, a lone note) the key is left alone.
+    var isStackAction: Bool {
+        switch self {
+        case .stackCycle, .stackNote1, .stackNote2, .stackNote3, .stackNote4, .stackNote5: return true
+        default: return false
+        }
+    }
+
+    var stackNumber: Int? {
+        [ShortcutAction.stackNote1, .stackNote2, .stackNote3, .stackNote4, .stackNote5].firstIndex(of: self).map { $0 + 1 }
     }
 }
 

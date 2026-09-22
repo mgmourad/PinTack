@@ -4,7 +4,7 @@ import AppKit
 /// Drives the All Notes window. Reloads whenever the vault changes.
 final class AllNotesModel: ObservableObject {
 
-    enum Mode: String { case folders = "Folders", tags = "Tags", todo = "Todo", templates = "Templates" }
+    enum Mode: String { case folders = "Folders", tags = "Tags", todo = "Todo", templates = "Templates", stacks = "Stacks" }
     enum Selection: Hashable { case all, folder(String), tag(String) }
 
     /// How the todo tab is ordered. SPEC.md §6.
@@ -26,6 +26,7 @@ final class AllNotesModel: ObservableObject {
         switch ProcessInfo.processInfo.environment["PINTACK_ALLNOTES_TAB"] {
         case "todo":      return .todo
         case "templates": return .templates
+        case "stacks":    return .stacks
         default:          break
         }
         #endif
@@ -39,6 +40,7 @@ final class AllNotesModel: ObservableObject {
     @Published var renamingID: String?
     @Published var todoSort: TodoSort = .created
     @Published var showDoneTodos = false
+    @Published var selectedStacks = Set<String>()     // ids of the checked stacks, in the Stacks tab
 
     private var observer: NSObjectProtocol?
 
@@ -49,6 +51,7 @@ final class AllNotesModel: ObservableObject {
             // Forget checked notes that no longer exist (deleted, or removed outside the app).
             let alive = Set(VaultStore.shared.notes.map(\.id))
             self.selected.formIntersection(alive)
+            self.selectedStacks.formIntersection(Set(StackManager.shared.stacks.map(\.id)))
         }
     }
 
@@ -70,6 +73,17 @@ final class AllNotesModel: ObservableObject {
             notes = notes.filter { $0.templateName.lowercased().contains(q) || $0.title.lowercased().contains(q) }
         }
         return notes.sorted { $0.templateName.localizedStandardCompare($1.templateName) == .orderedAscending }
+    }
+
+    /// Every stack, found by its name or by the title of any note in it. SPEC.md §5.10.
+    var stacks: [NoteStack] {
+        _ = revision
+        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        let all = StackManager.shared.stacks
+        let found = q.isEmpty ? all : all.filter { s in
+            s.name.lowercased().contains(q) || StackManager.shared.notes(of: s).contains { $0.title.lowercased().contains(q) }
+        }
+        return found.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
     var todoNotes: [Note] {
@@ -165,13 +179,15 @@ struct AllNotesView: View {
                 .init(value: .tags, symbol: "number", text: "", help: "Tags"),
                 .init(value: .todo, symbol: nil, text: "@", help: "Todos"),
                 .init(value: .templates, symbol: "cube.box.fill", text: "", help: "Templates"),
+                .init(value: .stacks, symbol: "square.stack.3d.up.fill", text: "", help: "Stacks"),
             ])
             .padding(.horizontal, 12).padding(.top, 14).padding(.bottom, 4)
 
             if model.mode == .todo { todoControls }
             if model.mode == .templates { templateControls }
+            if model.mode == .stacks { stackControls }
 
-            if model.mode == .todo || model.mode == .templates { Spacer() } else {
+            if model.mode == .todo || model.mode == .templates || model.mode == .stacks { Spacer() } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 1) {
                     row(icon: "note.text", title: "All notes", sel: .all, indent: 0)
@@ -240,6 +256,91 @@ struct AllNotesView: View {
                 .font(.caption).foregroundStyle(.secondary)
         }
         .padding(.horizontal, 10)
+    }
+
+    /// The Stacks tab's sidebar: what a stack is and how to make one.
+    private var stackControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("A stack piles 2 to 5 open notes into one, title bars showing. Click the paperclip on a note to make one.")
+                .font(.caption).foregroundStyle(.secondary)
+            Text("\(model.stacks.count) stack\(model.stacks.count == 1 ? "" : "s")")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 10)
+    }
+
+    @ViewBuilder private var stackList: some View {
+        let stacks = model.stacks
+        if stacks.isEmpty {
+            Spacer()
+            Text(model.query.isEmpty ? "No stacks yet. Click the paperclip on a note's title bar to stack it with others."
+                                     : "No stacks match “\(model.query)”.")
+                .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center).padding()
+            Spacer()
+        } else {
+            HStack {
+                Button(model.selectedStacks.isEmpty ? "Select all" : "Clear selection") {
+                    model.selectedStacks = model.selectedStacks.isEmpty ? Set(stacks.map(\.id)) : []
+                }
+                .buttonStyle(.plain).font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Text(model.selectedStacks.isEmpty ? "\(stacks.count) stacks" : "\(model.selectedStacks.count) selected")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 14).padding(.bottom, 4)
+
+            ScrollView {
+                LazyVStack(spacing: 2) {
+                    ForEach(stacks) { s in StackRow(stack: s, model: model) { deleteStacks([s.id]) } }
+                }
+                .padding(.horizontal, 8).padding(.bottom, 8)
+            }
+
+            Divider()
+            HStack(spacing: 8) {
+                Menu {
+                    Button("Vault root (no folder)") { moveStacks(to: "") }
+                    if !model.folders.isEmpty { Divider() }
+                    ForEach(model.folders, id: \.self) { f in Button(f) { moveStacks(to: f) } }
+                    Divider()
+                    Button("New folder…") { if let f = newFolderName() { moveStacks(to: f) } }
+                } label: {
+                    Text("Add to Folder")
+                }
+                .menuStyle(.button)
+                .fixedSize()
+                .disabled(model.selectedStacks.isEmpty)
+
+                Button(role: .destructive) { deleteStacks(Array(model.selectedStacks)) } label: { Text("Delete selected") }
+                    .fixedSize()
+                    .disabled(model.selectedStacks.isEmpty)
+                Spacer()
+            }
+            .padding(10)
+        }
+    }
+
+    private func moveStacks(to folder: String) {
+        let ids = Array(model.selectedStacks)
+        StackManager.shared.move(ids, toFolder: folder)
+        Toast.show("Moved \(ids.count) stack\(ids.count == 1 ? "" : "s") to " + (folder.isEmpty ? "the vault root" : folder))
+        model.selectedStacks = []
+    }
+
+    /// Deleting a stack deletes its NOTES (owner decision, 2026-09-22), so it always asks first,
+    /// naming how many notes, whether one stack is going or all of them.
+    private func deleteStacks(_ ids: [String]) {
+        let doomed = StackManager.shared.stacks.filter { ids.contains($0.id) }
+        guard !doomed.isEmpty else { return }
+        let notes = doomed.reduce(0) { $0 + StackManager.shared.notes(of: $1).count }
+        let everything = doomed.count == StackManager.shared.stacks.count && doomed.count > 1
+        let what = doomed.count == 1 ? "“\(doomed[0].name)”" : everything ? "all \(doomed.count) stacks" : "\(doomed.count) stacks"
+        guard Prompt.confirm(title: "Delete \(what) and \(notes == 1 ? "its note" : "the \(notes) notes in \(doomed.count == 1 ? "it" : "them")")?",
+                             message: "The notes go to the Trash, so you can still get them back from there. To keep the notes and only undo the stack, use Unstack on the stack bar instead.",
+                             button: "Move \(notes) note\(notes == 1 ? "" : "s") to Trash", destructive: true) else { return }
+        // WindowManager.delete shows the Undo toast; a second toast here would replace it.
+        StackManager.shared.delete(doomed.map(\.id))
+        model.selectedStacks.subtract(ids)
     }
 
     @ViewBuilder private var templateList: some View {
@@ -336,7 +437,7 @@ struct AllNotesView: View {
         VStack(spacing: 0) {
             HStack {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField("Search notes", text: $model.query).textFieldStyle(.plain)
+                TextField(model.mode == .stacks ? "Search stacks" : "Search notes", text: $model.query).textFieldStyle(.plain)
                 if !model.query.isEmpty {
                     Button { model.query = "" } label: { Image(systemName: "xmark.circle.fill") }
                         .buttonStyle(.plain).foregroundStyle(.secondary)
@@ -350,6 +451,7 @@ struct AllNotesView: View {
             switch model.mode {
             case .todo:      todoList
             case .templates: templateList
+            case .stacks:    stackList
             default:         folderAndTagList
             }
         }
@@ -485,6 +587,83 @@ struct AllNotesView: View {
         // WindowManager.delete shows the toast, with Undo. A second toast here would replace it.
         WindowManager.shared.delete(notes)
         model.selected = []
+    }
+}
+
+/// One stack in the Stacks tab: its name, its notes by number, and show/hide. SPEC.md §5.10.
+private struct StackRow: View {
+
+    let stack: NoteStack
+    @ObservedObject var model: AllNotesModel
+    let onDelete: () -> Void
+    @State private var hovering = false
+
+    private var isSelected: Bool { model.selectedStacks.contains(stack.id) }
+    private var shown: Bool { StackManager.shared.isShown(stack) }
+    private var notes: [Note] { StackManager.shared.notes(of: stack) }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Button { if isSelected { model.selectedStacks.remove(stack.id) } else { model.selectedStacks.insert(stack.id) } } label: {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 15))
+                    .foregroundStyle(isSelected ? Color(nsColor: Brand.accentNS) : Color.secondary.opacity(0.7))
+            }
+            .buttonStyle(.plain)
+            .help(isSelected ? "Deselect" : "Select")
+
+            // The notes' own colours, fanned the way the stack sits on the desk.
+            ZStack(alignment: .topLeading) {
+                ForEach(Array(notes.prefix(NoteStack.maxMembers).enumerated()), id: \.offset) { i, note in
+                    RoundedRectangle(cornerRadius: 2.5).fill(Color(nsColor: note.color))
+                        .overlay(RoundedRectangle(cornerRadius: 2.5).strokeBorder(.black.opacity(0.25), lineWidth: 0.5))
+                        .frame(width: 16, height: 11)
+                        .offset(y: CGFloat(i) * 3.5)
+                }
+            }
+            .frame(width: 16, height: 26, alignment: .top)
+
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 4) {
+                    Text(stack.name).font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
+                    if stack.pinned { Image(systemName: "pin.fill").font(.caption2).foregroundStyle(.secondary) }
+                }
+                Text(notes.enumerated().map { "#\($0.offset + 1) \($0.element.titleWithoutTodoMarker)" }.joined(separator: "  ·  "))
+                    .font(.system(size: 11.5)).foregroundStyle(.secondary).lineLimit(1)
+            }
+            .opacity(shown ? 1 : 0.6)
+            Spacer()
+
+            HStack(spacing: 2) {
+                iconButton(shown ? "eye" : "eye.slash", help: shown ? "Hide the stack from the desktop" : "Show the stack on the desktop") {
+                    if shown { StackManager.shared.hide(stack.id) } else { StackManager.shared.show(stack.id) }
+                }
+                iconButton("trash", help: "Delete the stack and its notes") { onDelete() }
+            }
+        }
+        .padding(.vertical, 7).padding(.horizontal, 8)
+        .background(RoundedRectangle(cornerRadius: 9).fill(isSelected ? Color.chromeHighlight.opacity(0.2)
+                                                            : hovering ? Color.chromeSurfaceHover : .clear))
+        .animation(.easeOut(duration: 0.12), value: hovering)
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .onTapGesture { StackManager.shared.show(stack.id) }
+        .contextMenu {
+            Button("Show on Desktop") { StackManager.shared.show(stack.id) }
+            Button("Hide from Desktop") { StackManager.shared.hide(stack.id) }
+            Button("Unstack") { StackManager.shared.unstack(stack.id) }
+            Divider()
+            Button("Delete Stack and Notes…", role: .destructive) { onDelete() }
+        }
+    }
+
+    private func iconButton(_ symbol: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol).frame(width: 22, height: 22).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
+        .help(help)
     }
 }
 

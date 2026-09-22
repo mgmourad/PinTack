@@ -32,6 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppSettings.shared.load(from: vault.metaURL)
         ShortcutStore.shared.load(from: vault.metaURL)
         LinkPreviewStore.shared.load(from: vault.metaURL)
+        StackManager.shared.load(from: vault.metaURL)
         // Re-arm due reminders: anything still in the future goes back on the schedule, and
         // anything that no longer exists is cleared out.
         QuickCapture.shared.install()
@@ -50,6 +51,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItemController = StatusItemController(target: self)
 
         WindowManager.shared.restoreVisibleNotes()
+        StackManager.shared.layoutAll()
         if WindowManager.shared.openPanels.isEmpty { AllNotesWindowController.shared.show() }
 
         if ProcessInfo.processInfo.environment["PINTACK_NO_HOTKEYS"] == nil {
@@ -117,6 +119,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // A held key sends auto-repeat presses. Swallow them: they must not act again (holding
         // ⌥⌘N used to keep making notes) and must not leak into the editor as stray characters.
         // Opacity is the exception, because holding it to fade a note is natural.
+        // A stack key with no stacked note in front is not ours: ⌘1 in Settings, ⌥Tab in a lone note.
+        if action.isStackAction, StackManager.shared.stack(containing: WindowManager.shared.keyPanel?.note.id ?? "") == nil {
+            return event
+        }
         if event.isARepeat { return (action == .lessOpaque || action == .moreOpaque) ? handle(action) : nil }
         return handle(action)
     }

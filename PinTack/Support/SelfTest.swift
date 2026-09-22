@@ -2290,6 +2290,194 @@ enum SelfTest {
         }
     }
 
+    // MARK: Note Stacks (SPEC.md §5.10)
+
+    /// A stack made, driven and taken apart: its geometry, its numbers, its keys, its bar, and that
+    /// the notes come back exactly as they were.
+    private static func stackTest(out: URL, then next: @escaping () -> Void) {
+        let wm = WindowManager.shared, sm = StackManager.shared
+        let frames = [NSRect(x: 520, y: 260, width: 300, height: 250),
+                      NSRect(x: 900, y: 420, width: 340, height: 300),
+                      NSRect(x: 640, y: 120, width: 280, height: 220)]
+        let bodies = ["Deploy checklist\n- [ ] drain pool", "Server list\nweb01\nweb02", "Rollback plan\nrevert the tag"]
+        let notes = zip(bodies, frames).map { VaultStore.shared.createNote(body: $0, frame: $1) }
+        notes.forEach { wm.open($0) }
+        let loner = VaultStore.shared.createNote(body: "Not stacked", frame: NSRect(x: 200, y: 200, width: 300, height: 250))
+        wm.open(loner)
+
+        let candidates = StackCreatorView.candidates(for: notes[0].id).map(\.id)
+        check("the paperclip lists the open notes, the clicked one first",
+              candidates.first == notes[0].id && notes.allSatisfy { candidates.contains($0.id) })
+        check("a stack needs two notes and takes no more than five",
+              sm.create(name: "x", noteIDs: [notes[0].id]) == nil
+                  && sm.create(name: "x", noteIDs: (0..<6).map { _ in VaultStore.shared.createNote(body: "extra").id }) == nil)
+
+        guard let made = sm.create(name: "Release", noteIDs: notes.map(\.id)) else {
+            check("a stack of three is made", false); next(); return
+        }
+        let panels = notes.compactMap { wm.panel(for: $0.id) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
+            let cards = panels.map(\.note.cardFrame)
+            let base = frames[0]
+            let fanned = cards.enumerated().allSatisfy { i, c in
+                c.size == base.size && c.minX == base.minX && abs(c.minY - (cards[0].minY + CGFloat(i) * NotePanel.headerHeight)) < 0.5
+            }
+            check("a stack fans its notes out: one size, each a title bar above the one in front", fanned,
+                  cards.map { "\(Int($0.minX)),\(Int($0.minY)) \(Int($0.width))×\(Int($0.height))" }.joined(separator: " | "))
+            let z = NSApp.orderedWindows.compactMap { $0 as? NotePanel }.filter { p in panels.contains { $0 === p } }.map(\.note.id)
+            check("the front note is drawn on top of the others", z == notes.map(\.id), z.joined(separator: ","))
+            check("each title bar leads with the note's number",
+                  panels.enumerated().allSatisfy { i, p in p.card.debugTitleText.string.hasPrefix("#\(i + 1)") },
+                  panels.map { $0.card.debugTitleText.string }.joined(separator: " | "))
+            let front = panels[0].card.debugStack, back = panels[1].card.debugStack
+            check("the stack bar carries the stack's name; the paperclip gives way to it",
+                  front.bar && front.name == "Release" && !front.clip)
+            check("only the front note keeps its Live Preview / Source switch", front.mode && !back.mode)
+            let fileText = notes.compactMap { try? String(contentsOf: $0.fileURL, encoding: .utf8) }.joined()
+            let stackFile = (try? String(contentsOf: VaultStore.shared.metaURL.appendingPathComponent("stacks.json"), encoding: .utf8)) ?? ""
+            check("the stack lives in .pintack/stacks.json and the notes stay plain Markdown",
+                  stackFile.contains("Release") && !fileText.lowercased().contains("stack") && !fileText.contains(made.id))
+
+            // Keys, through the same handler the key monitor uses.
+            panels[0].makeKeyAndOrderFront(nil)
+            let press = { (a: ShortcutAction) -> NSEvent? in
+                guard let target = WindowManager.shared.keyPanel, let e = key(ShortcutStore.shared.combo(for: a), in: target) else { return nil }
+                ActionRouter.resetDedupeMemory()
+                return app?.handleShortcut(e)
+            }
+            _ = press(.stackCycle)
+            let afterCycle = sm.stack(id: made.id)
+            check("⌥Tab brings the next note forward and sends the front one to the back",
+                  afterCycle?.order == [notes[1].id, notes[2].id, notes[0].id], afterCycle?.order.joined(separator: ",") ?? "")
+            _ = press(.stackNote3)
+            let afterThree = sm.stack(id: made.id)
+            check("⌘3 brings #3 to the front, and the numbers stay with their notes",
+                  afterThree?.front == notes[2].id && afterThree?.number(of: notes[2].id) == 3
+                      && panels[2].card.debugTitleText.string.hasPrefix("#3"))
+            loner.visible = true
+            wm.panel(for: loner.id)?.makeKeyAndOrderFront(nil)
+            check("⌘1 in a note that is not in a stack is left for the note", press(.stackNote1) != nil)
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                let slot = sm.stack(id: made.id).flatMap { s in wm.panel(for: s.front ?? "")?.note.cardFrame }
+                check("the note brought forward takes the front place in the pile",
+                      slot.map { abs($0.minY - cards[0].minY) < 0.5 } ?? false)
+                // A click on a back note's title bar brings that note forward.
+                panels[1].card.debugClickHeader()
+                check("clicking a stacked note's title bar brings it to the front", sm.stack(id: made.id)?.front == notes[1].id)
+
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                    let before = panels.map(\.frame.origin)
+                    let lead = wm.panel(for: sm.stack(id: made.id)?.front ?? "")!
+                    sm.drag(lead, to: NSPoint(x: lead.frame.minX + 40, y: lead.frame.minY - 25))
+                    sm.dragEnded(lead)
+                    let moved = zip(before, panels.map(\.frame.origin)).allSatisfy { abs($1.x - $0.x - 40) < 0.5 && abs($1.y - $0.y + 25) < 0.5 }
+                    check("dragging one note moves the whole pile", moved)
+
+                    sm.rename(made.id, to: "Release v2")
+                    check("renaming a stack renames its bar", lead.card.debugStack.name == "Release v2")
+                    sm.togglePin(made.id)
+                    check("pinning the stack keeps every note of it on top, without pinning the notes themselves",
+                          panels.allSatisfy { $0.level == .floating } && notes.allSatisfy { !$0.pinned })
+                    sm.togglePin(made.id)
+                    sm.toggleCollapse(made.id)
+
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                        let frontHeight = lead.frame.height - 2 * NotePanel.margin
+                        check("collapsing the stack leaves its title bars and the front note's stack bar",
+                              notes.allSatisfy(\.collapsed) && abs(frontHeight - (NotePanel.headerHeight + NoteCardView.stackBarHeight)) < 0.5,
+                              "front height \(frontHeight); collapsed \(notes.map(\.collapsed)); heights \(panels.map { Int($0.frame.height - 2 * NotePanel.margin) }); lead is #\(sm.stack(id: made.id)?.number(of: lead.note.id) ?? 0)")
+                        sm.toggleCollapse(made.id)
+                        sm.bringToFront(notes[0].id)
+
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
+                            snapshotPile(notes.compactMap { wm.panel(for: $0.id) }, to: out.appendingPathComponent("stack.png")) {
+                                stackTabTest(out: out, stackID: made.id, notes: notes, frames: frames, loner: loner, then: next)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// The Stacks tab, then hide / show / unstack / delete.
+    private static func stackTabTest(out: URL, stackID: String, notes: [Note], frames: [NSRect], loner: Note,
+                                     then next: @escaping () -> Void) {
+        let wm = WindowManager.shared, sm = StackManager.shared
+        AllNotesModel.shared.mode = .stacks
+        AllNotesWindowController.shared.show()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            check("All Notes has a Stacks tab listing the stack", AllNotesModel.shared.stacks.contains { $0.id == stackID })
+            AllNotesModel.shared.query = "rollback"
+            check("searching the Stacks tab finds a stack by a note inside it", AllNotesModel.shared.stacks.contains { $0.id == stackID })
+            AllNotesModel.shared.query = "no-such-thing"
+            check("…and not when nothing matches", AllNotesModel.shared.stacks.isEmpty)
+            AllNotesModel.shared.query = ""
+            guard let w = MainWindowController.shared.window else { next(); return }
+            snapshot(window: w, to: out.appendingPathComponent("all-notes-stacks.png")) {
+                AllNotesModel.shared.mode = .folders
+                MainWindowController.shared.close()
+
+                sm.hide(stackID)
+                check("closing a stack takes every note of it off the desk, still in All Notes",
+                      notes.allSatisfy { wm.panel(for: $0.id) == nil && !$0.visible } && sm.stack(id: stackID) != nil)
+                sm.show(stackID)
+                check("showing it puts the whole stack back", notes.allSatisfy { wm.panel(for: $0.id) != nil })
+
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                    sm.unstack(stackID)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
+                        let back = zip(notes, frames).allSatisfy { n, f in n.cardFrame == f }
+                        check("unstacking puts every note back where it was, at its own size", back,
+                              notes.map { "\($0.cardFrame)" }.joined(separator: " | "))
+                        check("…and its title loses the number",
+                              notes.allSatisfy { !(wm.panel(for: $0.id)?.card.debugTitleText.string.hasPrefix("#") ?? true) })
+
+                        // Delete: the notes go, after All Notes' confirmation (not driven here), and Undo brings the stack back.
+                        guard let doomed = sm.create(name: "Scratch", noteIDs: [notes[0].id, notes[1].id]) else { next(); return }
+                        sm.delete([doomed.id])
+                        check("deleting a stack deletes its notes",
+                              sm.stack(id: doomed.id) == nil && VaultStore.shared.note(id: notes[0].id) == nil
+                                  && VaultStore.shared.note(id: notes[1].id) == nil)
+                        Toast.debugPerformAction()
+                        check("Undo brings the notes back and the stack with them",
+                              sm.stack(id: doomed.id)?.members == [notes[0].id, notes[1].id]
+                                  && VaultStore.shared.note(id: notes[0].id) != nil)
+                        if let s = sm.stack(id: doomed.id) { sm.unstack(s.id) }
+                        for n in notes + [loner] { wm.close(noteID: n.id) }
+                        next()
+                    }
+                }
+            }
+        }
+    }
+
+    /// Several note windows in one picture, where they sit on the screen, back to front.
+    private static func snapshotPile(_ panels: [NotePanel], to url: URL, completion: @escaping () -> Void) {
+        let ordered = NSApp.orderedWindows.compactMap { $0 as? NotePanel }.filter { p in panels.contains { $0 === p } }.reversed()
+        let union = ordered.reduce(NSRect.null) { $0.union($1.frame) }
+        var parts: [(NSRect, URL)] = []
+        func shoot(_ rest: [NotePanel]) {
+            guard let p = rest.first else {
+                let image = NSImage(size: union.size, flipped: false) { rect in
+                    NSColor(srgbRed: 0.36, green: 0.40, blue: 0.48, alpha: 1).setFill(); rect.fill()
+                    for (frame, file) in parts {
+                        NSImage(contentsOf: file)?.draw(in: NSRect(x: frame.minX - union.minX, y: frame.minY - union.minY,
+                                                                   width: frame.width, height: frame.height))
+                    }
+                    return true
+                }
+                save(image, to: url)
+                completion()
+                return
+            }
+            let file = FileManager.default.temporaryDirectory.appendingPathComponent("pile-\(parts.count).png")
+            snapshot(window: p, to: file) { parts.append((p.frame, file)); shoot(Array(rest.dropFirst())) }
+        }
+        shoot(Array(ordered))
+    }
+
     /// Which tab pill is orange in what the window actually drew. The model saying Settings proves
     /// nothing if the window still shows All Notes — which it once did.
     static func drawnTab(_ window: NSWindow) -> MainWindowModel.Tab? {
@@ -2315,7 +2503,7 @@ enum SelfTest {
     }
 
     private static func renderWindows(out: URL) {
-        runnerTest(out: out) { linkPreviewTest(out: out) { imageEditTest(out: out) { freezeTest { reminderTest(out: out) { findTest(out: out) { quickCaptureTest { templateTest { actionBarTest { testerBugsTest { todoBarTest(out: out) { onboardingTest(out: out) { strandedNotesTest { collapsedTodoTest(out: out) { blankCloseTest { undoDeleteTest { tagColourTest(out: out) { glowStrengthTest { vimTest(out: out) { codeLineNumbersTest(out: out) { vimBannerTest(out: out) { renderWindowsNow(out: out) } } } } } } } } } } } } } } } } } } } } }
+        runnerTest(out: out) { linkPreviewTest(out: out) { imageEditTest(out: out) { freezeTest { reminderTest(out: out) { findTest(out: out) { quickCaptureTest { templateTest { actionBarTest { testerBugsTest { todoBarTest(out: out) { onboardingTest(out: out) { strandedNotesTest { collapsedTodoTest(out: out) { blankCloseTest { undoDeleteTest { tagColourTest(out: out) { glowStrengthTest { vimTest(out: out) { codeLineNumbersTest(out: out) { vimBannerTest(out: out) { stackTest(out: out) { renderWindowsNow(out: out) } } } } } } } } } } } } } } } } } } } } } }
     }
 
     private static func renderWindowsNow(out: URL) {

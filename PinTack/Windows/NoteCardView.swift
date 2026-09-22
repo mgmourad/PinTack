@@ -27,6 +27,14 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     private let modeButton = ToolButton()
     private let collapseButton = ToolButton()
     private let closeButton = ToolButton()
+    private let clipButton = ToolButton()          // paperclip: makes a stack (SPEC.md §5.10)
+    // The stack bar, under the title bar of every note in a stack. Only the front note's shows.
+    private let stackIcon = NSImageView()
+    private let stackNameField = TitleField()
+    private let unstackButton = ToolButton()
+    private let stackPinButton = ToolButton()
+    private let stackCollapseButton = ToolButton()
+    private let stackCloseButton = ToolButton()
     private let appearanceButton = ToolButton()
     private let tagsButton = ToolButton()          // the tag ICON: the only thing that opens the tag editor
     private let bellButton = ToolButton()          // reminders; todo notes only
@@ -84,6 +92,14 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
 
     private let pinSize: CGFloat = 28
 
+    /// The stack this note is in, if any. SPEC.md §5.10.
+    private var stack: NoteStack? { StackManager.shared.stack(containing: note.id) }
+    static let stackBarHeight: CGFloat = 26
+    var stackBarHeight: CGFloat { stack == nil ? 0 : NoteCardView.stackBarHeight }
+    /// The note's own pushpin and glow. In a stack the STACK is pinned, from its bar, and a pin on
+    /// every title bar of the pile would be clutter.
+    private var showsOwnPin: Bool { note.pinned && stack == nil }
+
     init(note: Note, panel: NotePanel) {
         self.note = note
         self.panel = panel
@@ -100,6 +116,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         nc.addObserver(self, selector: #selector(bodyChanged(_:)), name: .noteBodyDidChange, object: note)
         nc.addObserver(self, selector: #selector(settingsChanged), name: .settingsDidChange, object: nil)
         nc.addObserver(self, selector: #selector(tagsMayHaveChanged), name: .vaultDidChange, object: nil)
+        nc.addObserver(self, selector: #selector(stacksChanged), name: .stacksDidChange, object: nil)
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
@@ -205,7 +222,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         let local = convert(point, from: parent)
         let path = NSBezierPath(roundedRect: cardRect, xRadius: cornerRadius, yRadius: cornerRadius)
         if path.contains(local) { return super.hitTest(point) }
-        if note.pinned && pinRect.contains(local) { return self }
+        if showsOwnPin && pinRect.contains(local) { return self }
         return nil
     }
 
@@ -220,7 +237,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         // Pinned glow, in the NOTE's own color (owner's call; SPEC.md §5.4 said outline color at 22%,
         // which was too faint to see). Two passes, a wide soft halo and a tight bright one, both
         // inside the 24pt margin so the window never clips them.
-        let glowing = note.pinned && settings.pinnedGlow
+        let glowing = showsOwnPin && settings.pinnedGlow
         if glowing {
             // Settings → Notes → Glow strength. Mostly brightness; the halo also widens a little, but
             // never past the 24pt margin, or the window edge would slice it off flat (SPEC.md §5.2).
@@ -265,7 +282,21 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         }
         sep.stroke()
 
-        if note.pinned {
+        // The stack bar: a faint band under the title bar, with its own hairline below it.
+        if stack != nil {
+            let band = NSRect(x: rect.minX + 1, y: headerRect.minY - NoteCardView.stackBarHeight,
+                              width: rect.width - 2, height: NoteCardView.stackBarHeight)
+            (note.isDarkText ? NSColor.black : NSColor.white).withAlphaComponent(note.isDarkText ? 0.06 : 0.09).setFill()
+            band.fill()
+            hairline.setStroke()
+            let under = NSBezierPath()
+            under.lineWidth = 1
+            under.move(to: NSPoint(x: rect.minX + 1, y: band.minY + 0.5))
+            under.line(to: NSPoint(x: rect.maxX - 1, y: band.minY + 0.5))
+            under.stroke()
+        }
+
+        if showsOwnPin {
             if let art = NSImage(named: "Pushpin") { art.draw(in: pinImageRect) } else { drawPin(in: ctx) }
         }
     }
@@ -330,7 +361,9 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         configure(collapseButton, symbol: "chevron.down", tip: "Collapse", action: #selector(toggleCollapse))
         configure(closeButton, symbol: "xmark", tip: "Close (keeps the note in All Notes)", action: #selector(closeNote))
         configure(appearanceButton, symbol: "paintpalette", tip: "Color, mode and opacity", action: #selector(showAppearance))
-        [pinButton, modeButton, collapseButton, closeButton, appearanceButton].forEach { addSubview($0) }
+        configure(clipButton, symbol: "paperclip", tip: "Stack this note with others", action: #selector(showStackCreator))
+        [pinButton, modeButton, collapseButton, closeButton, appearanceButton, clipButton].forEach { addSubview($0) }
+        buildStackBar()
 
         // Action bar
         configure(expandButton, symbol: "chevron.right", tip: "Formatting tools", action: #selector(toggleActionBar))
@@ -377,6 +410,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         updateCollapsedState()
         updateFrozenState()
         updateReminderGlyph()
+        refreshStackState()
     }
 
     private func configure(_ b: NSButton, symbol: String, tip: String, action: Selector) {
@@ -397,7 +431,11 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         refreshTitle()
         let icon = foreground.withAlphaComponent(0.5)
         [modeButton, collapseButton, closeButton, appearanceButton, expandButton,
-         boldButton, italicButton, codeButton].forEach { $0.contentTintColor = icon }
+         boldButton, italicButton, codeButton, clipButton, unstackButton, stackCollapseButton, stackCloseButton]
+            .forEach { $0.contentTintColor = icon }
+        stackIcon.contentTintColor = icon
+        stackNameField.textColor = foreground.withAlphaComponent(0.8)
+        refreshStackPinGlyph()
         refreshPinGlyph()
         refreshBulletButton()
         refreshTagsButton()
@@ -408,6 +446,151 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     private func symbol(_ name: String, weight: NSFont.Weight = .semibold) -> NSImage? {
         NSImage(systemSymbolName: name, accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(pointSize: ChromeSize.glyph, weight: weight))
+    }
+
+    // MARK: - Stacks (SPEC.md §5.10)
+
+    private func buildStackBar() {
+        stackIcon.image = symbol("square.stack.3d.up.fill")
+        stackIcon.imageScaling = .scaleProportionallyDown
+        addSubview(stackIcon)
+        stackNameField.isEditable = false
+        stackNameField.isSelectable = false
+        stackNameField.isBordered = false
+        stackNameField.drawsBackground = false
+        stackNameField.focusRingType = .none
+        stackNameField.font = .systemFont(ofSize: 11.5, weight: .semibold)
+        stackNameField.lineBreakMode = .byTruncatingTail
+        stackNameField.usesSingleLineMode = true
+        stackNameField.cell?.isScrollable = true
+        stackNameField.delegate = self
+        addSubview(stackNameField)
+        configure(unstackButton, symbol: "paperclip", tip: "Unstack: every note goes back where it was", action: #selector(unstackTapped))
+        unstackButton.image = NoteCardView.struckPaperclip()
+        configure(stackPinButton, symbol: "pin", tip: "Keep the stack on top", action: #selector(stackPinTapped))
+        configure(stackCollapseButton, symbol: "chevron.down", tip: "Collapse the stack", action: #selector(stackCollapseTapped))
+        configure(stackCloseButton, symbol: "xmark", tip: "Close the stack (it stays in All Notes)", action: #selector(stackCloseTapped))
+        [unstackButton, stackPinButton, stackCollapseButton, stackCloseButton].forEach { addSubview($0) }
+    }
+
+    /// SF Symbols has no paperclip with a slash, so it is drawn: the paperclip with a stroke across.
+    /// A template image, so it takes the bar's tint like every other glyph.
+    static func struckPaperclip() -> NSImage? {
+        guard let clip = NSImage(systemSymbolName: "paperclip", accessibilityDescription: "Unstack")?
+            .withSymbolConfiguration(.init(pointSize: ChromeSize.glyph, weight: .semibold)) else { return nil }
+        let size = clip.size
+        let image = NSImage(size: size, flipped: false) { rect in
+            clip.draw(in: rect)
+            // Clear a channel either side of the stroke so it reads as crossed out, not scribbled on.
+            let path = NSBezierPath()
+            path.move(to: NSPoint(x: rect.minX + 1, y: rect.minY + 1))
+            path.line(to: NSPoint(x: rect.maxX - 1, y: rect.maxY - 1))
+            path.lineCapStyle = .round
+            NSGraphicsContext.current?.compositingOperation = .clear
+            path.lineWidth = 4.2
+            path.stroke()
+            NSGraphicsContext.current?.compositingOperation = .sourceOver
+            NSColor.black.setStroke()
+            path.lineWidth = 1.7
+            path.stroke()
+            return true
+        }
+        image.isTemplate = true
+        image.accessibilityDescription = "Unstack"
+        return image
+    }
+
+    private func layoutStackBar(in c: NSRect, headerY: CGFloat, button btn: CGFloat) {
+        guard stack != nil else { return }
+        let barY = headerY - NoteCardView.stackBarHeight
+        let y = barY + (NoteCardView.stackBarHeight - btn) / 2
+        stackCloseButton.frame = NSRect(x: c.maxX - 6 - btn, y: y, width: btn, height: btn)
+        stackCollapseButton.frame = NSRect(x: stackCloseButton.frame.minX - btn, y: y, width: btn, height: btn)
+        stackPinButton.frame = NSRect(x: stackCollapseButton.frame.minX - btn, y: y, width: btn, height: btn)
+        unstackButton.frame = NSRect(x: stackPinButton.frame.minX - btn, y: y, width: btn, height: btn)
+        stackIcon.frame = NSRect(x: c.minX + 11, y: barY + (NoteCardView.stackBarHeight - 15) / 2, width: 15, height: 15)
+        let nameX = stackIcon.frame.maxX + 7
+        stackNameField.frame = NSRect(x: nameX, y: barY + (NoteCardView.stackBarHeight - 16) / 2,
+                                      width: max(20, unstackButton.frame.minX - 6 - nameX), height: 16)
+    }
+
+    private var stackBarRect: NSRect {
+        NSRect(x: cardRect.minX, y: headerRect.minY - stackBarHeight, width: cardRect.width, height: stackBarHeight)
+    }
+
+    private func refreshStackPinGlyph() {
+        let pinned = stack?.pinned == true
+        stackPinButton.image = symbol(pinned ? "pin.fill" : "pin")
+        stackPinButton.contentTintColor = pinned ? AppSettings.shared.outlineColor : foreground.withAlphaComponent(0.5)
+        stackPinButton.toolTip = pinned ? "Unpin the stack" : "Keep the stack on top"
+    }
+
+    /// Joined, left, renumbered, renamed, brought forward: everything a stack changes on this card.
+    func refreshStackState() {
+        let s = stack
+        let inStack = s != nil
+        let front = s?.front == note.id
+        for v in [stackIcon, stackNameField, unstackButton, stackPinButton, stackCollapseButton, stackCloseButton] as [NSView] {
+            v.isHidden = !inStack
+        }
+        clipButton.isHidden = inStack
+        pinButton.isHidden = inStack
+        collapseButton.isHidden = inStack
+        closeButton.isHidden = inStack
+        modeButton.isHidden = note.collapsed || (inStack && !front)
+        if let s {
+            if !stackNameField.isRenaming { stackNameField.stringValue = s.name }
+            stackCollapseButton.image = symbol(s.collapsed ? "chevron.right" : "chevron.down")
+            stackCollapseButton.toolTip = s.collapsed ? "Expand the stack" : "Collapse the stack"
+        }
+        refreshStackPinGlyph()
+        refreshTitle()
+        panel.applyPinned()
+        needsLayout = true
+        needsDisplay = true
+    }
+
+    @objc private func stacksChanged() {
+        // Only the notes of the stack that changed need anything, but a card cannot tell which stack
+        // that was once it has LEFT one; refreshing is cheap.
+        refreshStackState()
+    }
+
+    @objc private func showStackCreator() {
+        let candidates = StackCreatorView.candidates(for: note.id)
+        guard candidates.count >= NoteStack.minMembers else {
+            Toast.show("Open another note to stack this one with")
+            return
+        }
+        let view = StackCreatorView(current: note.id, candidates: candidates) { [weak self] name, ids in
+            self?.popover?.close()
+            if let s = StackManager.shared.create(name: name, noteIDs: ids) {
+                Toast.show("Stacked \(s.members.count) notes as “\(s.name)”")
+            }
+        }
+        present(view, from: clipButton)
+    }
+
+    @objc private func unstackTapped() { if let s = stack { StackManager.shared.unstack(s.id) } }
+    @objc private func stackPinTapped() { if let s = stack { StackManager.shared.togglePin(s.id) } }
+    @objc private func stackCollapseTapped() { if let s = stack { StackManager.shared.toggleCollapse(s.id) } }
+    @objc private func stackCloseTapped() { if let s = stack { StackManager.shared.hide(s.id) } }
+
+    /// Double-click the stack's name to rename it, as with a note's title.
+    private func beginStackRename() {
+        guard stack != nil, !stackNameField.isRenaming else { return }
+        panel.makeKeyAndOrderFront(nil)
+        stackNameField.isRenaming = true
+        stackNameField.isEditable = true
+        stackNameField.isSelectable = true
+        window?.makeFirstResponder(stackNameField)
+        stackNameField.currentEditor()?.selectAll(nil)
+    }
+
+    private func endStackRename() {
+        stackNameField.isRenaming = false
+        stackNameField.isEditable = false
+        stackNameField.isSelectable = false
     }
 
     // MARK: - Vim mode (SPEC.md §4.6)
@@ -542,15 +725,23 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     private func refreshTitle() {
         guard !titleField.isRenaming else { return }
         let colour = foreground.withAlphaComponent(0.86)
+        let font = titleField.font ?? .systemFont(ofSize: 12.5, weight: .semibold)
+        let title = NSMutableAttributedString()
+        // In a stack the note's number leads its title: it is what ⌘1–⌘5 go by, and it only shows
+        // while the note is in a stack (owner decision, 2026-09-22).
+        if let number = stack?.number(of: note.id) {
+            title.append(NSAttributedString(string: "#\(number)  ", attributes: [
+                .font: NSFont.monospacedDigitSystemFont(ofSize: font.pointSize, weight: .heavy),
+                .foregroundColor: colour.withAlphaComponent(0.55)]))
+        }
         guard note.isTodo && note.isDone else {
-            titleField.attributedStringValue = NSAttributedString(string: note.title, attributes: [
-                .font: titleField.font ?? .systemFont(ofSize: 12.5, weight: .semibold), .foregroundColor: colour])
+            title.append(NSAttributedString(string: note.title, attributes: [.font: font, .foregroundColor: colour]))
+            titleField.attributedStringValue = title
             return
         }
-        let font = titleField.font ?? .systemFont(ofSize: 12.5, weight: .semibold)
-        let title = NSMutableAttributedString(string: "✓ ", attributes: [
+        title.append(NSAttributedString(string: "✓ ", attributes: [
             .font: NSFont.systemFont(ofSize: font.pointSize, weight: .heavy),
-            .foregroundColor: TaskProgressStyle.done])
+            .foregroundColor: TaskProgressStyle.done]))
         title.append(NSAttributedString(string: note.title, attributes: [
             .font: font, .foregroundColor: colour.withAlphaComponent(0.6),
             .strikethroughStyle: NSUnderlineStyle.single.rawValue, .strikethroughColor: colour.withAlphaComponent(0.6)]))
@@ -605,7 +796,8 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         expandButton.isHidden = c
         grip.isHidden = c
         freezeButton.isHidden = c
-        modeButton.isHidden = c
+        // A back note of a stack shows only its title bar; its mode switch would act on a hidden body.
+        modeButton.isHidden = c || (stack != nil && stack?.front != note.id)
         collapseButton.image = symbol(c ? "chevron.right" : "chevron.down")
         collapseButton.toolTip = c ? "Expand" : "Collapse"
         updateActionBar()
@@ -706,12 +898,24 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         // The title clears the overhanging pin when the note is pinned. SPEC.md §5.2.
         let left = c.minX + (note.pinned ? 34 : 12)
 
-        closeButton.frame = NSRect(x: c.maxX - 6 - btn, y: buttonY, width: btn, height: btn)
-        collapseButton.frame = NSRect(x: closeButton.frame.minX - btn, y: buttonY, width: btn, height: btn)
-        modeButton.frame = NSRect(x: collapseButton.frame.minX - btn, y: buttonY, width: btn, height: btn)
-        pinButton.frame = NSRect(x: (note.collapsed ? collapseButton : modeButton).frame.minX - btn,
-                                 y: buttonY, width: btn, height: btn)
-        var titleRight = pinButton.frame.minX - 6
+        var titleRight: CGFloat
+        if stack != nil {
+            // In a stack the note's own pin, collapse, close and paperclip give way to the stack
+            // bar's. The front note keeps its Live Preview / Source switch, the only one that is
+            // still about the note itself.
+            modeButton.frame = NSRect(x: c.maxX - 6 - btn, y: buttonY, width: btn, height: btn)
+            titleRight = (modeButton.isHidden ? c.maxX - 6 : modeButton.frame.minX) - 6
+        } else {
+            closeButton.frame = NSRect(x: c.maxX - 6 - btn, y: buttonY, width: btn, height: btn)
+            collapseButton.frame = NSRect(x: closeButton.frame.minX - btn, y: buttonY, width: btn, height: btn)
+            modeButton.frame = NSRect(x: collapseButton.frame.minX - btn, y: buttonY, width: btn, height: btn)
+            pinButton.frame = NSRect(x: (note.collapsed ? collapseButton : modeButton).frame.minX - btn,
+                                     y: buttonY, width: btn, height: btn)
+            // The paperclip sits just left of the pushpin (owner decision, 2026-09-22).
+            clipButton.frame = NSRect(x: pinButton.frame.minX - btn, y: buttonY, width: btn, height: btn)
+            titleRight = clipButton.frame.minX - 6
+        }
+        layoutStackBar(in: c, headerY: headerY, button: btn)
         if !collapsedProgress.isHidden {
             // Title, then the bar and its count, then the header buttons.
             let width = TaskProgressLineView.width(for: collapsedProgress.counts.total)
@@ -721,8 +925,8 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         titleField.frame = NSRect(x: left, y: headerY + 7, width: max(20, titleRight - left), height: 17)
 
         let footer = footerHeight
-        editor.frame = NSRect(x: c.minX + 1, y: c.minY + footer,
-                              width: c.width - 2, height: max(0, c.height - NotePanel.headerHeight - footer))
+        editor.frame = NSRect(x: c.minX + 1, y: c.minY + footer, width: c.width - 2,
+                              height: max(0, c.height - NotePanel.headerHeight - stackBarHeight - footer))
 
         // Footer, left to right: 🎨  >  then either the tags or the tools; the resize grip at the far right.
         // The controls stay on the TOP row of the bar; extra tracker rows hang below them.
@@ -916,6 +1120,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     @objc func toggleMode() { editor.toggleMode() }
 
     @objc func closeNote() {
+        if let s = stack { StackManager.shared.hide(s.id); return }
         SaveCoordinator.shared.flush(noteID: note.id)
         // Closed with nothing in it: it goes, rather than joining the Untitled/Empty rows in All
         // Notes. Only on an explicit close — hiding every note at once is not a change of mind.
@@ -1111,6 +1316,14 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
             if barOverlay == .command { editor.send("vim.prompt.key", ["key": "Escape"]) }
             return
         }
+        if (obj.object as? NSTextField) === stackNameField {
+            let name = stackNameField.stringValue
+            endStackRename()
+            if let s = stack { StackManager.shared.rename(s.id, to: name) }
+            refreshStackState()
+            window?.makeFirstResponder(editor)
+            return
+        }
         let text = titleField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         endRename()
         // Renaming stores a title beside the note rather than rewriting its first line, so the
@@ -1129,6 +1342,11 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         if control === commandField { return commandBarKey(selector) }
         guard selector == #selector(NSResponder.cancelOperation(_:)) else { return false }
+        if control === stackNameField {
+            stackNameField.stringValue = stack?.name ?? ""
+            window?.makeFirstResponder(editor)
+            return true
+        }
         // Plain text, and still renaming: ending the edit below reads this field back and renames
         // the note to whatever it says, so it must not hold the drawn "✓ " of a finished todo.
         titleField.stringValue = note.title
@@ -1142,16 +1360,25 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
 
     // MARK: - Dragging
 
+    /// Whether the pointer moved while the header was held: a click on a stacked note's title bar
+    /// brings it forward, a drag moves the pile.
+    private var dragMoved = false
+
     override func mouseDown(with event: NSEvent) {
         let local = convert(event.locationInWindow, from: nil)
-        if note.pinned && pinRect.contains(local) && !cardRect.contains(local) { togglePin(); return }
-        // The header and any empty footer space drag the note; controls sit above and take their own clicks.
-        guard headerRect.contains(local) || (footerRect.contains(local) && !note.collapsed) else {
+        if showsOwnPin && pinRect.contains(local) && !cardRect.contains(local) { togglePin(); return }
+        // The header, the stack bar and any empty footer space drag the note; controls sit above and
+        // take their own clicks.
+        guard headerRect.contains(local) || stackBarRect.contains(local) || (footerRect.contains(local) && !note.collapsed) else {
             super.mouseDown(with: event); return
         }
-        if note.pinned && pinRect.contains(local) { togglePin(); return }
+        if showsOwnPin && pinRect.contains(local) { togglePin(); return }
         if event.clickCount == 2 && titleField.frame.contains(local) { dragOrigin = nil; beginRename(); return }
+        if event.clickCount == 2 && stackNameField.frame.contains(local) && stack != nil {
+            dragOrigin = nil; beginStackRename(); return
+        }
         dragOrigin = event.locationInWindow
+        dragMoved = false
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -1159,14 +1386,21 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         // Screen position of the pointer, from the event itself (not NSEvent.mouseLocation, which
         // is the real cursor and so cannot be driven by tests).
         let current = window.convertPoint(toScreen: event.locationInWindow)
-        window.setFrameOrigin(NSPoint(x: current.x - origin.x, y: current.y - origin.y))
+        let target = NSPoint(x: current.x - origin.x, y: current.y - origin.y)
+        dragMoved = dragMoved || abs(target.x - window.frame.minX) > 1 || abs(target.y - window.frame.minY) > 1
+        // A stack moves as one: dragging any of its title bars carries the whole pile.
+        if stack != nil { StackManager.shared.drag(panel, to: target) } else { window.setFrameOrigin(target) }
     }
 
     override func mouseUp(with event: NSEvent) {
         if dragOrigin != nil {
             dragOrigin = nil
-            panel.syncFrameToNote()
-            VaultStore.shared.save(note)
+            if stack != nil {
+                if dragMoved { StackManager.shared.dragEnded(panel) } else { StackManager.shared.bringToFront(note.id) }
+            } else {
+                panel.syncFrameToNote()
+                VaultStore.shared.save(note)
+            }
         }
         super.mouseUp(with: event)
     }
@@ -1278,6 +1512,17 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     /// Runs a shortcut action against THIS note. Note-scoped actions land here from the key
     /// monitor, the menus and the context menu alike, so they cannot disagree.
     func perform(_ action: ShortcutAction) {
+        // In a stack, pin / collapse / close act on the whole stack, like the stack bar's buttons.
+        if let s = stack {
+            switch action {
+            case .pin:        StackManager.shared.togglePin(s.id); return
+            case .collapse:   StackManager.shared.toggleCollapse(s.id); return
+            case .close:      StackManager.shared.hide(s.id); return
+            case .stackCycle: StackManager.shared.cycle(from: note.id); return
+            default:
+                if let n = action.stackNumber { StackManager.shared.bringToFront(number: n, from: note.id); return }
+            }
+        }
         switch action {
         case .pin:        togglePin()
         case .collapse:   toggleCollapse()
@@ -1290,6 +1535,8 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         case .moreOpaque: nudgeOpacity(by: 0.1)
         case .color1, .color2, .color3, .color4, .color5, .color6:
             if let i = [ShortcutAction.color1, .color2, .color3, .color4, .color5, .color6].firstIndex(of: action) { setColor(index: i) }
+        case .stackCycle, .stackNote1, .stackNote2, .stackNote3, .stackNote4, .stackNote5:
+            break                                                // not in a stack: nothing to do
         default:          ActionRouter.perform(action)          // app-wide actions
         }
     }
@@ -1372,6 +1619,8 @@ final class ResizeGripView: NSView {
         panel?.card.syncFooterHeight(animated: false)
         panel?.syncFrameToNote()
         if let note = panel?.note { VaultStore.shared.save(note) }
+        // The front note of a stack sets the size of the whole pile.
+        if let panel { StackManager.shared.resized(panel) }
     }
 }
 
@@ -1398,6 +1647,22 @@ final class ToolButton: NSButton {
 #if DEBUG
 /// Hooks for the self-test (Support/SelfTest.swift). Compiled out of Release.
 extension NoteCardView {
+    /// What the stack shows on this card: its bar, the paperclip, the mode switch, the bar's name.
+    var debugStack: (bar: Bool, clip: Bool, mode: Bool, name: String) {
+        (!stackNameField.isHidden, !clipButton.isHidden, !modeButton.isHidden, stackNameField.stringValue)
+    }
+    func debugShowStackCreator() { showStackCreator() }
+    /// A click on an empty part of the title bar, through mouseDown/mouseUp as a pointer sends it.
+    func debugClickHeader() {
+        guard let window else { return }
+        let point = convert(NSPoint(x: headerRect.maxX - 70, y: headerRect.midY), to: nil)
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            guard let e = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                             windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
+            else { continue }
+            if type == .leftMouseDown { mouseDown(with: e) } else { mouseUp(with: e) }
+        }
+    }
     func debugExpandActionBar() { if !actionBarExpanded { toggleActionBar() } }
     func debugShowAppearance() { showAppearance() }
     var debugIsRenaming: Bool { titleField.isRenaming }

@@ -126,12 +126,16 @@ final class WindowManager {
     /// Moves notes to the Trash, closing any open windows first, and offers Undo for five seconds
     /// (owner decision, 2026-09-21). The Trash already made a delete recoverable, but only by way
     /// of Finder; an accidental ⌥⌘D deserves a one-click way back.
-    func delete(_ notes: [Note]) {
+    /// `onUndo` runs after the notes are back, for whatever else the delete took with it (a stack).
+    func delete(_ notes: [Note], onUndo: (() -> Void)? = nil) {
         var trashed: [(note: Note, url: URL, wasOpen: Bool)] = []
         for note in notes {
             let wasOpen = panels[note.id] != nil
             close(noteID: note.id)
-            if let url = VaultStore.shared.delete(note) { trashed.append((note, url, wasOpen)) }
+            if let url = VaultStore.shared.delete(note) {
+                trashed.append((note, url, wasOpen))
+                StackManager.shared.forget(note.id)
+            }
         }
         guard !trashed.isEmpty else { return }
         let message = trashed.count == 1 ? "Moved to Trash" : "Moved \(trashed.count) notes to Trash"
@@ -141,6 +145,7 @@ final class WindowManager {
                 back += 1
                 if item.wasOpen { self?.open(item.note, animated: true) }
             }
+            onUndo?()
             Toast.show(back == trashed.count ? "Restored" : "Restored \(back) of \(trashed.count)")
         }
     }
@@ -193,6 +198,12 @@ final class WindowManager {
 
     /// Show a note that was hidden, or raise and pulse one that is already open. SPEC.md §8.
     func reveal(_ note: Note) {
+        // A note in a stack comes back with its stack, in front of it.
+        if let stack = StackManager.shared.stack(containing: note.id) {
+            StackManager.shared.show(stack.id, front: note.id)
+            panels[note.id]?.pulse()
+            return
+        }
         let wasOpen = panels[note.id] != nil
         if !note.visible { note.visible = true; VaultStore.shared.save(note) }
         let panel = open(note, animated: !wasOpen)
@@ -221,6 +232,12 @@ final class WindowManager {
     }
 
     var focusedNote: Note? { focusedPanel?.note }
+
+    /// The note that is the key window right now, and only that: no pointer or last-focused guess.
+    var keyPanel: NotePanel? {
+        if let key = NSApp.keyWindow as? NotePanel { return key }
+        return panels.values.first(where: { $0.isKeyWindow })
+    }
 
     // MARK: - Placement (SPEC.md §5.5)
 
