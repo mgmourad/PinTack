@@ -78,6 +78,13 @@ final class NotePanel: NSPanel {
                     StackManager.shared.record("became key", "ignored: the window is no longer key, or is already in front")
                     return
                 }
+                // A click already handed to the note under the pointer: this window became key only
+                // because macOS raised whatever the press landed on, which is usually the note IN
+                // FRONT of the one aimed at. Acting on it drags the wrong note forward.
+                guard !StackManager.shared.isSettlingAClick else {
+                    StackManager.shared.record("became key", "ignored: a click was just passed on to another note")
+                    return
+                }
                 StackManager.shared.bringToFront(self.note.id, reason: "became key")
             }
         }

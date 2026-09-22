@@ -2556,15 +2556,67 @@ enum SelfTest {
                               sm.stack(id: doomed.id)?.members == [notes[0].id, notes[1].id]
                                   && VaultStore.shared.note(id: notes[0].id) != nil)
                         if let s = sm.stack(id: doomed.id) { sm.unstack(s.id) }
+                        stackLateRaiseTest {
                         stackClickByPlaceTest {
                         stackRapidClickTest {
                         stackDeleteAlertTest(notes: notes) {
                             for n in notes + [loner] { wm.close(noteID: n.id) }
                             next()
-                        } } }
+                        } } } }
                     }
                 }
             }
+        }
+    }
+
+    /// macOS raises the window under the pointer ITSELF, through the window server, and that raise
+    /// can land AFTER the app has already handed the click to the note the pointer was over. The note
+    /// that merely received the click then became key and dragged itself forward — the owner's bug,
+    /// caught on his screen recording (2026-09-22) and reproduced here by raising the window late.
+    private static func stackLateRaiseTest(then next: @escaping () -> Void) {
+        let wm = WindowManager.shared, sm = StackManager.shared
+        let notes = (1...4).map { i in
+            VaultStore.shared.createNote(body: "Late \(i)",
+                                         frame: NSRect(x: 300, y: 300, width: 320, height: 240))
+        }
+        notes.forEach { wm.open($0) }
+        guard let made = sm.create(name: "Late raise", noteIDs: notes.map(\.id)) else {
+            check("a stack to test the late raise on", false); return next()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            var wrong: [String] = []
+            func clickStep(_ rest: [Int]) {
+                guard let place = rest.first else {
+                    check("a click still brings its own note forward when macOS raises the clicked window late",
+                          wrong.isEmpty, wrong.joined(separator: "; "))
+                    for n in notes { wm.close(noteID: n.id) }
+                    if let s = sm.stack(id: made.id) { sm.unstack(s.id) }
+                    return next()
+                }
+                guard let s = sm.stack(id: made.id), s.order.indices.contains(place - 1),
+                      let target = wm.panel(for: s.order[place - 1]) else { return clickStep(Array(rest.dropFirst())) }
+                let aimed = target.note.id
+                let card = NotePanel.cardRect(forWindow: target.frame)
+                let point = NSPoint(x: card.midX, y: card.maxY - NotePanel.headerHeight / 2)
+                let number = NSWindow.windowNumber(at: point, belowWindowWithWindowNumber: 0)
+                let hit = wm.openPanels.first { $0.windowNumber == number } ?? target
+                let inWindow = hit.convertPoint(fromScreen: point)
+                for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                    if let e = NSEvent.mouseEvent(with: type, location: inWindow, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                  windowNumber: hit.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
+                        hit.sendEvent(e)
+                    }
+                }
+                // The raise, arriving after the app has dealt with the click.
+                DispatchQueue.main.async { hit.makeKeyAndOrderFront(nil) }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    if sm.stack(id: made.id)?.front != aimed {
+                        wrong.append("clicked place \(place), \(wm.panel(for: sm.stack(id: made.id)?.front ?? "")?.note.title ?? "?") came forward")
+                    }
+                    clickStep(Array(rest.dropFirst()))
+                }
+            }
+            clickStep([4, 3, 2, 4, 3])
         }
     }
 

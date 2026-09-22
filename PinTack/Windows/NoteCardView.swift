@@ -1429,6 +1429,9 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         // A click that landed on this window's margin over another stacked note's title bar is that
         // note's click (see hitTest): it comes to the front, as a click on its title bar would.
         if !cardRect.contains(local), let other = stackMemberUnder(local) {
+            // This window only received the click; the note under the pointer is the one meant. Say
+            // so, so the key event macOS sends this window a moment later is not acted on.
+            StackManager.shared.clickWasHandedOn()
             StackManager.shared.bringToFront(other.note.id, reason: "click passed on")
             return
         }

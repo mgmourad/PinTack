@@ -424,9 +424,36 @@ final class StackManager {
     }
 
     /// Window order: the back note first, the front note last, so it ends up on top.
+    ///
+    /// Asserted THREE times: now, on the next turn of the run loop, and a moment later. macOS raises
+    /// the window under the pointer itself, through the window server, and that raise can land after
+    /// the app has reordered the pile — leaving the note that merely received the click drawn on top
+    /// of the note that was brought forward (owner's screen recording, 2026-09-22). Ordering windows
+    /// is cheap; being wrong about which note is in front is not.
     private func restack(_ s: NoteStack) {
+        order(s)
+        DispatchQueue.main.async { [weak self] in self?.reassert(s.id) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in self?.reassert(s.id) }
+    }
+
+    private func order(_ s: NoteStack) {
         for id in s.order.reversed() { WindowManager.shared.panel(for: id)?.orderFrontRegardless() }
     }
+
+    /// Only if the pile has not been rearranged again in the meantime.
+    private func reassert(_ stackID: String) {
+        guard let s = stack(id: stackID) else { return }
+        order(s)
+    }
+
+    // MARK: - Clicks that macOS is still thinking about
+
+    /// When a click was last resolved by handing it to the note under the pointer. The window that
+    /// RECEIVED that click becomes key a moment later, and its key event must not then drag it
+    /// forward: it was never the note being aimed at.
+    private var lastHandOff = Date.distantPast
+    func clickWasHandedOn() { lastHandOff = Date() }
+    var isSettlingAClick: Bool { Date().timeIntervalSince(lastHandOff) < 0.7 }
 
     /// Dragging any note of the pile moves the whole pile.
     func drag(_ panel: NotePanel, to origin: NSPoint) {

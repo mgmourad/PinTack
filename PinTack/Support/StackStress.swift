@@ -111,13 +111,19 @@ enum StackStress {
         let point = NSPoint(x: card.midX, y: card.maxY - NotePanel.headerHeight / 2)
         let aimed = target.note.id
 
+        // Another app in front would take every click: keep PinTack frontmost for the run.
+        if !NSApp.isActive { NSApp.activate(ignoringOtherApps: true) }
         moveMarker(to: point)
         // A beat between the marker arriving and the click, so a watcher can see where it is going.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
             let number = NSWindow.windowNumber(at: point, belowWindowWithWindowNumber: 0)
             let hit = wm.openPanels.first { $0.windowNumber == number }
             flashMarker()
-            hit?.makeKeyAndOrderFront(nil)              // what macOS does on the press
+            // macOS raises the window under the pointer and makes it key. That raise goes through the
+            // window server, so it can land AFTER the app has reordered the pile — which is what the
+            // owner's recording shows. PINTACK_STACK_STRESS_LATE_RAISE puts it in that order.
+            let lateRaise = ProcessInfo.processInfo.environment["PINTACK_STACK_STRESS_LATE_RAISE"] != nil
+            if !lateRaise { hit?.makeKeyAndOrderFront(nil) }
             if let hit {
                 let inWindow = hit.convertPoint(fromScreen: point)
                 for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
@@ -129,6 +135,7 @@ enum StackStress {
                     }
                 }
             }
+            if lateRaise { DispatchQueue.main.async { hit?.makeKeyAndOrderFront(nil) } }
             // Let the pile settle before judging it.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
                 let after = sm.stack(id: stackID)?.order ?? []
