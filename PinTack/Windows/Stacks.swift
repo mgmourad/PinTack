@@ -330,6 +330,13 @@ final class StackManager {
         return WindowManager.shared.panel(for: id)?.note.cardFrame ?? VaultStore.shared.note(id: id)?.cardFrame
     }
 
+    /// How much taller than its front card a stack stands on the desk: one title bar per note behind.
+    func pileRise(of noteID: String) -> CGFloat {
+        guard let s = stack(containing: noteID), s.front == noteID else { return 0 }
+        let behind = s.order.dropFirst().filter { WindowManager.shared.panel(for: $0) != nil }.count
+        return CGFloat(behind) * NotePanel.headerHeight
+    }
+
     /// Every stack on the desk, laid out. At launch, after the notes are open.
     func layoutAll() {
         for s in stacks where isShown(s) { refreshCards(of: s); layout(s, animated: false) }
@@ -350,8 +357,11 @@ final class StackManager {
         }
         for (depth, panel) in panels.enumerated() {
             let rect = NSRect(x: base.minX, y: minY + CGFloat(depth) * step, width: base.width, height: base.height)
-            panel.placeCard(rect, animated: animated)
-            VaultStore.shared.save(panel.note)
+            // Only a note that actually moved is written: laying the piles out at launch must not
+            // rewrite every stacked note's file.
+            let moved = panel.note.cardFrame != rect
+            panel.placeCard(rect, animated: animated && moved)
+            if moved { VaultStore.shared.save(panel.note) }
         }
         restack(s)
     }

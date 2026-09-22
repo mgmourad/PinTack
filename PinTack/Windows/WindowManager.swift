@@ -169,6 +169,8 @@ final class WindowManager {
             if !note.visible { note.visible = true; VaultStore.shared.save(note) }
             open(note)
         }
+        // Notes of a stack come back as a pile, not wherever their windows happen to open.
+        StackManager.shared.layoutAll()
         NotificationCenter.default.post(name: .vaultDidChange, object: nil)
     }
 
@@ -314,25 +316,31 @@ final class WindowManager {
         // (the note that was on top lands first).
         let order = NSApp.orderedWindows.compactMap { $0 as? NotePanel }
         let rest = panels.values.filter { p in !order.contains { $0 === p } }
-        let ordered = order + rest.sorted { $0.note.created < $1.note.created }
+        // A stack is arranged as ONE card, its front note, standing as tall as the whole pile; the
+        // notes behind it follow when the piles are laid out again below.
+        let stacks = StackManager.shared
+        let ordered = (order + rest.sorted { $0.note.created < $1.note.created })
+            .filter { stacks.stack(containing: $0.note.id) == nil || stacks.isFront($0.note.id) }
         guard !ordered.isEmpty else { return }
 
         var x = visible.minX + gutter, top = visible.maxY - gutter, rowHeight: CGFloat = 0
         for panel in ordered {
             let note = panel.note
             let w = note.cardFrame.width
-            let h = note.collapsed ? NotePanel.headerHeight : note.cardFrame.height
+            let rise = stacks.pileRise(of: note.id)
+            let h = (note.collapsed ? NotePanel.headerHeight : note.cardFrame.height) + rise
             if x + w > visible.maxX - gutter && x > visible.minX + gutter {
                 x = visible.minX + gutter
                 top -= rowHeight + gutter
                 rowHeight = 0
             }
             let expandedHeight = note.cardFrame.height
-            panel.applyCardFrame(NSRect(x: x, y: top - expandedHeight, width: w, height: expandedHeight), animated: true)
+            panel.applyCardFrame(NSRect(x: x, y: top - rise - expandedHeight, width: w, height: expandedHeight), animated: true)
             VaultStore.shared.save(note)
             x += w + gutter
             rowHeight = max(rowHeight, h)
         }
+        stacks.layoutAll()
         Toast.show("Auto-arranged")
     }
 

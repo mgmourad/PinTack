@@ -2391,6 +2391,17 @@ enum SelfTest {
                         sm.bringToFront(notes[0].id)
 
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
+                            // Auto-arrange treats the pile as one card: it moves, it does not come apart.
+                            wm.autoArrange()
+                            let piled = sm.stack(id: made.id).map { s in
+                                s.order.compactMap { wm.panel(for: $0)?.note.cardFrame }
+                            } ?? []
+                            let together = piled.count == 3 && piled.enumerated().allSatisfy { i, c in
+                                c.minX == piled[0].minX && c.size == piled[0].size
+                                    && abs(c.minY - (piled[0].minY + CGFloat(i) * NotePanel.headerHeight)) < 0.5
+                            }
+                            check("auto-arrange moves a stack as one pile instead of dealing its notes out", together,
+                                  piled.map { "\(Int($0.minX)),\(Int($0.minY))" }.joined(separator: " | "))
                             snapshotPile(notes.compactMap { wm.panel(for: $0.id) }, to: out.appendingPathComponent("stack.png")) {
                                 stackTabTest(out: out, stackID: made.id, notes: notes, frames: frames, loner: loner, then: next)
                             }
