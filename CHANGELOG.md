@@ -12,6 +12,37 @@ it stands.
 
 ---
 
+## Unreleased
+
+### Added
+- **Stack delete asks three ways (owner):** Unstack (the default, on Return), Delete N Notes (red),
+  Cancel (Esc), naming any folder the notes are filed in. The self-test presses Return on it.
+- **All Notes row actions (owner):** Stacks rows get rename and Unstack; Templates rows show/hide,
+  rename (the `@name`) and delete; Todos rows rename, show/hide and delete. The Todos checkbox is now
+  a selection box, with **Mark Complete** and **Delete selected** at the bottom.
+- **Tooltips on every control in All Notes and Settings (owner),** "Name | description", after 2 s.
+- **The All Notes tab has the owner's sticky-pad glyph,** so it no longer shares the Stacks icon.
+- **An orange pill behind a stack's name (owner),** black lettering, as wide as the name.
+- **The product thesis** at the top of SPEC and README; CLAUDE.md tells sessions to check features
+  against it.
+- **`scripts/measure-memory.sh`** and its numbers in SPEC §17: about 37 MB per open note, 1.95 GB for 51.
+
+### Changed
+- **Stack numbers are places (owner):** the front note is always #1; ⌘N brings the note in place N
+  forward. They used to stay with their notes.
+- **The pushpin is 40% smaller (owner),** sitting where it did.
+- **Glow strength goes to 200% (owner),** and a dark note's glow is light instead of invisible.
+- The vim notice points long-form writing at Obsidian or VS Code; the Stacks tab has a tooltip.
+- CONTRIBUTING's "Current state" matches build 10 and says Phase 5 has not started.
+
+### Fixed
+- **A note brought forward in a stack left the rest of the pile where it was (owner, serious).**
+  macOS raises a clicked window on the press, and a click with a hair of movement counted as a drag.
+  A click is now anything under 4 pt, and a back note that becomes the active window by any route
+  brings the pile round behind it, with the spring.
+- `stacks.json` is disposable: missing, unreadable, wrong-shaped or stale never blocks a launch or
+  touches a note (tests added).
+
 ## Build 10 — 2026-09-22
 
 ### Added

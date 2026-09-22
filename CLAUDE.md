@@ -231,8 +231,8 @@ preservation, atomic writes, import safety and search.
 **Phase 4, plugins and Runner: built.** The WidgetKit widget is **shelved by the owner**: it needs a real
 Apple signing team (app group must carry the Team ID, trap 2), so it waits on that decision.
 
-**As of 2026-09-22: 0.1.0, build 10, in beta with testers.** `verify.sh` covers a Release build, 236
-unit tests and 203 self-test checks. `CHANGELOG.md` records every change, day by day, with the reason
+**As of 2026-09-22: 0.1.0, build 10, in beta with testers.** `verify.sh` covers a Release build, 241
+unit tests and 219 self-test checks. `CHANGELOG.md` records every change, day by day, with the reason
 — read it before assuming something is an accident. Honest view of what separates this from a 1.0:
 signing and notarization, a stretch of daily use with no new bugs (bugs were still being found by
 use at a rate of about ten a session), a measurement with many notes open and a large vault, and a
@@ -412,13 +412,21 @@ Owner decisions added after the rebuild (2026-09-19):
   that forgets the blank line is testing a different table.
 - Note Stacks (owner, 2026-09-22, SPEC §5.10): `Windows/Stacks.swift`. A stack is a relationship
   between notes, so it lives in `.pintack/stacks.json` and the notes get NOTHING in their
-  frontmatter. Numbers belong to notes (owner chose identity over position); ⌘1–⌘5, not ⌥⇧1–5,
-  because ⌥⇧2 is the global Templates key. Stack keys pass through unless a stacked note is key.
+  frontmatter. Numbers are PLACES: the front note is always #1 (owner, 2026-09-22 — this REPLACED
+  numbers that stayed with their notes, so do not go back). ⌘1–⌘5, not ⌥⇧1–5, because ⌥⇧2 is the
+  global Templates key. `NotePanel.becomeKey` brings a back note forward by ANY route: macOS raises a
+  clicked window on the press, and the pile used to stay behind (owner-reported). A click is < 4pt. Stack keys pass through unless a stacked note is key.
   In a stack the STACK is pinned (`NotePanel.isOnTop`), and the note's own pin art and glow are not
   drawn (`showsOwnPin`). Unstack restores each note's pre-stack frame from `before`. Deleting a stack
   deletes its notes, always behind `StackDeleteAlert`, whose DEFAULT (Return) is Unstack — the
   answer that loses nothing — and whose destructive button needs a click. The self-test presses
   Return on the real alert. `WindowManager.delete(_:onUndo:)` brings the stack back on Undo.
+- All Notes and Settings tooltips read "Name | description" through `Tip.text` / `.tip(_:_:)`, after
+  a 2-second delay. Every new control there gets one. Row actions live in `Central/RowActions.swift`
+  (`RowIconButton`, `NoteRowActions`, `TemplateNaming`), shared by every tab.
+- A pinned note's glow is its own colour on light paper and LIGHT on dark paper
+  (`NoteCardView.glowColor`); strength goes to 200%. The pushpin is drawn at `pinScale` 0.6.
+- `scripts/measure-memory.sh` (Debug `MemoryProbe`, throwaway vault only): about 37 MB per open note.
 - `MainWindowController.show` switches the tab INSTANTLY and then sends `objectWillChange` once
   more on the next run-loop turn. Without that nudge, a tab change landing while SwiftUI was mid-update
   was dropped: the model said Settings while the window drew All Notes, one run in two (measured

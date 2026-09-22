@@ -375,8 +375,10 @@ is rather than always being black.
 ### 5.4 Pin
 
 ⌥⌘P. A pinned note floats above other windows and draws the owner's pushpin PNG, anchored by the
-crack in the paper (drawn 40% smaller than the first version, owner 2026-09-22), with a glow in the note's own colour. **Settings → Notes → Glow strength** runs
-from 25% to 160%; it is mostly brightness, and the halo never widens past the 24 pt margin, where
+crack in the paper (drawn 40% smaller than the first version, owner 2026-09-22), with a glow in the
+note's own colour on light paper and a **light** glow on dark paper (a dark note colour or Dark mode),
+where a glow in the note's own colour cannot be seen. **Settings → Notes → Glow strength** runs
+from 25% to 200% (a third, tight pass carries it past 100%); it is mostly brightness, and the halo never widens past the 24 pt margin, where
 the window edge would slice it flat.
 
 ### 5.5 Placement
@@ -455,17 +457,23 @@ the cap so a stack never grows tall.
 - **The pile:** every note takes the front note's size, and each sits one title bar higher than the
   one in front of it, so only title bars show above the front note. A pile that would leave the top
   of the screen is moved down as a whole.
-- **The stack bar**, under the front note's title bar: the stack's name (double-click to rename)
+- **The stack bar**, under the front note's title bar: the stack's name on an orange pill with black
+  lettering, as wide as the name (double-click to rename)
   and, on the right, Unstack (a struck-through paperclip), pin the stack on top, collapse the stack,
   close the stack. In a stack a note's own pin, collapse, close and paperclip give way to these; the
   front note keeps its Live Preview / Source switch. ⌥⌘P, ⌥⌘K and ⌥⌘W act on the whole stack.
 - **Numbers:** each title bar leads with `#1`…`#5`, shown only while the note is in a stack. A number
-  belongs to its **note**, not to a place in the pile: #1 is the note that was in front when the
-  stack was made, and it keeps #1 wherever it moves. **⌘1–⌘5** bring that note to the front (not
-  ⌥⇧1–5, which collided with the global ⌥⇧2 and type characters). **⌥Tab** sends the front note to
-  the back, so pressing it walks the whole stack. Both only act while a stacked note is key; anywhere
-  else the key is left alone. Clicking a back note's title bar brings it forward; dragging any title
-  bar moves the whole pile; resizing the front note resizes the pile.
+  is a note's **place in the pile**: the front note is always #1, the back one #N (owner decision,
+  2026-09-22, replacing numbers that stayed with their notes), so the key can be read straight off the
+  title bar without matching titles to positions. **⌘1–⌘5** bring the note in that place to the front,
+  where it becomes #1 (not ⌥⇧1–5, which collided with the global ⌥⇧2 and type characters). **⌥Tab**
+  sends the front note to the back, so pressing it walks the whole stack. Both only act while a
+  stacked note is key; anywhere else the key is left alone.
+- **Bringing a note forward**, by a click on its title bar or by any other route that makes it the
+  active window (Mission Control, ⌘`), re-lays the whole pile with the spring: that note to the front
+  place, the rest back behind it. macOS raises a clicked window on the press, so a click is anything
+  under 4 pt of movement; more than that drags the whole pile. Resizing the front note resizes the
+  pile. The front note, whichever it is, keeps the Live Preview / Source pencil.
 - **Pinned** is the stack's, not the notes': every window of it floats, and no note's own pin or
   glow is drawn while it is stacked. **Collapsed** folds every note to its title bar, with the front
   note's stack bar still under it.
@@ -617,10 +625,20 @@ corner switches to the Settings tab.
   **no** date sort last: no date is not the same as overdue. "Show done todos" strikes them through
   rather than hiding them.
 - **Templates** — every template, with multi-select, Add to Folder and Delete selected.
-- **Stacks** (a stack glyph) — every stack (§5.10): its name, its notes by number, a fan of their
-  colours, show / hide, search by stack name or by any note's title, Add to Folder (every note of the
-  stack moves into it and stays stacked) and Delete selected, which asks first because it deletes
-  the notes.
+- **Stacks** (a stack glyph) — every stack (§5.10): its name, its notes by place, a fan of their
+  colours, and at the right edge rename, show / hide, Unstack and delete; search by stack name or by
+  any note's title, Add to Folder (every note of the stack moves into it and stays stacked) and
+  Delete selected, which asks first because it deletes the notes.
+
+Every row, in every tab, carries its actions as icons at its right edge: rename, show / hide and
+delete (a template's rename changes its `@name`, under the same rules as `/template`). The Todos
+tab's circle is a **selection** box, like every other tab's; **Mark Complete** ticks every task in
+the selected todos and **Delete selected** bins them. The window's All Notes tab has the owner's own
+sticky-pad glyph (`Assets.xcassets/AllNotesTab`), so it no longer shares the Stacks icon.
+
+**Tooltips:** every control in All Notes and Settings has one, reading "Name | description"
+(`Tip.text`), and they wait 2 seconds (`NSInitialToolTipDelay`, registered as a default, never
+written into the user's preferences).
 
 ### 8.3 Quick capture
 
