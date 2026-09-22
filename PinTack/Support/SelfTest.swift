@@ -2547,14 +2547,91 @@ enum SelfTest {
                               sm.stack(id: doomed.id)?.members == [notes[0].id, notes[1].id]
                                   && VaultStore.shared.note(id: notes[0].id) != nil)
                         if let s = sm.stack(id: doomed.id) { sm.unstack(s.id) }
+                        stackClickByPlaceTest {
                         stackRapidClickTest {
                         stackDeleteAlertTest(notes: notes) {
                             for n in notes + [loner] { wm.close(noteID: n.id) }
                             next()
-                        } }
+                        } } }
                     }
                 }
             }
+        }
+    }
+
+    /// The owner's own procedure (2026-09-22): five notes, five colours, click the title bar at each
+    /// PLACE twice in turn and watch what the pile does. Reports every click, and checks the two
+    /// things that must hold: the note clicked ends up in front, and the pile keeps its order.
+    private static func stackClickByPlaceTest(then next: @escaping () -> Void) {
+        let wm = WindowManager.shared, sm = StackManager.shared
+        let colours = ["#FFE9A8", "#D9F3C9", "#CFE6FF", "#F6D6E8", "#E7DFFA"]
+        let names = ["Butter", "Mint", "Sky", "Rose", "Lilac"]
+        let notes = zip(colours, names).enumerated().map { i, pair in
+            let n = VaultStore.shared.createNote(body: "\(pair.1) note",
+                                                 frame: NSRect(x: 240 + CGFloat(i) * 30, y: 260, width: 330, height: 240))
+            n.colorHex = pair.0
+            VaultStore.shared.save(n)
+            wm.open(n)
+            return n
+        }
+        func name(_ id: String?) -> String { notes.firstIndex { $0.id == id }.map { names[$0] } ?? "?" }
+        guard let made = sm.create(name: "Colours", noteIDs: notes.map(\.id)) else {
+            check("a stack of five colours is made", false); return next()
+        }
+
+        /// The pile as it stands: front first.
+        func pile() -> [String] { (sm.stack(id: made.id)?.order ?? []).map(name) }
+
+        /// A click at the middle of the title bar at `place`, delivered to whichever window macOS
+        /// says is under that point — which is how the real thing reaches the app.
+        func clickTitleBar(place: Int) -> (aimedAt: String, delivered: String) {
+            guard let s = sm.stack(id: made.id), s.order.indices.contains(place - 1),
+                  let target = wm.panel(for: s.order[place - 1]) else { return ("?", "?") }
+            let card = NotePanel.cardRect(forWindow: target.frame)
+            let point = NSPoint(x: card.midX, y: card.maxY - NotePanel.headerHeight / 2)
+            let number = NSWindow.windowNumber(at: point, belowWindowWithWindowNumber: 0)
+            let hit = wm.openPanels.first { $0.windowNumber == number } ?? target
+            hit.makeKeyAndOrderFront(nil)          // what macOS does on the press
+            let inWindow = hit.convertPoint(fromScreen: point)
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                if let e = NSEvent.mouseEvent(with: type, location: inWindow, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                              windowNumber: hit.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
+                    hit.sendEvent(e)
+                }
+            }
+            return (name(target.note.id), name(hit.note.id))
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            log("PILE at rest: \(pile().joined(separator: " → "))")
+            var wrong: [String] = []
+            var lost: [String] = []
+            // Each place clicked twice, in turn, letting the pile settle between clicks.
+            var steps: [(Int, Int)] = []
+            for place in 1...5 { steps.append((place, 1)); steps.append((place, 2)) }
+
+            func run(_ rest: [(Int, Int)]) {
+                guard let step = rest.first else {
+                    check("clicking a title bar brings THAT note to the front, at every place in the pile",
+                          wrong.isEmpty, wrong.joined(separator: "; "))
+                    check("…and every note is still in the pile afterwards", lost.isEmpty, lost.joined(separator: "; "))
+                    for n in notes { wm.close(noteID: n.id) }
+                    if let s = sm.stack(id: made.id) { sm.unstack(s.id) }
+                    next()
+                    return
+                }
+                let before = pile()
+                let (aimed, delivered) = clickTitleBar(place: step.0)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+                    let after = pile()
+                    log("CLICK place \(step.0) (\(step.1) of 2): aimed at \(aimed), macOS delivered to \(delivered) — "
+                        + "\(before.joined(separator: ",")) → \(after.joined(separator: ","))")
+                    if after.first != aimed { wrong.append("place \(step.0)#\(step.1): clicked \(aimed), \(after.first ?? "?") came forward") }
+                    if Set(after) != Set(before) || after.count != 5 { lost.append("place \(step.0)#\(step.1): pile became \(after.joined(separator: ","))") }
+                    run(Array(rest.dropFirst()))
+                }
+            }
+            run(steps)
         }
     }
 
