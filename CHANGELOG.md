@@ -12,6 +12,14 @@ it stands.
 
 ---
 
+## Unreleased
+
+### Changed
+- **Bringing a note forward in a stack is now a swap (owner).** The note you click trades places
+  with the one in front and nothing else moves, so two clicks at the same place leave the pile as it
+  was. It used to be pushed onto the front, which rotated everything in between and left the pile
+  reshuffling under the pointer. ⌘1–⌘5 work the same way; ⌥Tab still walks the whole pile.
+
 ## Build 12-canary — 2026-09-22
 
 ### Fixed

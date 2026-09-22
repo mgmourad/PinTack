@@ -467,8 +467,11 @@ the cap so a stack never grows tall.
   is a note's **place in the pile**: the front note is always #1, the back one #N (owner decision,
   2026-09-22, replacing numbers that stayed with their notes), so the key can be read straight off the
   title bar without matching titles to positions. **⌘1–⌘5** bring the note in that place to the front,
-  where it becomes #1 (not ⌥⇧1–5, which collided with the global ⌥⇧2 and type characters). **⌥Tab**
-  sends the front note to the back, so pressing it walks the whole stack. Both only act while a
+  where it becomes #1 (not ⌥⇧1–5, which collided with the global ⌥⇧2 and type characters). Bringing a
+  note forward is a **swap**: it trades places with the note that was in front and nothing else moves
+  (owner decision, 2026-09-22), so clicking the same place twice leaves the pile exactly as it was.
+  Pushing the note onto the front instead rotated everything between the two, and the pile reshuffled
+  under the pointer. **⌥Tab** sends the front note to the back, so pressing it walks the whole stack. Both only act while a
   stacked note is key; anywhere else the key is left alone.
 - **Bringing a note forward**, by a click on its title bar or by any other route that makes it the
   active window (Mission Control, ⌘`), re-lays the whole pile with the spring. macOS makes the window
