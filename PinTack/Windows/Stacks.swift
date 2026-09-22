@@ -13,10 +13,11 @@ struct NoteStack: Codable, Equatable, Identifiable {
 
     var id: String
     var name: String
-    /// Every member in NUMBER order: `members[0]` is #1. A number belongs to its note, not to a
-    /// place in the pile (owner decision, 2026-09-22), so ⌘3 always means the same note.
+    /// Every member, in the order the stack was made.
     var members: [String]
-    /// Front to back, as drawn. Changes as notes are brought forward; the numbers do not.
+    /// Front to back, as drawn, and the numbers: the front note is always #1, the back one #N
+    /// (owner decision, 2026-09-22, replacing numbers that stayed with their notes). The number on a
+    /// title bar is where that note sits, so reading it off tells you the key: ⌘3 = third from front.
     var order: [String]
     var pinned = false
     var collapsed = false
@@ -30,7 +31,7 @@ struct NoteStack: Codable, Equatable, Identifiable {
         var rect: NSRect { NSRect(x: x, y: y, width: width, height: height) }
     }
 
-    func number(of noteID: String) -> Int? { members.firstIndex(of: noteID).map { $0 + 1 } }
+    func number(of noteID: String) -> Int? { order.firstIndex(of: noteID).map { $0 + 1 } }
     var front: String? { order.first }
 }
 
@@ -301,10 +302,10 @@ final class StackManager {
         NotificationCenter.default.post(name: .stacksDidChange, object: nil)
     }
 
-    /// ⌘1–⌘5, and a click on a note's title bar in the pile.
+    /// ⌘1–⌘5: the note that many places from the front comes forward, and becomes #1.
     func bringToFront(number: Int, from noteID: String) {
-        guard let s = stack(containing: noteID), s.members.indices.contains(number - 1) else { return }
-        bringToFront(s.members[number - 1])
+        guard let s = stack(containing: noteID), s.order.indices.contains(number - 1) else { return }
+        bringToFront(s.order[number - 1])
     }
 
     func bringToFront(_ noteID: String) {

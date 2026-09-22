@@ -61,6 +61,15 @@ final class NotePanel: NSPanel {
     override func becomeKey() {
         super.becomeKey()
         WindowManager.shared.noteBecameFocused(note)
+        // A note behind the front of its stack that becomes the active window by ANY route — a click
+        // on its title bar (macOS raises it on the press), Mission Control, ⌘` — comes to the front
+        // of the pile properly, the others springing back behind it. Left alone, macOS raised just
+        // that window and the rest of the pile stayed where it was (owner-reported, 2026-09-22).
+        // Next turn of the run loop: re-ordering windows from inside becomeKey is asking for trouble.
+        if StackManager.shared.stack(containing: note.id) != nil, !StackManager.shared.isFront(note.id) {
+            let id = note.id
+            DispatchQueue.main.async { StackManager.shared.bringToFront(id) }
+        }
     }
 
     /// Immediate save on window blur. SPEC.md §4.5.

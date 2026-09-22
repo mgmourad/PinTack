@@ -1396,8 +1396,13 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
             dragOrigin = nil; beginStackRename(); return
         }
         dragOrigin = event.locationInWindow
+        dragStart = window?.convertPoint(toScreen: event.locationInWindow)
         dragMoved = false
     }
+
+    /// Where the press began, on the screen. A click is anything that moved less than this.
+    private var dragStart: NSPoint?
+    private static let clickSlop: CGFloat = 4
 
     override func mouseDragged(with event: NSEvent) {
         guard let origin = dragOrigin, let window else { super.mouseDragged(with: event); return }
@@ -1405,7 +1410,10 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         // is the real cursor and so cannot be driven by tests).
         let current = window.convertPoint(toScreen: event.locationInWindow)
         let target = NSPoint(x: current.x - origin.x, y: current.y - origin.y)
-        dragMoved = dragMoved || abs(target.x - window.frame.minX) > 1 || abs(target.y - window.frame.minY) > 1
+        // A hand never holds perfectly still: under 4pt from the press is still a click, which in a
+        // stack brings the note forward rather than dragging the pile a pixel.
+        if let start = dragStart, !dragMoved, hypot(current.x - start.x, current.y - start.y) < NoteCardView.clickSlop { return }
+        dragMoved = true
         // A stack moves as one: dragging any of its title bars carries the whole pile.
         if stack != nil { StackManager.shared.drag(panel, to: target) } else { window.setFrameOrigin(target) }
     }

@@ -2333,7 +2333,7 @@ enum SelfTest {
             let numbers = (NSWindow.windowNumbers(options: []) ?? []).map(\.intValue)
             let z = numbers.compactMap { n in panels.first { $0.windowNumber == n } }.map(\.note.id)
             check("the front note is drawn on top of the others", z == notes.map(\.id), z.joined(separator: ","))
-            check("each title bar leads with the note's number",
+            check("each title bar leads with its place in the pile, #1 in front",
                   panels.enumerated().allSatisfy { i, p in p.card.debugTitleText.string.hasPrefix("#\(i + 1)") },
                   panels.map { $0.card.debugTitleText.string }.joined(separator: " | "))
             let front = panels[0].card.debugStack, back = panels[1].card.debugStack
@@ -2358,9 +2358,11 @@ enum SelfTest {
                   afterCycle?.order == [notes[1].id, notes[2].id, notes[0].id], afterCycle?.order.joined(separator: ",") ?? "")
             _ = press(.stackNote3)
             let afterThree = sm.stack(id: made.id)
-            check("⌘3 brings #3 to the front, and the numbers stay with their notes",
-                  afterThree?.front == notes[2].id && afterThree?.number(of: notes[2].id) == 3
-                      && panels[2].card.debugTitleText.string.hasPrefix("#3"))
+            // After ⌥Tab the pile is [2nd, 3rd, 1st]; ⌘3 takes the third from the front — the first note.
+            check("⌘3 brings the third note from the front forward, and it becomes #1",
+                  afterThree?.front == notes[0].id && panels[0].card.debugTitleText.string.hasPrefix("#1")
+                      && panels[1].card.debugTitleText.string.hasPrefix("#2") && panels[2].card.debugTitleText.string.hasPrefix("#3"),
+                  panels.map { $0.card.debugTitleText.string }.joined(separator: " | "))
             loner.visible = true
             wm.panel(for: loner.id)?.makeKeyAndOrderFront(nil)
             check("⌘1 in a note that is not in a stack is left for the note", press(.stackNote1) != nil)
@@ -2369,11 +2371,30 @@ enum SelfTest {
                 let slot = sm.stack(id: made.id).flatMap { s in wm.panel(for: s.front ?? "")?.note.cardFrame }
                 check("the note brought forward takes the front place in the pile",
                       slot.map { abs($0.minY - cards[0].minY) < 0.5 } ?? false)
-                // A click on a back note's title bar brings that note forward.
+                // A click on a back note's title bar brings that note forward, and the rest go behind it.
                 panels[1].card.debugClickHeader()
                 check("clicking a stacked note's title bar brings it to the front", sm.stack(id: made.id)?.front == notes[1].id)
 
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                    let numbers = (NSWindow.windowNumbers(options: []) ?? []).map(\.intValue)
+                    let drawn = numbers.compactMap { n in panels.first { $0.windowNumber == n } }.map(\.note.id)
+                    check("…and the rest of the pile is drawn behind it, in order", drawn == sm.stack(id: made.id)?.order,
+                          drawn.joined(separator: ","))
+                    check("…it becomes #1, and the pencil moves to it from the old front",
+                          panels[1].card.debugTitleText.string.hasPrefix("#1") && panels[1].card.debugStack.mode
+                              && !panels[0].card.debugStack.mode)
+                    let slot = panels[1].note.cardFrame.minY
+                    check("…and it takes the front place in the pile", abs(slot - cards[0].minY) < 0.5)
+                    // Any other way a back note becomes the active window brings it forward too.
+                    panels[2].makeKeyAndOrderFront(nil)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                        check("a back note that becomes the active window by any route comes to the front of its stack",
+                              sm.stack(id: made.id)?.front == notes[2].id)
+                        sm.bringToFront(notes[1].id)
+                    }
+                }
+
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
                     let before = panels.map(\.frame.origin)
                     let lead = wm.panel(for: sm.stack(id: made.id)?.front ?? "")!
                     sm.drag(lead, to: NSPoint(x: lead.frame.minX + 40, y: lead.frame.minY - 25))
