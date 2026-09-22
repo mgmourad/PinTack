@@ -6,8 +6,12 @@
 # Gatekeeper will block the first launch. The window's background says how to get past it, and the
 # READ ME file spells out all three ways.
 #
-# Usage: scripts/make-dmg.sh
+# Usage: scripts/make-dmg.sh [build-changelog.md]
+#   The optional file is copied into the image beside the READ ME, as build-changelog.md: what
+#   changed in THIS build, for the testers who get it.
 set -euo pipefail
+CHANGELOG_FILE="${1:-}"
+[ -z "$CHANGELOG_FILE" ] || CHANGELOG_FILE="$(cd "$(dirname "$CHANGELOG_FILE")" && pwd)/$(basename "$CHANGELOG_FILE")"
 cd "$(dirname "$0")/.."
 
 APP=build/Release/PinTack.app
@@ -56,6 +60,8 @@ Press ⌥⌘N for a new note and ⌥⌘/ to see every shortcut.
 Needs macOS 14 (Sonoma) or newer. Runs on both Apple Silicon and Intel.
 EOF
 
+[ -z "$CHANGELOG_FILE" ] || cp "$CHANGELOG_FILE" "$STAGE/build-changelog.md"
+
 # A read/WRITE image first: Finder cannot lay out a window on a compressed read-only one.
 rm -f "$DMG" dist/.pintack-rw.dmg
 hdiutil create -volname "$VOLUME" -srcfolder "$STAGE" -ov -format UDRW -fs HFS+ dist/.pintack-rw.dmg >/dev/null
@@ -97,6 +103,7 @@ tell application "Finder"
     set position of item "PinTack.app" of container window to {165, 215}
     set position of item "Applications" of container window to {495, 215}
     set position of item "READ ME FIRST.txt" of container window to {80, 385}
+    if exists item "build-changelog.md" of container window then set position of item "build-changelog.md" of container window to {580, 385}
     update without registering applications
     delay 2
     close
