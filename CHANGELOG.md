@@ -12,7 +12,7 @@ it stands.
 
 ---
 
-## Unreleased
+## Build 12 — 2026-09-22
 
 ### Added
 - **Tutorial | Help (owner):** a button in the All Notes sidebar opens a presentation with one slide

@@ -9,7 +9,7 @@
 Plain Markdown files. Live Preview rendering. Todos with reminders. A plugin system.
 Open source, GPL-3.0.
 
-`Status: built, running, in beta with testers (0.1.0, build 11). Phases 1–4 complete.`
+`Status: built, running, in beta with testers (0.1.0, build 12). Phases 1–4 complete.`
 `Not yet signed or notarized — see Distribution.`
 `Seeking a macOS developer to own the codebase.`
 
