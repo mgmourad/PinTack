@@ -62,6 +62,15 @@ final class AppSettings: ObservableObject {
     /// Convert pasted rich text (a web page, an email) into Markdown instead of flattening it.
     /// Shift-Cmd-V always pastes the plain text, whatever this says.
     @Published var pasteAsMarkdown = true
+    /// Vim mode (owner-approved 2026-09-21): vi keys in every note, a line-number gutter, and the
+    /// action bar as the ":" command bar. Off by default — it changes what every key does.
+    @Published var vimMode = false
+    /// A fenced code block numbers its own lines. Off by default; stands aside while vim mode
+    /// numbers the whole note.
+    @Published var codeLineNumbers = false
+    /// Whether the one-time notice about vim mode's rough edges has been shown. Kept in the vault's
+    /// settings like everything else, so it is shown once per vault rather than once per Mac.
+    @Published var vimNoticeShown = false
 
     // Plugins. Which are switched on; each plugin's own values live under its id in `extra`.
     @Published var enabledPlugins: [String: Bool] = [:]
@@ -74,7 +83,8 @@ final class AppSettings: ObservableObject {
         "placement", "autosaveSeconds", "actionBarAutoCollapse", "actionBarCollapseSeconds", "defaultMode",
         "spellcheck", "slashCommands", "imagePaste", "bulletEmoji", "enabledPlugins", "plugins", "linkPreviews",
         "inlineCodeColor", "inlineCodeOpacity", "codeBlockColor", "codeBlockOpacity", "pasteAsMarkdown",
-        "settingsVersion", "hoverRevealsNote", "tagColors", "pinnedGlowStrength",
+        "settingsVersion", "hoverRevealsNote", "tagColors", "pinnedGlowStrength", "vimMode",
+        "codeLineNumbers", "vimNoticeShown",
     ]
 
     /// Bumped when the file's MEANING changes. Version 1 (no key at all) wrote every value, chosen or
@@ -167,6 +177,9 @@ final class AppSettings: ObservableObject {
         codeBlockColorHex = s("codeBlockColor") ?? codeBlockColorHex
         codeBlockOpacity = min(1, max(0, d("codeBlockOpacity") ?? codeBlockOpacity))
         pasteAsMarkdown = b("pasteAsMarkdown") ?? pasteAsMarkdown
+        vimMode = b("vimMode") ?? vimMode
+        codeLineNumbers = b("codeLineNumbers") ?? codeLineNumbers
+        vimNoticeShown = b("vimNoticeShown") ?? vimNoticeShown
         enabledPlugins = (dict["enabledPlugins"] as? [String: Bool]) ?? enabledPlugins
 
         let known: Set<String> = ["appTheme", "defaultColor", "cornerStyle", "defaultOpacity", "fontFamily", "fontSize",
@@ -176,7 +189,8 @@ final class AppSettings: ObservableObject {
                                   "actionBarCollapseSeconds", "bulletEmoji", "enabledPlugins", "linkPreviews",
                                   "inlineCodeColor", "inlineCodeOpacity", "codeBlockColor",
                                   "codeBlockOpacity", "pasteAsMarkdown", "settingsVersion",
-                                  "hoverRevealsNote", "tagColors", "pinnedGlowStrength"]
+                                  "hoverRevealsNote", "tagColors", "pinnedGlowStrength", "vimMode",
+                                  "codeLineNumbers", "vimNoticeShown"]
         extra = dict.filter { !known.contains($0.key) }
         applyRuntimeEffects()
     }
@@ -243,6 +257,9 @@ final class AppSettings: ObservableObject {
         dict["codeBlockColor"] = codeBlockColorHex
         dict["codeBlockOpacity"] = codeBlockOpacity
         dict["pasteAsMarkdown"] = pasteAsMarkdown
+        dict["vimMode"] = vimMode
+        dict["codeLineNumbers"] = codeLineNumbers
+        dict["vimNoticeShown"] = vimNoticeShown
         dict["enabledPlugins"] = enabledPlugins
         return dict
     }

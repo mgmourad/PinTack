@@ -319,6 +319,8 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
             "slashCommands": s.slashCommands,
             "pasteAsMarkdown": s.pasteAsMarkdown,
             "linkPreviews": s.linkPreviews,
+            "vim": s.vimMode,
+            "codeLineNumbers": s.codeLineNumbers,
         ]
     }
 
@@ -460,12 +462,21 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
                     NotificationCenter.default.post(name: .vaultDidChange, object: nil)
                 }
                 WindowManager.shared.panel(for: note.id)?.card.refreshFromNote()
+            } else if payload["action"] as? String == "save" {
+                // Vim's :w. Notes save themselves anyway; this just does it now and says so.
+                SaveCoordinator.shared.flush(noteID: note.id)
+                Toast.show("Saved")
             } else if let raw = payload["action"] as? String, let action = ShortcutAction(rawValue: raw) {
                 WindowManager.shared.panel(for: note.id)?.card.perform(action)
             }
 
         case "image.crop":
             cropImage(payload)
+
+        // Vim mode: the mode for the action bar, and the ":" / "/" prompt, which Swift draws in the
+        // action bar instead of the page drawing it (owner, 2026-09-21). SPEC.md §4.6.
+        case "vim.mode", "vim.prompt.open", "vim.prompt.value", "vim.prompt.close", "vim.notify":
+            WindowManager.shared.panel(for: note.id)?.card.vimEvent(type, payload)
 
         case "bullet.changed":
             let emoji = payload["emoji"] as? String ?? ""

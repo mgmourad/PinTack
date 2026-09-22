@@ -401,3 +401,31 @@ body {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ------------------------------------------------------------------ vim mode (SPEC.md §4.6) */
+/* The gutter, drawn only while vim mode is on. It belongs to the note, not to a code editor: no
+   panel behind it, no rule beside it, the note's own dim ink for the numbers. */
+.cm-gutters { background: transparent !important; border-right: none !important; color: var(--fg-dim); }
+.cm-lineNumbers .cm-gutterElement {
+  font-family: var(--mono); font-size: .76em; font-variant-numeric: tabular-nums;
+  padding: 0 10px 0 6px !important; min-width: 2.4em; opacity: .7;
+  display: flex; align-items: flex-start; justify-content: flex-end; padding-top: .28em !important;
+}
+/* A line Live Preview squashed out of sight (a ``` fence) keeps its number — `12G` still counts it —
+   but does not show it: beside a 4px line it would be a clipped smudge. */
+.cm-lineNumbers .cm-gutterElement.pt-gutter-hidden { visibility: hidden; }
+
+/* The block cursor of normal mode, in the note's accent rather than the package's pink. */
+.cm-vimMode .cm-fat-cursor { background: var(--accent) !important; opacity: .55; color: transparent !important; outline: none !important; }
+.cm-vimMode.cm-focused .cm-fat-cursor { opacity: .7; }
+
+/* A code block's own line numbers (Settings → Editor → Code blocks). Drawn from an attribute, so
+   they are never part of the text: copying code never copies them. Off while vim mode numbers the
+   whole note. */
+:root[data-code-lines="on"] .cm-editor .cm-code-body { padding-left: 2.9em !important; position: relative; }
+:root[data-code-lines="on"] .cm-editor .cm-code-body::before {
+  content: attr(data-code-line);
+  position: absolute; left: 0; top: 0; width: 2.1em; text-align: right;
+  font-size: .86em; line-height: inherit; color: var(--code-dim); opacity: .75;
+  user-select: none; -webkit-user-select: none; pointer-events: none;
+}

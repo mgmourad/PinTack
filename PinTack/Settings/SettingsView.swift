@@ -358,6 +358,15 @@ private struct EditorPane: View {
                 ChromeSegmented(selection: $s.defaultMode, options: [("Live Preview", "live"), ("Source", "source")])
             }
             .labeledContentStyle(CentredRow())
+
+            Section("Vim mode") {
+                Toggle("Vim keys in every note", isOn: $s.vimMode)
+                Text("For people who never want to reach for the mouse. Esc for normal mode; : or / turns the note's action bar into a command bar. :w saves, :q closes the note. A line-number gutter runs down every note.")
+                    .font(.caption).foregroundStyle(.secondary)
+                if s.vimMode && !s.vimNoticeShown { VimNoticeBanner { s.vimNoticeShown = true } }
+            }
+
+            Section {
             Toggle("Spellcheck", isOn: $s.spellcheck)
             Toggle("Slash commands (type / for a menu)", isOn: $s.slashCommands)
             Toggle("Paste rich text as Markdown", isOn: $s.pasteAsMarkdown)
@@ -376,6 +385,8 @@ private struct EditorPane: View {
             }
             Text("Right-click the bullet button in a note's action bar to choose an emoji bullet.")
                 .font(.caption).foregroundStyle(.secondary)
+
+            }
 
             Section("Inline code") {
                 ColorPicker("Background", selection: $inlineCode, supportsOpacity: false)
@@ -421,7 +432,13 @@ private struct EditorPane: View {
                 }
                 Text("The panel behind a fenced block written between triple backticks. Syntax colours follow the panel, so a light background switches them back to the light set.")
                     .font(.caption).foregroundStyle(.secondary)
+                Toggle("Line numbers in code blocks", isOn: $s.codeLineNumbers)
+                Text(s.vimMode
+                     ? "Vim mode is on, so the note numbers every line itself and code blocks follow it."
+                     : "Each block numbers its own lines from 1. The numbers are drawn beside the code, never copied with it.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
+
 
             Section {
                 Toggle("Link previews", isOn: $s.linkPreviews)
@@ -625,5 +642,50 @@ enum AppRelauncher {
         p.arguments = ["-n", Bundle.main.bundlePath]
         try? p.run()
         NSApp.terminate(nil)
+    }
+}
+
+
+// MARK: - Vim mode's one-time notice
+
+/// What the first-time vim banner says, apart from the view so the self-test can read it (SwiftUI
+/// puts none of its views into the accessibility tree AppKit hands out). SPEC.md §4.6.
+enum VimNotice {
+    static let title = "Vim mode is on — a word before you start"
+    static let points: [String] = [
+        "Notes start in NORMAL mode: press i to type, Esc to stop. The mode shows in the action bar.",
+        "Pictures and tables are drawn as single blocks in Live Preview. Moving through them works line by line, but the moment the cursor reaches one it opens up into its raw Markdown, so the note can jump in height as you pass, and a vim edit on that line edits its Markdown — x on a picture's first character turns it into a plain link. Resizing and cropping a picture still need the mouse. If anything feels off, switch the note to Source (⌥⌘M): everything is plain text there.",
+        "Line numbers count the note's visible lines, starting after its hidden header. A hidden ``` fence keeps its number without showing it, so 12G always means the 12th line.",
+        "There are no splits, tabs or :e — a note is one buffer. :w, :q, :wq, :x and ZZ work.",
+    ]
+    static let dismiss = "Got it"
+}
+
+/// Shown under the switch the first time vim mode is turned on, and never again once dismissed.
+/// A banner rather than an alert: it stays until it is read and acknowledged, instead of vanishing
+/// with the first click.
+private struct VimNoticeBanner: View {
+    let onDismiss: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(VimNotice.title, systemImage: "exclamationmark.triangle.fill")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color.chromeHighlight)
+            ForEach(VimNotice.points, id: \.self) { point in
+                HStack(alignment: .top, spacing: 6) {
+                    Text("•").foregroundStyle(.secondary)
+                    Text(point).font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            HStack {
+                Spacer()
+                Button(VimNotice.dismiss, action: onDismiss).buttonStyle(ChromeProminentButtonStyle())
+            }
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.chromeHighlight.opacity(0.1)))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.chromeHighlight.opacity(0.55), lineWidth: 1))
+        .transition(.opacity.combined(with: .move(edge: .top)))
     }
 }

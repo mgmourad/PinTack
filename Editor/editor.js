@@ -7,17 +7,19 @@
 // A StateField rather than a ViewPlugin, because block-level replacements
 // (tables) are only legal from a field.
 
-import { EditorState, Compartment, StateField, StateEffect, Prec } from "@codemirror/state";
-import { EditorView, Decoration, WidgetType, keymap, placeholder, drawSelection } from "@codemirror/view";
+import { EditorState, Compartment, StateField, StateEffect, Prec, RangeSet } from "@codemirror/state";
+import { EditorView, Decoration, WidgetType, keymap, placeholder, drawSelection,
+         lineNumbers, gutterLineClass, GutterMarker } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { syntaxTree, ensureSyntaxTree, syntaxHighlighting, HighlightStyle } from "@codemirror/language";
-import { autocompletion, completionKeymap, startCompletion } from "@codemirror/autocomplete";
+import { autocompletion, completionKeymap, startCompletion, closeCompletion } from "@codemirror/autocomplete";
 import { tags as t } from "@lezer/highlight";
 import { codeLanguages, badgeFor } from "./languages.js";
 import { htmlToMarkdown } from "./html-to-markdown.js";
 import { openFind } from "./find-overlay.js";
 import { createRuntime } from "./plugin-runtime.js";
+import { vimExtension, vimOwnsKeys, attachVim, promptEvent, closePrompt } from "./vim-mode.js";
 
 /* ------------------------------------------------------------------ bridge */
 
@@ -587,6 +589,7 @@ function build(state) {
   const sel = state.selection.ranges;
   const deco = [];
   const atomic = [];
+  const hiddenLines = [];      // start of every line Live Preview squashes out of sight (fences)
 
   // Raw syntax shows on any line the selection touches. When the editor is not
   // focused nothing is "under the cursor", so the whole note renders.
@@ -650,6 +653,7 @@ function build(state) {
         // The language badge (glyph + name) rides on the block's first line as data attributes;
         // editor.css draws it in the corner. Only a block that names a language gets one.
         const badge = lang ? badgeFor(lang) : null;
+        let codeLine = 0;
         for (let n = first.number; n <= last.number; n++) {
           const l = doc.line(n);
           let cls = "cm-codeblock";
@@ -666,7 +670,10 @@ function build(state) {
           }
           if (n === last.number) cls += " cm-codeblock-last";
           const isFence = n === first.number || (n === last.number && n !== first.number && /^\s*(```|~~~)/.test(l.text));
-          if (isFence && !editing) { cls += " cm-fence-hidden"; hide(l.from, l.to); }
+          if (isFence && !editing) { cls += " cm-fence-hidden"; hide(l.from, l.to); hiddenLines.push(l.from); }
+          // The block's own line numbers (Settings → Editor → Code blocks). The number rides in as an
+          // attribute and editor.css draws it, so it is never part of the text and never copied.
+          if (!isFence) { cls += " cm-code-body"; attrs = { ...(attrs || {}), "data-code-line": String(++codeLine) }; }
           line(l.from, cls, attrs);
         }
         codeRanges.push([from, to]);
@@ -789,8 +796,13 @@ function build(state) {
     }
   }
 
-  return { deco: Decoration.set(deco, true), atomic: Decoration.set(atomic, true) };
+  return { deco: Decoration.set(deco, true), atomic: Decoration.set(atomic, true),
+           hiddenGutter: RangeSet.of(hiddenLines.map((pos) => hiddenGutterMarker.range(pos)), true) };
 }
+
+// A gutter number beside a line squashed to 4px would be a clipped smudge, so those lines keep
+// their number (it is still a real line: `12G` counts it) but do not show it.
+const hiddenGutterMarker = new (class extends GutterMarker { get elementClass() { return "pt-gutter-hidden"; } })();
 
 const livePreview = StateField.define({
   create: (state) => build(state),
@@ -802,6 +814,7 @@ const livePreview = StateField.define({
     EditorView.decorations.from(f, (v) => v.deco),
     // Arrow keys step over hidden syntax instead of into invisible characters.
     EditorView.atomicRanges.of((view) => view.state.field(f).atomic),
+    gutterLineClass.from(f, (v) => v.hiddenGutter),
   ],
 });
 
@@ -1087,6 +1100,8 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeEmoji
 /* ------------------------------------------------------------------ editor */
 
 const modeCompartment = new Compartment();
+const vimCompartment = new Compartment();
+const gutterCompartment = new Compartment();
 const spellCompartment = new Compartment();
 let suppress = false;          // true while applying content that came from Swift
 let debounce = null;
@@ -1295,8 +1310,13 @@ const view = new EditorView({
       spellCompartment.of(EditorView.contentAttributes.of({ spellcheck: "false", autocorrect: "off", autocapitalize: "off" })),
       placeholder("Start typing…  ( / for commands )"),
       autocompletion({ override: [slashSource, tagSource, templateSource], icons: false, defaultKeymap: true }),
-      Prec.highest(keymap.of([{ key: "Enter", run: enterHandler }, { key: "Tab", run: tabOutOfSpan },
-                              { key: "Mod-Enter", run: toggleTaskAtCursor }])),
+      vimCompartment.of([]),
+      gutterCompartment.of([]),
+      // In vim's normal and visual modes these keys are vim's (Enter moves down a line); the checklist
+      // continuation, span exit and ⌘↩ belong to typing, which is insert mode.
+      Prec.highest(keymap.of([{ key: "Enter", run: (v) => !vimOwnsKeys(v) && enterHandler(v) },
+                              { key: "Tab", run: (v) => !vimOwnsKeys(v) && tabOutOfSpan(v) },
+                              { key: "Mod-Enter", run: (v) => !vimOwnsKeys(v) && toggleTaskAtCursor(v) }])),
       // With an emoji bullet chosen, typing "- " at the start of a line produces that emoji instead.
       EditorView.inputHandler.of((view, from, to, text) => {
         const bullet = noteState.settings && noteState.settings.bullet;
@@ -1397,11 +1417,39 @@ function applySettings(s) {
   }
   if (s.slashCommands === false) { /* handled by Swift filtering; kept for future use */ }
   if (s.pasteAsMarkdown != null) pasteAsMarkdown = s.pasteAsMarkdown;
+  if (s.codeLineNumbers != null) codeLineNumbers = s.codeLineNumbers;
+  if (s.vim != null && s.vim !== vimOn) setVim(s.vim);
+  // A block numbers itself only when vim mode is off; with vim on, the note's gutter numbers
+  // every line, code included (owner, 2026-09-21).
+  document.documentElement.dataset.codeLines = codeLineNumbers && !vimOn ? "on" : "off";
   if (s.linkPreviews != null && s.linkPreviews !== previewsEnabled) {
     previewsEnabled = s.linkPreviews;
     // Turning the setting off must drop the cards immediately, not at the next keystroke.
     if (viewRef) viewRef.dispatch({ effects: refresh.of(null) });
   }
+}
+
+let vimOn = false;
+let codeLineNumbers = false;
+
+async function setVim(on) {
+  vimOn = on;
+  document.documentElement.dataset.codeLines = codeLineNumbers && !vimOn ? "on" : "off";
+  document.documentElement.dataset.vim = on ? "on" : "off";
+  if (!on) {
+    closePrompt();
+    view.dispatch({ effects: [vimCompartment.reconfigure([]), gutterCompartment.reconfigure([])] });
+    post("vim.mode", { mode: null });
+    return;
+  }
+  const ext = await vimExtension();
+  if (!vimOn) return;                     // switched off again while the package was loading
+  view.dispatch({ effects: [vimCompartment.reconfigure(ext), gutterCompartment.reconfigure(lineNumbers())] });
+  attachVim(view, post, (mode) => {
+    // Leaving insert mode must not leave a slash or template menu floating over normal mode.
+    if (mode !== "INSERT") closeCompletion(view);
+    post("vim.mode", { mode });
+  });
 }
 
 function setMode(mode) {
@@ -1467,6 +1515,9 @@ window.__pintack = {
       case "command.run": runtime.runCommand(p.key); break;
       case "format.apply": if (applyFormat[p.kind]) applyFormat[p.kind](view); break;
       case "focus": view.focus(); break;
+      case "vim.prompt.input":
+      case "vim.prompt.key":
+      case "vim.prompt.submit": promptEvent(msg.type, p); break;
       case "image.inserted": {
         const sel = view.state.selection.main;
         edit(view, sel.from, sel.to, `![${p.alt || ""}](${p.path})\n`);

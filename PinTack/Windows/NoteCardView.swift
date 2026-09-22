@@ -56,6 +56,20 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     private var popover: NSPopover?
     private var dragOrigin: NSPoint?
 
+    // Vim mode (SPEC.md §4.6). The mode label sits in the action bar; the ":" / "/" prompt turns the
+    // whole action bar into a command bar (owner, 2026-09-21), and vim's messages borrow it briefly.
+    private let vimModeLabel = NSTextField(labelWithString: "")
+    private let commandPrefix = NSTextField(labelWithString: ":")
+    private let commandField = NSTextField()
+    private let vimMessageLabel = NSTextField(labelWithString: "")
+    private var vimMode: String?                      // nil while vim mode is off
+    private enum BarOverlay { case none, command, message }
+    private var barOverlay = BarOverlay.none
+    private var messageTimer: Timer?
+    /// Width the mode label takes out of the action bar. Fixed, so the bar does not shuffle
+    /// sideways as NORMAL becomes INSERT becomes V-BLOCK.
+    private static let vimLabelWidth: CGFloat = 60
+
     /// How much taller than `NotePanel.footerHeight` the action bar currently is, because the task
     /// tracker has wrapped onto more than one row (owner decision, 2026-09-20). The bar grows
     /// DOWNWARD — see `NotePanel.visibleCardRect` — so a checklist never shrinks the text area.
@@ -114,7 +128,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     private func progressRoom(cardWidth: CGFloat) -> (width: CGFloat, keptForTags: CGFloat) {
         let bar = ChromeSize.barButton.width
         let left: CGFloat = 6 + bar + 2 + ChromeSize.chevron.width + 4 + bar + (note.isTodo ? 1 + bar : 0) + 2
-        let right: CGFloat = (ChromeSize.grip + 4) + bar + 6
+        let right: CGFloat = (ChromeSize.grip + 4) + bar + 6 + (vimMode != nil ? NoteCardView.vimLabelWidth + 4 : 0)
         return (max(TaskProgressStyle.square, cardWidth - left - right), note.tags.isEmpty ? 0 : 34)
     }
 
@@ -351,6 +365,8 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         grip.panel = panel
         addSubview(grip)
 
+        buildVimControls()
+
         editor.onModeChange = { [weak self] _ in self?.refreshModeGlyph() }
         editor.contextMenuItems = { [weak self] in self?.contextMenuItems(editing: true) ?? [] }
         addSubview(editor)
@@ -377,6 +393,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
 
     func applyColors() {
         titleField.textColor = foreground.withAlphaComponent(0.86)
+        refreshVimControls()
         refreshTitle()
         let icon = foreground.withAlphaComponent(0.5)
         [modeButton, collapseButton, closeButton, appearanceButton, expandButton,
@@ -391,6 +408,132 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     private func symbol(_ name: String, weight: NSFont.Weight = .semibold) -> NSImage? {
         NSImage(systemSymbolName: name, accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(pointSize: ChromeSize.glyph, weight: weight))
+    }
+
+    // MARK: - Vim mode (SPEC.md §4.6)
+
+    private func buildVimControls() {
+        vimModeLabel.font = .monospacedSystemFont(ofSize: 10, weight: .bold)
+        vimModeLabel.alignment = .center
+        vimModeLabel.wantsLayer = true
+        vimModeLabel.layer?.cornerRadius = 8
+        vimModeLabel.isHidden = true
+        vimModeLabel.setAccessibilityLabel("Vim mode")
+        addSubview(vimModeLabel)
+
+        commandPrefix.font = .monospacedSystemFont(ofSize: 13, weight: .bold)
+        commandField.font = .monospacedSystemFont(ofSize: 12.5, weight: .regular)
+        commandField.isBordered = false
+        commandField.drawsBackground = false
+        commandField.focusRingType = .none
+        commandField.usesSingleLineMode = true
+        commandField.cell?.isScrollable = true
+        commandField.delegate = self
+        commandField.setAccessibilityLabel("Vim command")
+        vimMessageLabel.font = .monospacedSystemFont(ofSize: 11.5, weight: .medium)
+        vimMessageLabel.lineBreakMode = .byTruncatingTail
+        [commandPrefix, commandField, vimMessageLabel].forEach { $0.isHidden = true; addSubview($0) }
+        refreshVimControls()
+    }
+
+    private func refreshVimControls() {
+        let ink = foreground
+        vimModeLabel.stringValue = vimMode ?? ""
+        // INSERT is the one to notice — typing now edits text — so it takes the note's accent.
+        let inserting = vimMode == "INSERT" || vimMode == "REPLACE"
+        vimModeLabel.textColor = inserting ? .black.withAlphaComponent(0.85) : ink.withAlphaComponent(0.75)
+        vimModeLabel.layer?.backgroundColor = (inserting ? AppSettings.shared.outlineColor.withAlphaComponent(0.85)
+                                                         : ink.withAlphaComponent(0.1)).cgColor
+        vimModeLabel.toolTip = vimMode.map { "Vim: \($0.lowercased()) mode. Esc for normal, : for a command." }
+        commandPrefix.textColor = AppSettings.shared.outlineColor
+        commandField.textColor = ink.withAlphaComponent(0.92)
+        vimMessageLabel.textColor = ink.withAlphaComponent(0.8)
+    }
+
+    /// Messages from the page's vim bridge (vim-mode.js).
+    func vimEvent(_ type: String, _ payload: [String: Any]) {
+        switch type {
+        case "vim.mode":
+            let wasOn = vimMode != nil
+            vimMode = payload["mode"] as? String
+            if vimMode == nil && barOverlay != .none { setOverlay(.none) }
+            refreshVimControls()
+            updateActionBar()
+            // The label takes room from the tracker, so a wrapped tracker may need another row.
+            if wasOn != (vimMode != nil) { syncFooterHeight() }
+            needsLayout = true
+        case "vim.prompt.open":
+            commandPrefix.stringValue = payload["prefix"] as? String ?? ":"
+            commandField.stringValue = payload["value"] as? String ?? ""
+            setOverlay(.command)
+            window?.makeFirstResponder(commandField)
+            moveCommandCaretToEnd()
+        case "vim.prompt.value":
+            commandField.stringValue = payload["value"] as? String ?? ""
+            moveCommandCaretToEnd()
+        case "vim.prompt.close":
+            guard barOverlay == .command else { return }
+            setOverlay(.none)
+            window?.makeFirstResponder(editor)
+        case "vim.notify":
+            let text = (payload["text"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            messageTimer?.invalidate()
+            guard !text.isEmpty else { if barOverlay == .message { setOverlay(.none) }; return }
+            guard barOverlay != .command else { return }        // never over a command being typed
+            vimMessageLabel.stringValue = text
+            setOverlay(.message)
+            if payload["sticky"] as? Bool != true {
+                messageTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: false) { [weak self] _ in
+                    guard let self, self.barOverlay == .message else { return }
+                    self.setOverlay(.none)
+                }
+            }
+        default: break
+        }
+    }
+
+    private func moveCommandCaretToEnd() {
+        let end = (commandField.stringValue as NSString).length
+        commandField.currentEditor()?.selectedRange = NSRange(location: end, length: 0)
+    }
+
+    private func setOverlay(_ overlay: BarOverlay) {
+        barOverlay = overlay
+        // Always: this is also what hides the command field again once the bar is given back.
+        applyOverlayVisibility()
+        if overlay == .none { updateCollapsedState() }
+        needsLayout = true
+    }
+
+    /// With the command bar up, the action bar's own controls step aside; only the grip stays.
+    private func applyOverlayVisibility() {
+        let covering = barOverlay != .none
+        let barControls: [NSView] = [appearanceButton, expandButton, bulletButton, boldButton, italicButton, codeButton,
+                                     opacitySlider, tagsButton, bellButton, taskProgress, tagPills, freezeButton, vimModeLabel]
+        if covering { barControls.forEach { $0.isHidden = true } }
+        commandPrefix.isHidden = barOverlay != .command
+        commandField.isHidden = barOverlay != .command
+        vimMessageLabel.isHidden = barOverlay != .message
+    }
+
+    /// Keys in the command bar that the engine's prompt handlers need to see.
+    private func commandBarKey(_ selector: Selector) -> Bool {
+        switch selector {
+        case #selector(NSResponder.insertNewline(_:)):
+            editor.send("vim.prompt.submit", ["text": commandField.stringValue])
+        case #selector(NSResponder.cancelOperation(_:)):
+            editor.send("vim.prompt.key", ["key": "Escape"])
+        case #selector(NSResponder.moveUp(_:)):
+            editor.send("vim.prompt.key", ["key": "ArrowUp"])
+        case #selector(NSResponder.moveDown(_:)):
+            editor.send("vim.prompt.key", ["key": "ArrowDown"])
+        case #selector(NSResponder.deleteBackward(_:)) where commandField.stringValue.isEmpty:
+            // Backspace in an empty command line leaves it, as in vim.
+            editor.send("vim.prompt.key", ["key": "Backspace"])
+        default:
+            return false
+        }
+        return true
     }
 
     /// The header title. A finished todo gets a green tick and its name struck through (owner
@@ -476,6 +619,10 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     /// (a layout pass, a refresh, a colour change) has to set the same state instantly, or the
     /// tools would fade in again every time anything touched the note.
     private func updateActionBar(animated: Bool = false) {
+        // While the command bar (or a vim message) owns the action bar, nothing else may come back
+        // up — not even the auto-collapse timer's cross-fade.
+        if barOverlay != .none { applyOverlayVisibility(); needsLayout = true; return }
+        vimModeLabel.isHidden = vimMode == nil || note.collapsed
         let open = actionBarExpanded && !note.collapsed
         let tools: [NSView] = [bulletButton, boldButton, italicButton, codeButton, opacitySlider]
         let tagSide: [NSView] = [tagsButton, tagPills, bellButton, taskProgress]
@@ -587,13 +734,30 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         grip.frame = NSRect(x: c.maxX - ChromeSize.grip - 4, y: c.minY + 4, width: ChromeSize.grip, height: ChromeSize.grip)
         freezeButton.frame = NSRect(x: grip.frame.minX - bar.width, y: y, width: bar.width, height: rowHeight)
 
+        // The vim mode label sits just left of the snowflake; everything else ends before it.
+        let barRight: CGFloat
+        if vimMode != nil {
+            vimModeLabel.frame = NSRect(x: freezeButton.frame.minX - NoteCardView.vimLabelWidth - 4,
+                                        y: y + (rowHeight - 16) / 2, width: NoteCardView.vimLabelWidth, height: 16)
+            barRight = vimModeLabel.frame.minX
+        } else {
+            barRight = freezeButton.frame.minX
+        }
+        // The command bar and vim's messages span the bar, up to the grip.
+        let overlayX = c.minX + 12
+        commandPrefix.frame = NSRect(x: overlayX, y: y + (rowHeight - 18) / 2, width: 16, height: 18)
+        commandField.frame = NSRect(x: commandPrefix.frame.maxX, y: y + (rowHeight - 20) / 2,
+                                    width: max(40, grip.frame.minX - 8 - commandPrefix.frame.maxX), height: 20)
+        vimMessageLabel.frame = NSRect(x: overlayX, y: y + (rowHeight - 16) / 2,
+                                       width: max(40, grip.frame.minX - 8 - overlayX), height: 16)
+
         var x = expandButton.frame.maxX + 4
         if actionBarExpanded {
             for tool in [bulletButton, boldButton, italicButton, codeButton] {
                 tool.frame = NSRect(x: x, y: y, width: bar.width, height: rowHeight)
                 x += bar.width + 1
             }
-            let sliderWidth = freezeButton.frame.minX - 8 - (x + 4)
+            let sliderWidth = barRight - 8 - (x + 4)
             opacitySlider.frame = NSRect(x: x + 4, y: y + (rowHeight - 16) / 2, width: max(0, sliderWidth), height: 16)
             opacitySlider.isHidden = sliderWidth < 36 || note.collapsed          // too narrow to use
         } else {
@@ -630,7 +794,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
             let tagsTop = y + rowHeight / 2 + TagPillsView.lineHeight / 2
             let tagsBottom = c.minY + 4
             tagPills.frame = NSRect(x: afterProgress, y: tagsBottom,
-                                    width: max(0, freezeButton.frame.minX - afterProgress - 6),
+                                    width: max(0, barRight - afterProgress - 6),
                                     height: max(TagPillsView.lineHeight, tagsTop - tagsBottom))
         }
     }
@@ -941,6 +1105,12 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
 
     /// Editing the header rewrites the note's first heading. SPEC.md §4.4.
     func controlTextDidEndEditing(_ obj: Notification) {
+        // The command field shares this delegate. Without this, ending its edit would RENAME THE
+        // NOTE to the vim command just typed. Losing focus mid-command cancels the command instead.
+        if (obj.object as? NSTextField) === commandField {
+            if barOverlay == .command { editor.send("vim.prompt.key", ["key": "Escape"]) }
+            return
+        }
         let text = titleField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         endRename()
         // Renaming stores a title beside the note rather than rewriting its first line, so the
@@ -951,7 +1121,13 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     }
 
     /// Esc abandons the rename.
+    func controlTextDidChange(_ obj: Notification) {
+        guard (obj.object as? NSTextField) === commandField else { return }
+        editor.send("vim.prompt.input", ["text": commandField.stringValue])
+    }
+
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        if control === commandField { return commandBarKey(selector) }
         guard selector == #selector(NSResponder.cancelOperation(_:)) else { return false }
         // Plain text, and still renaming: ending the edit below reads this field back and renames
         // the note to whatever it says, so it must not hold the drawn "✓ " of a finished todo.
@@ -1241,6 +1417,19 @@ extension NoteCardView {
     var debugBellHidden: Bool { bellButton.isHidden }
     var debugTagPills: TagPillsView { tagPills }
     var debugProgress: TaskProgressView { taskProgress }
+    var debugVim: (mode: String?, labelShown: Bool, commandShown: Bool, prefix: String, text: String,
+                   fieldFocused: Bool, message: String?, tagsHidden: Bool) {
+        let focused = (window?.firstResponder as? NSText)?.delegate as? NSTextField === commandField
+        return (vimMode, !vimModeLabel.isHidden, !commandField.isHidden, commandPrefix.stringValue,
+                commandField.stringValue, focused, vimMessageLabel.isHidden ? nil : vimMessageLabel.stringValue,
+                tagsButton.isHidden)
+    }
+    /// Types into the command bar and presses Return or Escape, through the same paths the keys take.
+    func debugCommandBar(type text: String) {
+        commandField.stringValue = text
+        editor.send("vim.prompt.input", ["text": text])
+    }
+    func debugCommandBar(press selector: Selector) { _ = commandBarKey(selector) }
     var debugCollapsedProgress: TaskProgressLineView { collapsedProgress }
     var debugTitleFrame: NSRect { titleField.frame }
     var debugPinFrame: NSRect { pinButton.frame }

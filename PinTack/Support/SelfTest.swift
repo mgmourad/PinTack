@@ -1899,8 +1899,315 @@ enum SelfTest {
         }
     }
 
+    /// Vim mode (SPEC.md §4.6): real keystrokes into the page, the command bar in the action bar.
+    static let vimSample = "First line\nsecond line\nthird line\n\n```js\nlet a = 1\nlet b = 2\n```\nlast line\n"
+
+    /// Keystrokes a person would type, as keydown events on the editor. Vim reads keydown itself in
+    /// normal mode, so these reach it the way a real key does.
+    static let vimKeysJS = """
+    const view = window.__pintack._view;
+    const press = (key, extra = {}) => view.contentDOM.dispatchEvent(new KeyboardEvent("keydown",
+      Object.assign({ key, bubbles: true, cancelable: true }, extra)));
+    const keys = (s) => { for (const k of s) press(k); };
+    const line = () => view.state.doc.lineAt(view.state.selection.main.head).number;
+    const lineText = (n) => view.state.doc.line(n).text;
+    """
+
+    /// Runs a snippet with the vim key helpers in its OWN scope. evaluateJavaScript shares the page's
+    /// global scope, so a second snippet re-declaring `const view` was rejected whole — and a key that
+    /// was never pressed looked like a vim that did nothing.
+    private static func vimJS(_ panel: NotePanel, _ body: String, _ done: @escaping (Any?) -> Void) {
+        panel.card.editor.callAsyncJavaScript(vimKeysJS + body, arguments: [:], in: nil, in: .page) { result in
+            done(try? result.get())
+        }
+    }
+
+    private static func vimTest(out: URL, then next: @escaping () -> Void) {
+        let note = VaultStore.shared.createNote(body: vimSample,
+                                                frame: WindowManager.shared.nextCardFrame(size: NSSize(width: 360, height: 320)))
+        let panel = WindowManager.shared.open(note, focus: true)
+        AppSettings.shared.vimMode = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            let js = vimKeysJS + """
+            view.focus();
+            const out = {};
+            out.loaded = !!view.cm;
+            out.gutter = !!document.querySelector(".cm-lineNumbers");
+            view.dispatch({ selection: { anchor: 0 } });
+            keys("j"); out.afterJ = line();
+            keys("dd"); out.afterDD = lineText(2);
+            keys("u"); out.afterU = lineText(2);
+            const before = view.state.doc.toString();
+            press("Enter");
+            out.enterKeptText = view.state.doc.toString() === before; out.afterEnter = line();
+            // Insert mode, then back. Text typed in insert mode goes in as ordinary typing.
+            view.dispatch({ selection: { anchor: 0 } });
+            keys("i");
+            out.insertMode = view.cm.state.vim.insertMode;
+            view.dispatch({ changes: { from: 0, insert: "X" }, selection: { anchor: 1 }, userEvent: "input.type" });
+            press("Escape");
+            out.normalAgain = !view.cm.state.vim.insertMode;
+            out.firstLine = lineText(1);
+            // Every real line is numbered; a fence Live Preview hides keeps its number unseen.
+            const gutter = [...document.querySelectorAll(".cm-lineNumbers .cm-gutterElement")]
+              .filter(e => /^\\d+$/.test(e.textContent) && e.style.visibility !== "hidden");   // not CodeMirror's width-measuring spacer, hidden inline
+            out.gutterNumbers = gutter.map(e => e.textContent + (e.classList.contains("pt-gutter-hidden") ? "h" : "")).join(",");
+            return JSON.stringify(out);
+            """
+            panel.card.editor.callAsyncJavaScript(js, arguments: [:], in: nil, in: .page) { result in
+                let json = (try? result.get()) as? String
+                check("vim mode loads into a note, with its line-number gutter",
+                      bool(json, "loaded") && bool(json, "gutter"), json ?? "no result")
+                check("j moves down, dd deletes the line, u puts it back",
+                      int(json, "afterJ") == 2 && text(json, "afterDD") == "third line" && text(json, "afterU") == "second line")
+                check("Enter in normal mode moves down and adds nothing — the checklist Enter stands aside",
+                      bool(json, "enterKeptText") && int(json, "afterEnter") == 3)
+                check("i enters insert mode, typing types, Esc goes back to normal",
+                      bool(json, "insertMode") && bool(json, "normalAgain") && text(json, "firstLine") == "XFirst line",
+                      text(json, "firstLine"))
+                // Lines 5 and 8 are the ``` fences, squashed by Live Preview: numbered but not shown.
+                check("the gutter numbers every line, code included, and hides a squashed fence's number",
+                      text(json, "gutterNumbers").hasPrefix("1,2,3,4,5h,6,7,8h,9"), text(json, "gutterNumbers"))
+                check("the action bar shows the vim mode", panel.card.debugVim.mode == "NORMAL" && panel.card.debugVim.labelShown,
+                      panel.card.debugVim.mode ?? "no mode")
+                // A beat first: photographed in the same instant as an edit, the window layer can still
+                // hold the text from before it, and the two show through each other.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                    snapshot(window: panel, to: out.appendingPathComponent("vim-normal.png")) {
+                        vimCommandBarTest(panel: panel, out: out, then: next)
+                    }
+                }
+            }
+        }
+    }
+
+    /// ":" and "/" turn the action bar into the command bar; Return runs, Escape cancels.
+    private static func vimCommandBarTest(panel: NotePanel, out: URL, then next: @escaping () -> Void) {
+        let card = panel.card!
+        vimJS(panel, "view.focus(); view.dispatch({ selection: { anchor: 0 } }); press(':');") { _ in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                let open = card.debugVim
+                check("':' turns the action bar into a command bar, focused, with the note's controls stepped aside",
+                      open.commandShown && open.prefix == ":" && open.fieldFocused && open.tagsHidden,
+                      "shown \(open.commandShown), prefix \(open.prefix), focused \(open.fieldFocused)")
+                snapshot(window: panel, to: out.appendingPathComponent("vim-command-bar.png")) {
+                    card.debugCommandBar(type: "s/XFirst/Top/")
+                    card.debugCommandBar(press: #selector(NSResponder.insertNewline(_:)))
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        let after = card.debugVim
+                        check("Return runs the command and the command bar turns back into the action bar",
+                              panel.note.body.hasPrefix("Top line") && !after.commandShown && !after.tagsHidden,
+                              String(panel.note.body.prefix(12)))
+                        vimSearchTest(panel: panel, out: out, then: next)
+                    }
+                }
+            }
+        }
+    }
+
+    private static func vimSearchTest(panel: NotePanel, out: URL, then next: @escaping () -> Void) {
+        let card = panel.card!
+        vimJS(panel, "view.focus(); view.dispatch({ selection: { anchor: 0 } }); press('/');") { _ in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                let prefix = card.debugVim.prefix
+                card.debugCommandBar(type: "last")
+                card.debugCommandBar(press: #selector(NSResponder.insertNewline(_:)))
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    vimJS(panel, "return line();") { value in
+                        check("'/' searches from the command bar and lands on the match",
+                              prefix == "/" && (value as? Int) == 9, "prefix \(prefix), line \(value ?? "nil")")
+                        // Escape cancels a command without running it.
+                        vimJS(panel, "press(':');") { _ in
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                let bodyBefore = panel.note.body
+                                card.debugCommandBar(type: "s/Top/NOPE/")
+                                card.debugCommandBar(press: #selector(NSResponder.cancelOperation(_:)))
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                                    check("Escape in the command bar cancels the command",
+                                          !card.debugVim.commandShown && panel.note.body == bodyBefore)
+                                    check("the note was never renamed to a command typed into the bar",
+                                          !panel.note.title.contains("s/"), panel.note.title)
+                                    vimWidgetProbe(panel: panel, then: { vimMotionProbe(panel: panel) { vimQuitTest(panel: panel, then: next) } })
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// What j and k actually do through a picture and a table. The result is what the vim notice
+    /// warns about, so it is measured rather than assumed.
+    /// j and k through every kind of content Live Preview draws specially. Each must step exactly one
+    /// line at a time, down and back up: before the fix, j jumped a whole table and one k from the
+    /// bottom of a note could land at the top.
+    private static func vimWidgetProbe(panel: NotePanel, then next: @escaping () -> Void) {
+        let js = vimKeysJS + """
+        view.focus();
+        const run = (doc) => {
+          view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: doc }, selection: { anchor: 0 } });
+          const n = view.state.doc.lines;
+          const down = [line()]; for (let i = 1; i < n; i++) { keys("j"); down.push(line()); }
+          const up = [line()]; for (let i = 1; i < n; i++) { keys("k"); up.push(line()); }
+          return down.join(",") + " | " + up.join(",");
+        };
+        return JSON.stringify({
+          table: run("a\\nb\\n| x | y |\\n| - | - |\\n| 1 | 2 |\\nc\\nd"),
+          image: run("a\\nb\\n![p](attachments/none.png)\\nc\\nd"),
+          code: run("a\\n```js\\nlet q = 1\\n```\\nb\\nc"),
+          mixed: run("above\\n\\n| a | b |\\n| --- | --- |\\n| 1 | 2 |\\n| 3 | 4 |\\n\\nmiddle\\n\\n![pic](attachments/none.png)\\n\\nbelow"),
+        });
+        """
+        panel.card.editor.callAsyncJavaScript(js, arguments: [:], in: nil, in: .page) { result in
+            let json = (try? result.get()) as? String
+            func exact(_ key: String, _ lines: Int) -> Bool {
+                let want = (1...lines).map(String.init).joined(separator: ",") + " | "
+                    + (1...lines).reversed().map(String.init).joined(separator: ",")
+                return text(json, key) == want
+            }
+            check("j and k step one line at a time through a table", exact("table", 7), text(json, "table"))
+            check("…through a picture", exact("image", 5), text(json, "image"))
+            check("…through a code block and its hidden fences", exact("code", 6), text(json, "code"))
+            check("…and through a note mixing all of them", exact("mixed", 12), text(json, "mixed"))
+            next()
+        }
+    }
+
+    /// Every other motion across a table and a picture, checked against the text it should reach.
+    private static func vimMotionProbe(panel: NotePanel, then next: @escaping () -> Void) {
+        let doc = "above\\n\\n| a | b |\\n| --- | --- |\\n| 1 | 2 |\\n\\nmiddle words here\\n\\n![pic](attachments/none.png)\\n\\nbelow"
+        let js = """
+        view.focus();
+        const load = () => view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: "\(doc)" }, selection: { anchor: 0 } });
+        const pos = () => { const h = view.state.selection.main.head; const l = view.state.doc.lineAt(h); return l.number + ":" + (h - l.from); };
+        const out = {};
+        load(); const w = []; for (let i = 0; i < 14; i++) { keys("w"); w.push(pos()); } out.w = w.join(" ");
+        load(); const para = []; for (let i = 0; i < 5; i++) { keys("}"); para.push(pos()); } out.para = para.join(" ");
+        load(); keys("G"); out.G = pos(); keys("gg"); out.gg = pos();
+        load(); keys("Vjjjd"); out.visualDelete = JSON.stringify(view.state.doc.toString().slice(0, 40));
+        load(); keys("jj"); keys("dd"); out.ddOnTable = JSON.stringify(view.state.doc.line(3).text);
+        load(); keys("9G"); keys("x"); out.xOnImage = JSON.stringify(view.state.doc.line(9).text);
+        load(); const gj = []; for (let i = 0; i < 10; i++) { keys("gj"); gj.push(pos()); } out.gj = gj.join(" ");
+        const gk = []; for (let i = 0; i < 10; i++) { keys("gk"); gk.push(pos()); } out.gk = gk.join(" ");
+        load(); press("d", { ctrlKey: true }); out.ctrlD = pos(); press("u", { ctrlKey: true }); out.ctrlU = pos();
+        return JSON.stringify(out);
+        """
+        vimJS(panel, js) { value in
+            let j = value as? String
+            check("w walks word by word into a table, not over it",
+                  text(j, "w").hasPrefix("2:0 3:0 3:2 3:4"), text(j, "w"))
+            check("} stops at every blank line around a table and a picture",
+                  text(j, "para") == "2:0 6:0 8:0 10:0 11:0", text(j, "para"))
+            check("G and gg go to the last and first line", text(j, "G") == "11:0" && text(j, "gg") == "1:0")
+            check("a visual-mode delete across a table removes exactly the lines selected",
+                  text(j, "visualDelete").hasPrefix("\"| 1 | 2 |"), text(j, "visualDelete"))
+            check("dd on a table row removes that row", text(j, "ddOnTable") == "\"| --- | --- |\"")
+            check("gj and gk step one line at a time too",
+                  text(j, "gj") == "2:0 3:0 4:0 5:0 6:0 7:0 8:0 9:0 10:0 11:4"
+                      && text(j, "gk") == "10:0 9:0 8:0 7:0 6:0 5:0 4:0 3:0 2:0 1:0",
+                  text(j, "gj") + " / " + text(j, "gk"))
+            next()
+        }
+    }
+
+    private static func vimQuitTest(panel: NotePanel, then next: @escaping () -> Void) {
+        let id = panel.note.id
+        vimJS(panel, "view.focus(); press(':');") { _ in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                panel.card.debugCommandBar(type: "q")
+                panel.card.debugCommandBar(press: #selector(NSResponder.insertNewline(_:)))
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                    check(":q closes the note", WindowManager.shared.panel(for: id) == nil)
+                    AppSettings.shared.vimMode = false
+                    next()
+                }
+            }
+        }
+    }
+
+    /// Settings → Editor → Code blocks → Line numbers, with vim mode off: each block numbers itself.
+    private static func codeLineNumbersTest(out: URL, then next: @escaping () -> Void) {
+        let note = VaultStore.shared.createNote(
+            body: "Script\n\n```powershell\nGet-Process\n| Sort-Object CPU\n| Select -First 5\n```\n\nand another\n\n```js\nlet a = 1\n```\n",
+            frame: WindowManager.shared.nextCardFrame(size: NSSize(width: 360, height: 300)))
+        let panel = WindowManager.shared.open(note, focus: false)
+        AppSettings.shared.vimMode = false
+        AppSettings.shared.codeLineNumbers = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            let js = """
+            const lines = [...document.querySelectorAll(".cm-code-body")];
+            return JSON.stringify({
+              on: document.documentElement.dataset.codeLines,
+              numbers: lines.map(l => l.dataset.codeLine).join(","),
+              drawn: lines.length ? getComputedStyle(lines[0], "::before").content : "",
+              textHasNoNumbers: !/^\\s*\\d/.test(window.__pintack._view.state.doc.line(4).text),
+            });
+            """
+            panel.card.editor.callAsyncJavaScript(js, arguments: [:], in: nil, in: .page) { result in
+                let json = (try? result.get()) as? String
+                check("each code block numbers its own lines from 1 when the setting is on",
+                      text(json, "on") == "on" && text(json, "numbers") == "1,2,3,1", json ?? "no result")
+                check("the numbers are drawn beside the code, not written into it",
+                      text(json, "drawn").contains("1") && bool(json, "textHasNoNumbers"), text(json, "drawn"))
+                snapshot(window: panel, to: out.appendingPathComponent("code-line-numbers.png")) {
+                    AppSettings.shared.codeLineNumbers = false
+                    next()
+                }
+            }
+        }
+    }
+
+    /// The one-time vim notice, as it appears in Settings the first time vim mode is switched on.
+    private static func vimBannerTest(out: URL, then next: @escaping () -> Void) {
+        let words = ([VimNotice.title] + VimNotice.points).joined(separator: " ")
+        check("the vim notice warns about pictures and tables, and names the way out",
+              words.contains("Pictures and tables") && words.contains("Source") && words.contains("press i"))
+        let wasShown = AppSettings.shared.vimNoticeShown
+        AppSettings.shared.vimNoticeShown = false
+        AppSettings.shared.vimMode = true
+        MainWindowModel.shared.settingsPane = .editor
+        SettingsWindowController.shared.show()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            guard let w = MainWindowController.shared.window else { return next() }
+            let first = drawnTab(w)
+            check("a window opened on Settings DRAWS Settings, not the tab it had before",
+                  first == .settings, "model \(MainWindowModel.shared.tab.rawValue), drawn \(first.map { $0.rawValue } ?? "neither")")
+            snapshot(window: w, to: out.appendingPathComponent("vim-banner.png")) {
+                AppSettings.shared.vimMode = false
+                AppSettings.shared.vimNoticeShown = wasShown
+                MainWindowController.shared.close()
+                next()
+            }
+        }
+    }
+
+    /// Which tab pill is orange in what the window actually drew. The model saying Settings proves
+    /// nothing if the window still shows All Notes — which it once did.
+    static func drawnTab(_ window: NSWindow) -> MainWindowModel.Tab? {
+        guard let view = window.contentView,
+              let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return nil }
+        view.cacheDisplay(in: view.bounds, to: rep)
+        // Scan the top 120pt for solid orange, and see which side of centre it is on. The tab bar
+        // sits below the title bar's safe area, so no single row can be assumed.
+        let scale = CGFloat(rep.pixelsWide) / view.bounds.width
+        let mid = rep.pixelsWide / 2
+        var left = 0, right = 0
+        for y in stride(from: 0, to: min(rep.pixelsHigh, Int(120 * scale)), by: 3) {
+            for x in stride(from: mid - Int(200 * scale), to: mid + Int(200 * scale), by: 3) {
+                guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB),
+                      c.redComponent > 0.85, c.greenComponent > 0.45, c.greenComponent < 0.8, c.blueComponent < 0.3
+                else { continue }
+                if x < mid { left += 1 } else { right += 1 }
+            }
+        }
+        if left > 50 && right < left / 4 { return .allNotes }
+        if right > 50 && left < right / 4 { return .settings }
+        return nil
+    }
+
     private static func renderWindows(out: URL) {
-        runnerTest(out: out) { linkPreviewTest(out: out) { imageEditTest(out: out) { freezeTest { reminderTest(out: out) { findTest(out: out) { quickCaptureTest { templateTest { actionBarTest { testerBugsTest { todoBarTest(out: out) { onboardingTest(out: out) { strandedNotesTest { collapsedTodoTest(out: out) { blankCloseTest { undoDeleteTest { tagColourTest(out: out) { glowStrengthTest { renderWindowsNow(out: out) } } } } } } } } } } } } } } } } } }
+        runnerTest(out: out) { linkPreviewTest(out: out) { imageEditTest(out: out) { freezeTest { reminderTest(out: out) { findTest(out: out) { quickCaptureTest { templateTest { actionBarTest { testerBugsTest { todoBarTest(out: out) { onboardingTest(out: out) { strandedNotesTest { collapsedTodoTest(out: out) { blankCloseTest { undoDeleteTest { tagColourTest(out: out) { glowStrengthTest { vimTest(out: out) { codeLineNumbersTest(out: out) { vimBannerTest(out: out) { renderWindowsNow(out: out) } } } } } } } } } } } } } } } } } } } } }
     }
 
     private static func renderWindowsNow(out: URL) {
