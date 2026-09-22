@@ -162,7 +162,9 @@ body {
 }
 
 /* tables */
-.cm-table-wrap { overflow-x: auto; margin: 4px 0 6px; }
+/* Padding, not margin, on every BLOCK widget: the editor's height map counts a block's box but not
+   its margin, and the gutter numbers below a table drifted up by exactly that (owner, 2026-09-21). */
+.cm-table-wrap { overflow-x: auto; padding: 4px 0 6px; }
 .cm-table { border-collapse: collapse; font-size: .95em; min-width: 50%; }
 .cm-table th, .cm-table td { border: 1px solid var(--rule); padding: 3px 8px; text-align: left; }
 .cm-table th { background: var(--surface); font-weight: 650; }
@@ -172,11 +174,12 @@ body {
    the page never loads anything remote, and the CSP still forbids it. */
 .cm-link-card {
   position: relative; display: flex; gap: 9px; align-items: stretch;
-  margin: 5px 0; padding: 8px 9px;
+  padding: 8px 9px;
   border: 1px solid var(--rule); border-radius: 8px;
   background: var(--surface); cursor: pointer;
   font-family: var(--font);
 }
+.cm-link-slot { padding: 5px 0; }
 .cm-link-card:hover { border-color: var(--accent); }
 .cm-link-thumb { width: 64px; height: 64px; object-fit: cover; border-radius: 5px; flex: 0 0 auto; }
 .cm-link-text { min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 2px; }
@@ -308,7 +311,7 @@ body {
 #emoji::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .28); border-radius: 4px; border: 2px solid transparent; background-clip: content-box; }
 
 /* ---------- plugin blocks ---------- */
-.cm-plugin-block { margin: 6px 0; }
+.cm-plugin-block { padding: 6px 0; }
 .plugin-error { padding: 6px 9px; border-radius: 6px; background: rgba(220, 40, 40, .16); color: inherit; font-size: .9em; }
 
 /* Quick open: the /find overlay. SPEC.md §8. Sits over the middle of the note; the caret returns
@@ -376,8 +379,10 @@ body {
 .cm-find-row { transition: background-color .1s ease-out, transform .12s var(--spring-soft); }
 .cm-find-row.cm-find-active { transform: translateX(3px); }
 
-/* A plugin's block (Runner and friends) and a rendered table settle in rather than snapping. */
-.cm-plugin-block, .cm-table-wrap { animation: pintack-pop .28s var(--spring); }
+/* A plugin's block (Runner and friends) and a rendered table settle in rather than snapping. The
+   animation is on what is INSIDE the block: a block measured mid-scale was booked shorter than it
+   ends up, and nothing re-measures a transform, so the gutter below it stayed out of line. */
+.cm-plugin-block > *, .cm-table-wrap > .cm-table { animation: pintack-pop .28s var(--spring); }
 
 /* A link preview card grows in the first time it resolves. */
 .cm-link-card { animation: pintack-pop .3s var(--spring); transition: border-color .15s ease-out, transform .15s var(--spring-soft); }

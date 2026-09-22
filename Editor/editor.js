@@ -228,7 +228,12 @@ class LinkPreviewWidget extends WidgetType {
       e.preventDefault();
       post("link.open", { url: this.url });
     });
-    return card;
+    // The card's margin lives on a plain slot around it: the editor's height map does not count a
+    // block widget's own margin, and every gutter number below it drifted by that much.
+    const slot = document.createElement("div");
+    slot.className = "cm-link-slot";
+    slot.appendChild(card);
+    return slot;
   }
 
   ignoreEvent() { return true; }
@@ -339,6 +344,9 @@ class ImageWidget extends WidgetType {
       s.textContent = `[image not found: ${this.alt || this.src}]`;
       wrap.replaceWith(s);
     });
+    // A picture that arrives after the line was measured makes the line taller; tell the editor, or
+    // the gutter numbers below it keep the old height.
+    img.addEventListener("load", () => view.requestMeasure());
     wrap.appendChild(img);
 
     wrap.addEventListener("mousedown", (e) => {

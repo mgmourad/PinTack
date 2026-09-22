@@ -2027,13 +2027,54 @@ enum SelfTest {
                                           !card.debugVim.commandShown && panel.note.body == bodyBefore)
                                     check("the note was never renamed to a command typed into the bar",
                                           !panel.note.title.contains("s/"), panel.note.title)
-                                    vimWidgetProbe(panel: panel, then: { vimMotionProbe(panel: panel) { vimQuitTest(panel: panel, then: next) } })
+                                    gutterAlignmentProbe(panel: panel) { vimWidgetProbe(panel: panel, then: { vimMotionProbe(panel: panel) { vimQuitTest(panel: panel, then: next) } }) }
                                 }
                             }
                         }
                     }
                 }
             }
+        }
+    }
+
+    /// Every gutter number must sit level with its own line, below a rendered table and a picture as
+    /// well as above them. The owner caught the numbers under a table riding ~20pt high: the editor's
+    /// height map had the table shorter than it was drawn. Measured on the page, after the table's
+    /// pop-in animation has finished, against the line's own box.
+    private static func gutterAlignmentProbe(panel: NotePanel, then next: @escaping () -> Void) {
+        let png = VaultStore.shared.attachmentsURL.appendingPathComponent("gutter-probe.png")
+        let image = NSImage(size: NSSize(width: 160, height: 120), flipped: false) { r in
+            NSColor.systemPurple.setFill(); r.fill(); return true
+        }
+        if let tiff = image.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff) {
+            try? rep.representation(using: .png, properties: [:])?.write(to: png)
+        }
+        let doc = "above\\n\\n| a | b |\\n| --- | --- |\\n| 1 | 2 |\\n\\nmiddle\\n\\n![pic|120](attachments/gutter-probe.png)\\n\\nbelow\\nlast"
+        let js = """
+        try {
+        view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: "\(doc)" }, selection: { anchor: 0 } });
+        await new Promise((r) => setTimeout(r, 1200));
+        const off = []; let base = null;
+        for (const el of document.querySelectorAll(".cm-lineNumbers .cm-gutterElement")) {
+          const n = parseInt(el.textContent, 10);
+          if (!n || el.style.visibility === "hidden" || n > view.state.doc.lines) continue;
+          const at = view.domAtPos(view.state.doc.line(n).from).node;
+          const lineEl = (at.nodeType === 1 ? at : at.parentElement).closest(".cm-line");
+          if (!lineEl) continue;
+          // Relative to line 1: the gutter's own padding is a constant; drift is what matters.
+          const raw = el.getBoundingClientRect().top - lineEl.getBoundingClientRect().top;
+          if (base === null) base = raw;
+          const d = Math.round(raw - base);
+          if (Math.abs(d) > 1) off.push(n + ":" + d);
+        }
+        return off.join(" ") || "none";
+        } catch (e) { return "error " + e; }
+        """
+        vimJS(panel, js) { value in
+            let off = value as? String ?? "no answer"
+            check("every gutter number sits level with its line, below a table and a picture too",
+                  off == "none", "lines off by px: \(off)")
+            next()
         }
     }
 
@@ -2103,8 +2144,10 @@ enum SelfTest {
             check("a visual-mode delete across a table removes exactly the lines selected",
                   text(j, "visualDelete").hasPrefix("\"| 1 | 2 |"), text(j, "visualDelete"))
             check("dd on a table row removes that row", text(j, "ddOnTable") == "\"| --- | --- |\"")
+            // Column 0 all the way down. It used to end at 11:4: gj works in screen pixels, and the
+            // table's height was booked 10px short, so the last step landed off its column.
             check("gj and gk step one line at a time too",
-                  text(j, "gj") == "2:0 3:0 4:0 5:0 6:0 7:0 8:0 9:0 10:0 11:4"
+                  text(j, "gj") == "2:0 3:0 4:0 5:0 6:0 7:0 8:0 9:0 10:0 11:0"
                       && text(j, "gk") == "10:0 9:0 8:0 7:0 6:0 5:0 4:0 3:0 2:0 1:0",
                   text(j, "gj") + " / " + text(j, "gk"))
             next()
