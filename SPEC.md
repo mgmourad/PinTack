@@ -876,8 +876,22 @@ note explaining the three ways past it.
 - **Signing team** — free personal vs paid Developer Program. Blocks the widget (§11.2),
   notarization and Sparkle.
 - **App Sandbox** — needs a security-scoped bookmark flow for the vault; deferred.
-- **Memory at scale** — one web view per open note (§2.1) is unmeasured beyond ~10 notes, and search
-  has never been run against a vault of 1,000 notes.
+- **Memory at scale** — one web view per open note (§2.1). **Measured 2026-09-22** with
+  `scripts/measure-memory.sh` (Debug build, macOS 27.2, Apple silicon; short notes each holding a
+  checklist and a bash block; two runs agreed within 1%). Footprint is what Activity Monitor calls
+  Memory; RSS double-counts pages shared between processes.
+
+  | Open notes | WebContent processes | PinTack footprint | WebKit footprint | **Total footprint** | Total RSS |
+  |---:|---:|---:|---:|---:|---:|
+  | 1  | 1  | 48 MB  | 63 MB    | **111 MB**  | 226 MB  |
+  | 11 | 11 | 95 MB  | 399 MB   | **493 MB**  | 974 MB  |
+  | 26 | 26 | 170 MB | 876 MB   | **1.0 GB**  | 2.1 GB  |
+  | 51 | 51 | 279 MB | 1,680 MB | **1.95 GB** | 3.9 GB  |
+
+  **About 37 MB per open note**, ~31 MB of it in that note's own WebContent process (WebKit gives
+  every page one; the counts match what each page reports for itself). Fine for a handful of notes,
+  heavy for fifty. Hidden notes have no window and no page (not yet measured). Search has still never
+  been run against a vault of 1,000 notes.
 - **Accessibility** — no VoiceOver pass has been made over the window or the notes.
 - **1.0** — what separates the beta from a release is signing and notarization, a stretch of daily
   use with no new bugs, a measurement at scale, and a VoiceOver pass.
