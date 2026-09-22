@@ -415,7 +415,9 @@ Owner decisions added after the rebuild (2026-09-19):
   frontmatter. Numbers are PLACES: the front note is always #1 (owner, 2026-09-22 — this REPLACED
   numbers that stayed with their notes, so do not go back). ⌘1–⌘5, not ⌥⇧1–5, because ⌥⇧2 is the
   global Templates key. Bringing a note forward SWAPS it with the front one (owner, 2026-09-22):
-  rotating the notes in between made the pile reshuffle under the pointer. `NotePanel.becomeKey`
+  rotating the notes in between made the pile reshuffle under the pointer. A double click on a
+  stacked note's title bar does NOT start a rename (it left the note in a text field that ate every
+  later click); `clickSlop` is 6pt, because a trackpad click drifts. `NotePanel.becomeKey`
   brings a back note forward by ANY route: macOS raises a
   clicked window on the press, and the pile used to stay behind (owner-reported). A click is < 4pt. Stack keys pass through unless a stacked note is key.
   In a stack the STACK is pinned (`NotePanel.isOnTop`), and the note's own pin art and glow are not

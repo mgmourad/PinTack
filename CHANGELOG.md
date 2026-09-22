@@ -12,6 +12,16 @@ it stands.
 
 ---
 
+## Unreleased
+
+### Fixed
+- **Clicking a stacked note's title twice dropped it into a rename (owner).** The title bar is how a
+  note is brought forward in a pile, so the second click left the note in a text field and every
+  click after that went into the field instead of the stack. In a stack the title bar only brings the
+  note forward now; rename from All Notes or unstack first.
+- **A click allows 6pt of drift rather than 4,** since a trackpad click drifts under a finger and
+  those presses were read as drags of the pile.
+
 ## Build 13 — 2026-09-22
 
 ### Changed

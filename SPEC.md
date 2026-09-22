@@ -471,7 +471,9 @@ the cap so a stack never grows tall.
   note forward is a **swap**: it trades places with the note that was in front and nothing else moves
   (owner decision, 2026-09-22), so clicking the same place twice leaves the pile exactly as it was.
   Pushing the note onto the front instead rotated everything between the two, and the pile reshuffled
-  under the pointer. **⌥Tab** sends the front note to the back, so pressing it walks the whole stack. Both only act while a
+  under the pointer. **Double-click does NOT rename a note's title while it is in a stack**: there
+  the title bar is how a note is brought forward, and a second click used to leave it in a rename
+  field that swallowed every click after it. Rename a stacked note from All Notes, or unstack it. **⌥Tab** sends the front note to the back, so pressing it walks the whole stack. Both only act while a
   stacked note is key; anywhere else the key is left alone.
 - **Bringing a note forward**, by a click on its title bar or by any other route that makes it the
   active window (Mission Control, ⌘`), re-lays the whole pile with the spring. macOS makes the window
