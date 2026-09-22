@@ -74,8 +74,11 @@ final class NotePanel: NSPanel {
                 // the pointer was actually over. Without this guard the stale key event then dragged
                 // the wrong note forward a moment later — "it moves, but not the one I clicked"
                 // (owner-reported, 2026-09-22).
-                guard let self, self.isKeyWindow, !StackManager.shared.isFront(self.note.id) else { return }
-                StackManager.shared.bringToFront(self.note.id)
+                guard let self, self.isKeyWindow, !StackManager.shared.isFront(self.note.id) else {
+                    StackManager.shared.record("became key", "ignored: the window is no longer key, or is already in front")
+                    return
+                }
+                StackManager.shared.bringToFront(self.note.id, reason: "became key")
             }
         }
     }

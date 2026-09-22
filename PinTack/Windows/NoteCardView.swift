@@ -1429,7 +1429,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         // A click that landed on this window's margin over another stacked note's title bar is that
         // note's click (see hitTest): it comes to the front, as a click on its title bar would.
         if !cardRect.contains(local), let other = stackMemberUnder(local) {
-            StackManager.shared.bringToFront(other.note.id)
+            StackManager.shared.bringToFront(other.note.id, reason: "click passed on")
             return
         }
         if showsOwnPin && pinRect.contains(local) && !cardRect.contains(local) { togglePin(); return }
@@ -1479,7 +1479,10 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         if dragOrigin != nil {
             dragOrigin = nil
             if stack != nil {
-                if dragMoved { StackManager.shared.dragEnded(panel) } else { StackManager.shared.bringToFront(note.id) }
+                if dragMoved {
+                    StackManager.shared.record("drag", "the pile was dragged, so nothing came forward")
+                    StackManager.shared.dragEnded(panel)
+                } else { StackManager.shared.bringToFront(note.id, reason: "click") }
             } else {
                 panel.syncFrameToNote()
                 VaultStore.shared.save(note)

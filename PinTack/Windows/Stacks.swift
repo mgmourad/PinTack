@@ -304,7 +304,7 @@ final class StackManager {
     /// ⌘1–⌘5: the note at that place trades places with the front one, and becomes #1.
     func bringToFront(number: Int, from noteID: String) {
         guard let s = stack(containing: noteID), s.order.indices.contains(number - 1) else { return }
-        bringToFront(s.order[number - 1])
+        bringToFront(s.order[number - 1], reason: "⌘\(number)")
     }
 
     /// A note brought forward SWAPS places with the one in front (owner decision, 2026-09-22): the
@@ -312,11 +312,15 @@ final class StackManager {
     /// the same place twice puts the pile back exactly as it was. Taking the note out and pushing it
     /// onto the front instead rotated everything between them, and the pile reshuffled under the
     /// pointer — the note you clicked a moment ago was somewhere else by the time you looked.
-    func bringToFront(_ noteID: String) {
-        guard let i = stacks.firstIndex(where: { $0.members.contains(noteID) }) else { return }
+    func bringToFront(_ noteID: String, reason: String = "?") {
+        guard let i = stacks.firstIndex(where: { $0.members.contains(noteID) }) else {
+            record(reason, "asked for a note that is in no stack"); return
+        }
         guard let place = stacks[i].order.firstIndex(of: noteID), place != 0 else {
+            record(reason, "\(title(noteID)) is already at the front — nothing to do")
             focusFront(of: stacks[i]); return
         }
+        let before = stacks[i].order
         let anchor = frontCard(of: stacks[i])
         stacks[i].order.swapAt(0, place)
         save()
@@ -324,6 +328,30 @@ final class StackManager {
         layout(s, animated: true, anchor: anchor)
         focusFront(of: s)
         NotificationCenter.default.post(name: .stacksDidChange, object: nil)
+        record(reason, "place \(place + 1) (\(title(noteID))): \(before.map(title).joined(separator: ",")) → \(s.order.map(title).joined(separator: ","))")
+    }
+
+    // MARK: - The click log (SPEC.md §5.10)
+
+    /// Every attempt to bring a note forward is written to `.pintack/stack-clicks.log`, in RELEASE
+    /// builds too, because the fault the owner sees on his own Mac has never once appeared under the
+    /// self-test's synthetic clicks (2026-09-22). It is a few lines per click, kept to the last 400,
+    /// and written nowhere but the vault's own metadata folder.
+    private var logURL: URL? { fileURL?.deletingLastPathComponent().appendingPathComponent("stack-clicks.log") }
+    private static let logLimit = 400
+
+    private func title(_ noteID: String) -> String {
+        let name = VaultStore.shared.note(id: noteID)?.title ?? "?"
+        return name.isEmpty ? "Untitled" : String(name.prefix(18))
+    }
+
+    func record(_ reason: String, _ what: String) {
+        guard let logURL else { return }
+        let stamp = Date().formatted(date: .omitted, time: .standard)
+        var lines = ((try? String(contentsOf: logURL, encoding: .utf8))?.split(separator: "\n").map(String.init) ?? [])
+        lines.append("\(stamp)  \(reason.padding(toLength: 16, withPad: " ", startingAt: 0)) \(what)")
+        if lines.count > StackManager.logLimit { lines.removeFirst(lines.count - StackManager.logLimit) }
+        try? AtomicWriter.write(lines.joined(separator: "\n") + "\n", to: logURL)
     }
 
     private func focusFront(of s: NoteStack) {
