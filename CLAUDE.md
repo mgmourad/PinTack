@@ -44,7 +44,8 @@ This changes how you must work:
    user's job via iCloud Drive / Dropbox / Syncthing.
 2. **No dependencies without asking.** Every added package is a maintenance
    burden on a project that expects to change owners. CodeMirror 6 and Sparkle
-   are pre-approved. Nothing else is.
+   are pre-approved, and `@replit/codemirror-vim` + `@codemirror/search` were
+   approved for vim mode (2026-09-21). Nothing else is.
 3. **No network access from the app**, except Sparkle update checks and **link
    previews** (owner-approved 2026-09-19, `PinTack/Vault/LinkPreview.swift`).
    The webview CSP forbids remote resource loading and this will not be relaxed:
@@ -230,8 +231,8 @@ preservation, atomic writes, import safety and search.
 **Phase 4, plugins and Runner: built.** The WidgetKit widget is **shelved by the owner**: it needs a real
 Apple signing team (app group must carry the Team ID, trap 2), so it waits on that decision.
 
-**As of 2026-09-21: 0.1.0, build 8, in beta with testers.** `verify.sh` covers a Release build, 230
-unit tests and 141 self-test checks. `CHANGELOG.md` records every change, day by day, with the reason
+**As of 2026-09-21: 0.1.0, build 9, in beta with testers.** `verify.sh` covers a Release build, 230
+unit tests and 167 self-test checks. `CHANGELOG.md` records every change, day by day, with the reason
 — read it before assuming something is an accident. Honest view of what separates this from a 1.0:
 signing and notarization, a stretch of daily use with no new bugs (bugs were still being found by
 use at a rate of about ten a session), a measurement with many notes open and a large vault, and a
@@ -388,6 +389,20 @@ Owner decisions added after the rebuild (2026-09-19):
 - Link previews are off by default and fetched only in Swift. A dismissed preview is remembered in
   `.pintack/linkpreviews.json`, not in the note, so notes stay plain Markdown, and it is forgotten
   once the link leaves the note: the ✕ hides the card that is there, not that address for ever.
+- Vim mode (owner-approved 2026-09-21, SPEC §4.6) is ONE global switch, off by default. The package
+  is imported the first time it is switched on, never eagerly. `:` and `/` open in the note's ACTION
+  BAR, not in the page: `cm.openDialog` is replaced and each keystroke is fed back to the engine's
+  own prompt handlers. `controlTextDidEndEditing` for the command field cancels the prompt and
+  RETURNS — falling through renamed the note to whatever was typed. `cm.findPosV` is clamped to the
+  next line because the engine treats a table or a squashed fence as folded text and jumps it whole.
+  The line gutter counts visible lines; a hidden fence keeps its number (`pt-gutter-hidden`). The
+  first-time notice (`VimNotice`, `vimNoticeShown`) is the owner's condition for shipping: it names
+  the risk of moving through pictures and tables. Do not drop it or water it down.
+- Code-block line numbers are a setting, off by default; with vim on they give way to the gutter.
+- `MainWindowController.show` switches the tab INSTANTLY and then sends `objectWillChange` once
+  more on the next run-loop turn. Without that nudge, a tab change landing while SwiftUI was mid-update
+  was dropped: the model said Settings while the window drew All Notes, one run in two (measured
+  2026-09-21 by `SelfTest.drawnTab`, which reads the pixels, not the model). Only a click springs.
 
 ### Scope: a sticky-note app, not a note-taking app
 

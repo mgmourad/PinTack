@@ -51,7 +51,8 @@ Do not propose these again without new reasoning.
 
 1. **No cloud sync in v1.** The vault is plain Markdown; syncing it is the user's job.
 2. **No dependencies without asking.** CodeMirror 6 and Sparkle are pre-approved. Devicon (MIT) was
-   approved for language logos.
+   approved for language logos. `@replit/codemirror-vim` (MIT) and `@codemirror/search` were approved
+   for vim mode (§4.6, 2026-09-21).
 3. **No network access from the app**, except Sparkle update checks and **link previews** (§7.3),
    which are off by default and fetched in Swift, never in the page.
 4. **Unknown frontmatter keys must survive a write** (§3.3). Plugins own them.
@@ -221,6 +222,10 @@ which palette that calls for, and sends it as `codePaper`. Neither palette may l
 `--fg-dim`, and neither may the badge: those follow the note, which is how dark lettering ended up
 on a dark block. Inline code keeps its own separate setting and still follows the paper.
 
+**Line numbers in code blocks** are a setting (Settings → Editor → Code blocks), **off** by default.
+Each block counts from 1 in a narrow column inside its panel. With vim mode on they give way to the
+note's own gutter (§4.6), which numbers every line including the block's, so there is one numbering.
+
 **Blockquotes** carry a bright red bar down their left edge (`--quote-bar`, owner's call).
 
 ### 4.3 Beyond Markdown
@@ -254,6 +259,35 @@ directory, then `replaceItem`, so a partial write cannot corrupt a note.
 Atomic writes cannot prevent a full disk or a locked folder. A failed write is **reported to the
 user** (throttled) and the note's id recorded in `VaultStore.saveFailures` — a silent failure is
 the one remaining way this app could lose work.
+
+### 4.6 Vim mode
+
+One global switch, Settings → Editor → Vim mode, **off** by default. `@replit/codemirror-vim` (MIT)
+supplies vim; `Editor/vim-mode.js` adapts it. The package is **imported the first time vim mode is
+switched on**, never with the editor, the same rule as the language parsers.
+
+- **Notes start in NORMAL mode.** `i` types, Esc stops. The mode (NORMAL, INSERT, VISUAL, V-LINE,
+  REPLACE) shows as a pill at the right of the action bar. While vim holds the keys, the editor's own
+  Enter, Tab and ⌘↩ handlers stand aside (`vimOwnsKeys`); in INSERT they work as usual.
+- **`:` and `/` turn the action bar into the command bar** (owner's request). The prompt is not drawn
+  in the page: `cm.openDialog` is replaced, and every keystroke in the bar is handed back to the
+  engine's own prompt handlers, so incremental search and history (↑/↓) work unchanged. Return runs
+  it, Esc (or Backspace on an empty bar) cancels, and the bar goes back to being the action bar.
+  Messages such as `E492` show there briefly. Ending an edit in the bar never renames the note.
+- **Ex commands:** `:w` saves now, `:q` closes the note, `:wq`, `:x` and `ZZ` do both. A note is one
+  buffer: no splits, tabs or `:e`.
+- **A line-number gutter** runs down every note while vim is on, so counts and `12G` can be read off
+  it. It counts the note's **visible** lines, starting after the hidden frontmatter; a hidden code
+  fence keeps its number without showing it, so the numbers stay the ones vim uses.
+- **`j` and `k` always land on the next line.** The engine assumes a vertical move that jumps
+  further on screen than expected is stepping over folded text, and skips it whole; Live Preview's
+  tables and squashed fences look like that, so `j` jumped a whole table. `cm.findPosV` is clamped
+  to the next line (measured, then fixed).
+- **Live Preview is unchanged**, and pictures and tables are still drawn as blocks. The first time
+  vim mode is switched on, a notice in Settings (`VimNotice`, dismissed with Got it, recorded as
+  `vimNoticeShown`) says what that means: moving through them works line by line but opens the raw
+  Markdown, the note can jump in height, `x` on a picture's first character turns it into a link,
+  resizing and cropping still need the mouse, and Source mode (⌥⌘M) is the way out.
 
 ---
 
@@ -564,8 +598,8 @@ therefore read as "not chosen". Anything else in it was picked by somebody and i
 owns are preserved however little the app writes of its own.
 
 Editor pane covers default mode, spellcheck, slash commands, image handling, bullet, inline-code
-background colour and opacity, code-block background colour and opacity, rich-text paste, and link
-previews.
+background colour and opacity, code-block background colour and opacity, line numbers in code blocks, rich-text paste, link
+previews, and vim mode (§4.6) with its one-time notice.
 
 Vault pane holds the location, move, export/import, and **Find unused attachments**. That sweep
 reads the `.md` files **on disk** rather than the notes held in memory — a note that failed to load
@@ -796,7 +830,7 @@ note explaining the three ways past it.
 - `PinTack/AppIcon.icon` — app icon (Icon Composer document)
 - `Assets.xcassets/Pushpin` — the pinned-note pushpin PNG
 - `Editor/icons/` — language logos, Devicon (MIT), vendored
-- `Editor/vendor/` — CodeMirror 6 and Lezer, all MIT, vendored
+- `Editor/vendor/` — CodeMirror 6, Lezer, `@codemirror/search` and `@replit/codemirror-vim`, all MIT, vendored
 - `docs/assets/` — the icon as rendered for the README, its source art, the DMG background, and the
   original HTML prototype
 

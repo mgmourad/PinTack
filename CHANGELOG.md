@@ -12,8 +12,32 @@ it stands.
 
 ---
 
-## Unreleased
+## Build 9 — 2026-09-21
 
+### Added
+- **Vim mode (owner).** One switch in Settings → Editor, off by default. Notes start in NORMAL
+  mode; the mode shows in the action bar. `:` and `/` turn the action bar into the command bar, with
+  vim's own incremental search and history; `:w` saves, `:q` closes, `:wq`, `:x` and `ZZ` do both.
+  A line-number gutter runs down the note, counting its visible lines. Built on
+  `@replit/codemirror-vim` and `@codemirror/search` (both MIT, approved), vendored and loaded only
+  the first time vim mode is switched on.
+- **A one-time notice when vim mode is first switched on (owner).** It says plainly that pictures
+  and tables are drawn as blocks, what moving through them does, and that Source mode (⌥⌘M) is the
+  way out.
+- **Line numbers in code blocks (owner)**, a setting under Code blocks, off by default.
+
+### Fixed
+- **`j`/`k` skipped whole tables and code fences** in vim mode — found while building it, before
+  release. The engine took Live Preview's block widgets for folded text. Clamped to the next line.
+- **Ending a `:` command by clicking away renamed the note** to what was typed — found while
+  building it. The command field now cancels the prompt instead.
+- **The PinTack window could open on Settings but keep drawing All Notes**, about one time in two
+  when a setting had changed just before. SwiftUI dropped the tab change; a second nudge on the
+  next run-loop turn fixes it, and the self-test now reads the pixels to prove which tab is drawn.
+
+### Changed
+- `scripts/vendor-codemirror.sh` pins every package version, so re-running it cannot quietly
+  upgrade the editor.
 - **Docs:** every Markdown file brought up to date with the app as it stands at build 8, and this
   changelog written. `KICKOFF-PROMPT.md` is kept verbatim as a historical record, with a note saying so.
 
