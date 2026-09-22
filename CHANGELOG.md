@@ -12,6 +12,18 @@ it stands.
 
 ---
 
+## Unreleased
+
+### Fixed
+- **In a stack, the note clicked now comes forward even when macOS raises the clicked window late
+  (owner, the bug behind every report).** A back note's title bar is covered by the margin of the
+  note in front, so the press lands on that window; macOS raises it through the window server, and
+  that can arrive after PinTack has already handed the click to the right note. The late event then
+  dragged the receiving note forward instead. A click that has been handed on is remembered for a
+  moment and such an event ignored, and the pile's window order is re-asserted twice more so a late
+  raise cannot leave the wrong note drawn on top. Reproduced by raising the window late on purpose:
+  6 of 12 clicks wrong before, 0 after.
+
 ## Build 16 — 2026-09-22
 
 ### Added

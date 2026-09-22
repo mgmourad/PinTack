@@ -418,7 +418,13 @@ Owner decisions added after the rebuild (2026-09-19):
   rotating the notes in between made the pile reshuffle under the pointer. A double click on a
   stacked note's title bar does NOT start a rename (it left the note in a text field that ate every
   later click); `clickSlop` is 6pt, because a trackpad click drifts. `NotePanel.becomeKey`
-  brings a back note forward by ANY route: macOS raises a
+  brings a back note forward by ANY route, EXCEPT while a click is settling
+  (`StackManager.isSettlingAClick`): macOS raises the window under the pointer through the window
+  server, and that raise can land AFTER the app handed the click to the note the pointer was over —
+  the late key event then dragged the receiving note forward. This was THE bug the owner kept
+  reporting; synthetic clicks never showed it because the harness raised the window first. `restack`
+  re-asserts the order on the next run-loop turn and once more after 0.25 s for the same reason, and
+  `scripts/stack-click-stress.sh` can raise the window late on purpose to reproduce it: macOS raises a
   clicked window on the press, and the pile used to stay behind (owner-reported). A click is < 4pt. Stack keys pass through unless a stacked note is key.
   In a stack the STACK is pinned (`NotePanel.isOnTop`), and the note's own pin art and glow are not
   drawn (`showsOwnPin`). Unstack restores each note's pre-stack frame from `before`. Deleting a stack
