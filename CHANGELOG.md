@@ -12,7 +12,7 @@ it stands.
 
 ---
 
-## Unreleased
+## Build 14 — 2026-09-22
 
 ### Fixed
 - **Clicking a stacked note's title twice dropped it into a rename (owner).** The title bar is how a
