@@ -646,6 +646,27 @@ written into the user's preferences). The All Notes glyph tabs draw their own, s
 more prominent: solid orange, the name in bold over what the tab holds. macOS has a single tooltip
 delay per app, so a faster one cannot be a system tooltip.
 
+### 8.4 Tutorial | Help (owner, 2026-09-22)
+
+A **Tutorial | Help** button — a mortar board, a divider and a question mark — sits in the All Notes
+sidebar's bottom corner beside Settings, and opens a presentation: **one slide per feature**, each
+with a **real screenshot** of that feature in use, a title, a couple of sentences, and the live
+binding of the shortcut that reaches it.
+
+- **The pictures are made by the app**, by `scripts/make-tutorial-shots.sh` → `TutorialShots`
+  (Debug only, throwaway vault only): it builds each scene — a note mid-edit, the slash menu open, a
+  stack, vim's folded table, each All Notes tab, Settings — and photographs the real windows the way
+  the self-test does. They are written into `PinTack/Resources/Tutorial/` and ship in the bundle, so
+  a Release build needs nothing. Re-run it whenever a feature's look changes; a slide can then never
+  show a PinTack that no longer exists.
+- **It plays itself**, a slide every 5 seconds, with the showing slide's dot filling as a progress
+  bar. `‹`, `›`, a dot, ← or → takes over, and from then on it stays where it is put. **OK** at the
+  bottom right and **✕** at the top right close it; so does Esc.
+- **The look** is the app's own dark indigo with an orange bloom, the screenshot floating over its
+  reflection, sliding and fading between slides.
+- The first-run card (§3.0) carries a **Show Tutorial** button to the same presentation, and both
+  now use the app's dark theme rather than the system's grey HUD material.
+
 ### 8.3 Quick capture
 
 "New PinTack Note" appears in **any** app's Services menu when text is selected; ⌥⌘C captures the

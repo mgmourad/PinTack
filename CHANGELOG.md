@@ -14,6 +14,14 @@ it stands.
 
 ## Unreleased
 
+### Added
+- **Tutorial | Help (owner):** a button in the All Notes sidebar opens a presentation with one slide
+  per feature, each showing a real screenshot of that feature in use. It plays itself every 5
+  seconds until ‹ or › is pressed; OK and ✕ close it. The first-run card now offers it too, and both
+  wear the app's dark indigo instead of the system's grey HUD.
+- **`scripts/make-tutorial-shots.sh`:** the app photographs its own windows to make those pictures,
+  so a slide can never show a version of PinTack that no longer exists.
+
 ### Fixed
 - **Clicking a stacked note's title bar did nothing on its lower part (owner).** The front window's
   margin lies over the title bars behind it, and macOS gave those clicks to the front window, which

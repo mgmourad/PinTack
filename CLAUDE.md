@@ -421,6 +421,11 @@ Owner decisions added after the rebuild (2026-09-19):
   deletes its notes, always behind `StackDeleteAlert`, whose DEFAULT (Return) is Unstack — the
   answer that loses nothing — and whose destructive button needs a click. The self-test presses
   Return on the real alert. `WindowManager.delete(_:onUndo:)` brings the stack back on Undo.
+- The Tutorial (owner, 2026-09-22, SPEC §8.4) shows REAL screenshots: `scripts/make-tutorial-shots.sh`
+  drives the app (`TutorialShots`, Debug + throwaway vault only) and writes
+  `PinTack/Resources/Tutorial/*.png`, which ship in the bundle. Re-run it when a feature's look
+  changes. Slides play themselves every 5 s until ‹ / › is used; `TutorialModel` holds that so the
+  self-test can run the clock without watching pixels.
 - All Notes and Settings tooltips read "Name | description" through `Tip.text` / `.tip(_:_:)`, after
   1 second; the All Notes glyph tabs draw their own (`GlyphTabs`, 0.5 s, orange). Every new control
   there gets one. Row icons go through `RowActionIcons`: show/hide, rename, (Unstack), delete.

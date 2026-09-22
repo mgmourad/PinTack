@@ -21,6 +21,8 @@ enum OnboardingContent {
     static let subtitle = "Sticky notes that live on your desktop and nowhere else."
     static let footnote = "Everything is yours to change in Settings (⌘,). This screen appears only once."
     static let dismiss = "OK"
+    /// The way back to the longer version, and the same button All Notes carries (owner, 2026-09-22).
+    static let tutorial = "Show Tutorial"
 
     /// The four shortcuts worth knowing on day one. Displayed from the LIVE bindings, so a
     /// rebound key is never shown wrong.
@@ -66,7 +68,22 @@ struct OnboardingView: View {
         .padding(.top, 34)
         .padding(.bottom, 26)
         .frame(width: 760)
+        // The app's own dark indigo (owner, 2026-09-22), the same as the PinTack window and the
+        // tutorial, instead of the system's grey HUD material.
+        .background(OnboardingView.chrome)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(.white.opacity(0.09)))
         .foregroundStyle(.white.opacity(0.92))
+    }
+
+    /// Shared with the tutorial: deep indigo, with a soft orange bloom behind the icon.
+    static var chrome: some View {
+        ZStack {
+            Color.chromeWindow
+            RadialGradient(colors: [Color(nsColor: Brand.accentNS).opacity(0.18), .clear],
+                           center: .init(x: 0.5, y: 0.12), startRadius: 8, endRadius: 520)
+            LinearGradient(colors: [.white.opacity(0.05), .clear], startPoint: .top, endPoint: .center)
+        }
     }
 
     // MARK: Pieces
@@ -147,6 +164,22 @@ struct OnboardingView: View {
                 .font(.system(size: 11.5))
                 .foregroundStyle(.white.opacity(0.5))
             Spacer(minLength: 20)
+            Button {
+                onDismiss()
+                TutorialWindow.show()
+            } label: {
+                HStack(spacing: 7) {
+                    Image(systemName: "graduationcap.fill").font(.system(size: 12.5, weight: .semibold))
+                    Text(OnboardingContent.tutorial).font(.system(size: 13, weight: .semibold))
+                }
+                .foregroundStyle(accent)
+                .padding(.horizontal, 16).frame(height: 32)
+                .background(Capsule().fill(accent.opacity(0.15))
+                    .overlay(Capsule().strokeBorder(accent.opacity(0.4))))
+            }
+            .buttonStyle(.plain)
+            .padding(.trailing, 10)
+            .accessibilityLabel(OnboardingContent.tutorial)
             Button(action: onDismiss) {
                 Text(OnboardingContent.dismiss)
                     .font(.system(size: 13.5, weight: .semibold))
@@ -210,23 +243,16 @@ enum OnboardingWindow {
         p.isReleasedWhenClosed = false
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
-        let bg = NSVisualEffectView(frame: NSRect(origin: .zero, size: size))
-        bg.material = .hudWindow
-        bg.blendingMode = .behindWindow
-        bg.state = .active
-        bg.appearance = NSAppearance(named: .vibrantDark)
-        bg.wantsLayer = true
-        bg.layer?.cornerRadius = 18
-        host.frame = bg.bounds
+        // The card paints its own background now, so no material behind it.
+        host.frame = NSRect(origin: .zero, size: size)
         host.autoresizingMask = [.width, .height]
-        bg.addSubview(host)
-        p.contentView = bg
+        p.contentView = host
 
         let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
         if let visible = screen?.visibleFrame {
             p.setFrameOrigin(NSPoint(x: visible.midX - size.width / 2, y: visible.midY - size.height / 2))
         }
-        Motion.appear(window: p, content: bg, to: 1)
+        Motion.appear(window: p, content: host, to: 1)
         NSApp.activate(ignoringOtherApps: true)
         p.makeKeyAndOrderFront(nil)
         panel = p

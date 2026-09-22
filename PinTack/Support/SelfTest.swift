@@ -1449,6 +1449,7 @@ enum SelfTest {
             check("the shortcuts it shows are the live bindings, not hard-coded text",
                   OnboardingContent.shortcuts.allSatisfy { !ShortcutStore.shared.combo(for: $0).display.isEmpty },
                   OnboardingContent.shortcuts.map { ShortcutStore.shared.combo(for: $0).display }.joined(separator: " "))
+            check("the greeting offers the tutorial", OnboardingContent.tutorial == "Show Tutorial")
 
             // And the card really drew: a window that laid out to nothing, or came up blank, would
             // pass every check above.
@@ -2594,7 +2595,7 @@ enum SelfTest {
     }
 
     /// Several note windows in one picture, where they sit on the screen, back to front.
-    private static func snapshotPile(_ panels: [NotePanel], to url: URL, completion: @escaping () -> Void) {
+    static func snapshotPile(_ panels: [NotePanel], to url: URL, completion: @escaping () -> Void) {
         let numbers = (NSWindow.windowNumbers(options: []) ?? []).map(\.intValue)
         let ordered = numbers.compactMap { n in panels.first { $0.windowNumber == n } }.reversed()
         let union = ordered.reduce(NSRect.null) { $0.union($1.frame) }
@@ -2677,6 +2678,53 @@ enum SelfTest {
         }
     }
 
+    /// The Tutorial | Help presentation (SPEC.md §8.4): a slide per feature, each with a real
+    /// picture that ships in the app, slides that advance themselves until somebody takes over.
+    private static func tutorialTest(out: URL, then next: @escaping () -> Void) {
+        let slides = TutorialContent.slides
+        check("the tutorial has a slide for every feature, each with words of its own",
+              slides.count >= 10 && slides.allSatisfy { !$0.title.isEmpty && $0.detail.count > 60 },
+              "\(slides.count) slides")
+        let missing = slides.filter { TutorialContent.picture($0.image) == nil }.map(\.image)
+        check("every slide's picture ships inside the app", missing.isEmpty, missing.joined(separator: ", "))
+        check("…and each is a real screenshot, not a thumbnail",
+              slides.allSatisfy { (TutorialContent.picture($0.image)?.size.width ?? 0) > 200 })
+        check("a slide that names a shortcut reads it from the live bindings",
+              slides.compactMap(\.shortcut).allSatisfy { !ShortcutStore.shared.combo(for: $0).display.isEmpty })
+
+        // The clock, without watching pixels: five seconds moves on, and a press of ‹ or › ends that.
+        let model = TutorialModel()
+        for _ in 0..<Int(TutorialContent.autoAdvance / 0.05) { model.tick(0.05) }
+        check("the tutorial moves on by itself after five seconds", model.index == 1, "slide \(model.index + 1)")
+        model.step(1)
+        check("‹ or › takes over and stops it advancing by itself", model.index == 2 && !model.auto)
+        for _ in 0..<Int(TutorialContent.autoAdvance / 0.05) * 3 { model.tick(0.05) }
+        check("…and it stays stopped", model.index == 2)
+        model.step(-1)
+        check("‹ goes back", model.index == 1)
+        model.go(to: 0)
+        model.step(-1)
+        check("it never steps off either end", model.index == 0)
+
+        TutorialWindow.show()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            guard let window = TutorialWindow.panelForTesting else {
+                check("the tutorial has a window to render", false); return next()
+            }
+            let size = window.frame.size
+            check("the tutorial window is a presentation, not a sliver", size.width > 800 && size.height > 500,
+                  "\(Int(size.width))×\(Int(size.height))")
+            check("the tutorial actually painted itself", paintedFraction(of: window) > 0.5)
+            snapshot(window: window, to: out.appendingPathComponent("tutorial.png"), backdrop: nil) {
+                TutorialWindow.dismiss()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                    check("OK closes the tutorial", !TutorialWindow.isShowing)
+                    next()
+                }
+            }
+        }
+    }
+
     /// Which tab pill is orange in what the window actually drew. The model saying Settings proves
     /// nothing if the window still shows All Notes — which it once did.
     static func drawnTab(_ window: NSWindow) -> MainWindowModel.Tab? {
@@ -2702,7 +2750,7 @@ enum SelfTest {
     }
 
     private static func renderWindows(out: URL) {
-        runnerTest(out: out) { linkPreviewTest(out: out) { imageEditTest(out: out) { freezeTest { reminderTest(out: out) { findTest(out: out) { quickCaptureTest { templateTest { actionBarTest { testerBugsTest { todoBarTest(out: out) { onboardingTest(out: out) { strandedNotesTest { collapsedTodoTest(out: out) { blankCloseTest { undoDeleteTest { tagColourTest(out: out) { glowStrengthTest { vimTest(out: out) { codeLineNumbersTest(out: out) { vimBannerTest(out: out) { stackTest(out: out) { rowActionsTest(out: out) { renderWindowsNow(out: out) } } } } } } } } } } } } } } } } } } } } } } }
+        runnerTest(out: out) { linkPreviewTest(out: out) { imageEditTest(out: out) { freezeTest { reminderTest(out: out) { findTest(out: out) { quickCaptureTest { templateTest { actionBarTest { testerBugsTest { todoBarTest(out: out) { onboardingTest(out: out) { strandedNotesTest { collapsedTodoTest(out: out) { blankCloseTest { undoDeleteTest { tagColourTest(out: out) { glowStrengthTest { vimTest(out: out) { codeLineNumbersTest(out: out) { vimBannerTest(out: out) { stackTest(out: out) { rowActionsTest(out: out) { tutorialTest(out: out) { renderWindowsNow(out: out) } } } } } } } } } } } } } } } } } } } } } } } }
     }
 
     private static func renderWindowsNow(out: URL) {
@@ -2808,7 +2856,7 @@ enum SelfTest {
     // MARK: Rendering
 
     /// `backdrop` nil keeps the transparent margin transparent, for pictures made of several windows.
-    private static func snapshot(window: NSWindow, to url: URL, backdrop: NSColor? = NSColor(srgbRed: 0.36, green: 0.40, blue: 0.48, alpha: 1),
+    static func snapshot(window: NSWindow, to url: URL, backdrop: NSColor? = NSColor(srgbRed: 0.36, green: 0.40, blue: 0.48, alpha: 1),
                                  completion: @escaping () -> Void) {
         guard let view = window.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { completion(); return }
         view.cacheDisplay(in: view.bounds, to: rep)
@@ -2861,7 +2909,7 @@ enum SelfTest {
         save(img, to: url)
     }
 
-    private static func save(_ image: NSImage, to url: URL) {
+    static func save(_ image: NSImage, to url: URL) {
         guard let tiff = image.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
               let png = rep.representation(using: .png, properties: [:]) else { return }
         try? png.write(to: url)

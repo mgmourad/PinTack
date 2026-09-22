@@ -227,9 +227,10 @@ struct AllNotesView: View {
             }
 
             Divider()
-            HStack {
+            HStack(spacing: 8) {
                 settingsButton
-                Spacer()
+                Spacer(minLength: 0)
+                tutorialButton
             }
             .padding(.horizontal, 6).padding(.bottom, 2)
         }
@@ -407,6 +408,26 @@ struct AllNotesView: View {
         .buttonStyle(.plain)
         .foregroundStyle(.secondary)
         .tip("Settings", "Open PinTack's settings")
+    }
+
+    /// Tutorial | Help, in the sidebar's own bottom corner beside Settings (owner, 2026-09-22):
+    /// a mortar board and a question mark, wide enough to read as a button rather than a glyph.
+    private var tutorialButton: some View {
+        Button { TutorialWindow.show() } label: {
+            HStack(spacing: 7) {
+                Image(systemName: "graduationcap.fill").font(.system(size: 13, weight: .semibold))
+                Rectangle().fill(Color.primary.opacity(0.25)).frame(width: 1, height: 13)
+                Image(systemName: "questionmark").font(.system(size: 12.5, weight: .bold))
+            }
+            .foregroundStyle(Color(nsColor: Brand.accentNS))
+            .padding(.horizontal, 14).frame(height: 30)
+            .background(Capsule().fill(Color(nsColor: Brand.accentNS).opacity(0.14))
+                .overlay(Capsule().strokeBorder(Color(nsColor: Brand.accentNS).opacity(0.35))))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .tip("Tutorial | Help", "A slide for every feature, with a picture of it in use")
+        .accessibilityLabel("Tutorial and help")
     }
 
     private func row(icon: String, title: String, sel: AllNotesModel.Selection, indent: Int) -> some View {

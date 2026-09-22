@@ -1,0 +1,437 @@
+import SwiftUI
+import AppKit
+
+/// The Tutorial | Help presentation (owner, 2026-09-22). SPEC.md §8.4.
+///
+/// One slide per feature, each with a REAL screenshot of that feature in use — the pictures are made
+/// by `scripts/make-tutorial-shots.sh`, which drives the app itself, so a slide can never show a
+/// version of PinTack that no longer exists. Slides advance themselves every 5 seconds until the
+/// reader takes over with ‹ or ›, and then stay where they are put.
+///
+/// The words live apart from the view, as the onboarding card's do: SwiftUI puts none of its own
+/// views into the accessibility tree an NSView hands out, so text only inside the view is text no
+/// test can read.
+enum TutorialContent {
+
+    struct Slide: Identifiable {
+        let image: String
+        let title: String
+        let detail: String
+        /// A shortcut worth knowing on this slide, shown as a key cap. Read live, never hard-coded.
+        let shortcut: ShortcutAction?
+        /// Shown in place of a shortcut when the feature is reached some other way.
+        let hint: String?
+        var id: String { image }
+
+        init(_ image: String, _ title: String, _ detail: String, shortcut: ShortcutAction? = nil, hint: String? = nil) {
+            self.image = image; self.title = title; self.detail = detail; self.shortcut = shortcut; self.hint = hint
+        }
+    }
+
+    static let title = "Tutorial"
+    static let subtitle = "Everything PinTack can do, one thing at a time."
+    static let dismiss = "OK"
+    static let autoAdvance: TimeInterval = 5
+
+    /// The pictures ship as a folder of PNGs rather than an asset catalog, because
+    /// `scripts/make-tutorial-shots.sh` writes them straight into it.
+    static func picture(_ name: String) -> NSImage? {
+        if let url = Bundle.main.url(forResource: name, withExtension: "png", subdirectory: "Tutorial")
+            ?? Bundle.main.url(forResource: name, withExtension: "png") {
+            return NSImage(contentsOf: url)
+        }
+        return NSImage(named: name)
+    }
+
+    static let slides: [Slide] = [
+        Slide("live-preview", "Notes that write themselves neatly",
+              "Type Markdown and it renders as you go — bold, lists, quotes, `code`. The line you are on shows its raw text, so nothing is ever hidden from you. Every note is a plain .md file in your vault.",
+              shortcut: .newNote),
+        Slide("slash-menu", "Type / for anything",
+              "Headings, tables, checklists, code blocks, colours, a divider, today's date. Keep typing to filter the list, Return to insert. Type @ instead and you get your templates.",
+              hint: "Type / in any note"),
+        Slide("code", "Code that looks like code",
+              "Fenced blocks get syntax colours, the language's own logo, and a dark panel of their own on any colour of note. Every language CodeMirror ships is there; each one loads only when a note actually uses it.",
+              hint: "Type ``` or /code"),
+        Slide("todo", "Todos that keep count",
+              "Tag a note todo and its action bar grows progress squares and a count. Add a due date and a reminder, and both travel inside the file. ⌘↩ ticks the line you are on.",
+              shortcut: .newTodo),
+        Slide("pin", "It stays exactly where you put it",
+              "Pin a note above every other window and it takes the pushpin and a glow in its own colour. Collapse it to its title bar, fade it until you reach for it, or freeze it so clicks pass straight through to what is underneath.",
+              shortcut: .pin),
+        Slide("stack", "Stacks: a tidy desk in one click",
+              "The paperclip piles 2 to 5 open notes into one, every title bar showing. Click any title bar to bring that note forward, ⌘1–⌘5 to jump, ⌥Tab to walk the pile. Unstack puts every note back exactly where it was.",
+              hint: "Paperclip in the title bar, or /stack"),
+        Slide("vim", "Vim keys, if you want them",
+              "Turn vim mode on and every note takes vim's keys, with a line-number gutter and : and / opening a command bar in the action bar. A table folds to one line — 3 [+4] — so j and k never wander through it.",
+              hint: "Settings → Editor → Vim mode"),
+        Slide("tags", "Tags, colours and contrast",
+              "Type #tag anywhere and it becomes a pill in the action bar, coloured from its own name or from a colour you pick. Note colours are yours; the text flips light or dark by itself so nothing is ever unreadable.",
+              hint: "Type #tag, or the tag icon"),
+        Slide("all-notes", "Every note, in one window",
+              "Folders, tags, full-text search and a row for every note, each with show, rename and delete. Drag notes onto a folder, pick several to file or bin at once, and export the lot as JSON whenever you like.",
+              shortcut: .toggleAllNotes),
+        Slide("stacks-tab", "Your stacks, listed",
+              "The Stacks tab lists every pile: what is in it, in order, and buttons to show, rename, unstack or delete it. Deleting a stack always asks first, and Return keeps every note by unstacking instead.",
+              shortcut: .toggleAllNotes),
+        Slide("todos-tab", "Everything still to do",
+              "The Todos tab gathers every todo note with its progress and due date, sorted by what is most done, least done or due next. Pick several and mark them complete, or bin them, in one go.",
+              shortcut: .showTodos),
+        Slide("settings", "Make it yours",
+              "Note colour, outline, glow, opacity, font, where new notes land, how quickly they save, the editor's every habit, and a rebindable key for every action. Plugins get their own section, and a permission for everything they touch.",
+              hint: "⌘, or the gear in All Notes"),
+    ]
+}
+
+/// Which slide is showing, and whether the slides are still advancing by themselves. Apart from the
+/// view so the self-test can run the clock without watching pixels.
+final class TutorialModel: ObservableObject {
+    @Published private(set) var index = 0
+    @Published private(set) var auto = true
+    @Published private(set) var progress: Double = 0
+
+    var slides: [TutorialContent.Slide] { TutorialContent.slides }
+
+    /// Called on a timer; returns true when it moved on to the next slide.
+    @discardableResult
+    func tick(_ seconds: TimeInterval) -> Bool {
+        guard auto else { return false }
+        progress += seconds / TutorialContent.autoAdvance
+        guard progress >= 1 else { return false }
+        progress = 0
+        index = (index + 1) % slides.count
+        return true
+    }
+
+    /// Any move made by hand stops the slides advancing by themselves, for good (owner, 2026-09-22).
+    func step(_ delta: Int) { go(to: max(0, min(slides.count - 1, index + delta))) }
+
+    func go(to target: Int) {
+        auto = false
+        progress = 0
+        index = target
+    }
+}
+
+struct TutorialView: View {
+
+    var onDismiss: () -> Void
+
+    @StateObject private var model = TutorialModel()
+    @State private var appeared = false
+
+    private let tick = Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()
+    private var index: Int { model.index }
+    private var auto: Bool { model.auto }
+    private var progress: Double { model.progress }
+    private var slides: [TutorialContent.Slide] { TutorialContent.slides }
+    private var slide: TutorialContent.Slide { slides[min(index, slides.count - 1)] }
+    private var accent: Color { Color(nsColor: Brand.accentNS) }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            stage
+            words
+            controls
+        }
+        .frame(width: 980, height: 700)
+        .background(background)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(.white.opacity(0.09)))
+        .foregroundStyle(.white.opacity(0.92))
+        .onReceive(tick) { _ in advanceClock() }
+        .onAppear { withAnimation(.easeOut(duration: 0.5)) { appeared = true } }
+        .background(KeyCatcher(onLeft: { step(-1) }, onRight: { step(1) }, onClose: onDismiss))
+    }
+
+    // MARK: Pieces
+
+    /// The app's own dark indigo, with a soft orange bloom behind the picture.
+    private var background: some View {
+        ZStack {
+            Color.chromeWindow
+            RadialGradient(colors: [accent.opacity(0.20), .clear], center: .init(x: 0.5, y: 0.18),
+                           startRadius: 10, endRadius: 620)
+            LinearGradient(colors: [.white.opacity(0.05), .clear], startPoint: .top, endPoint: .center)
+        }
+        .ignoresSafeArea()
+    }
+
+    private var header: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Image(systemName: "graduationcap.fill").font(.system(size: 14, weight: .semibold)).foregroundStyle(accent)
+            Text(TutorialContent.title).font(.system(size: 15, weight: .semibold))
+            Text(TutorialContent.subtitle).font(.system(size: 12.5)).foregroundStyle(.white.opacity(0.5))
+            Spacer()
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 12, weight: .bold))
+                    .frame(width: 26, height: 26)
+                    .background(Circle().fill(.white.opacity(0.08)))
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.white.opacity(0.7))
+            .accessibilityLabel("Close")
+            .tip("Close", "Put the tutorial away; the ? button in All Notes brings it back")
+        }
+        .padding(.horizontal, 24).padding(.top, 20).padding(.bottom, 6)
+    }
+
+    /// The screenshot, floating over its own reflection.
+    private var stage: some View {
+        ZStack {
+            ForEach(Array(slides.enumerated()), id: \.element.id) { i, s in
+                if i == index {
+                    picture(s)
+                        .transition(.asymmetric(
+                            insertion: .opacity.combined(with: .offset(x: 60)).combined(with: .scale(scale: 0.97)),
+                            removal: .opacity.combined(with: .offset(x: -60))))
+                }
+            }
+        }
+        .frame(height: 420)
+        .padding(.horizontal, 40)
+        .animation(.spring(response: 0.55, dampingFraction: 0.86), value: index)
+    }
+
+    private func picture(_ s: TutorialContent.Slide) -> some View {
+        let image = TutorialContent.picture(s.image)
+        // The drawn size is worked out here rather than left to a fit: the reflection underneath has
+        // to be laid out at exactly the same size, or it shrinks into a thumbnail.
+        let stageWidth: CGFloat = 880, stageHeight: CGFloat = 330
+        let aspect = (image?.size.width ?? 4) / max(1, image?.size.height ?? 3)
+        let height = min(stageHeight, stageWidth / aspect)
+        let width = height * aspect
+        return VStack(spacing: 4) {
+            Group {
+                if let image {
+                    Image(nsImage: image).resizable().interpolation(.high)
+                } else {
+                    // A picture that has not been generated must not leave a slide blank.
+                    RoundedRectangle(cornerRadius: 12).fill(.white.opacity(0.06))
+                        .overlay(Text(s.image).font(.caption).foregroundStyle(.white.opacity(0.4)))
+                }
+            }
+            .frame(width: width, height: height)
+            .shadow(color: .black.opacity(0.45), radius: 26, y: 14)
+            .shadow(color: accent.opacity(0.18), radius: 40)
+
+            // The reflection: the same picture at the same size, upside down, fading out under it.
+            if let image {
+                Image(nsImage: image).resizable().interpolation(.high)
+                    .frame(width: width, height: height)
+                    .scaleEffect(y: -1, anchor: .center)
+                    .mask(LinearGradient(colors: [.white.opacity(0.5), .clear], startPoint: .top, endPoint: .bottom)
+                        .frame(width: width, height: 74))
+                    .frame(width: width, height: 74, alignment: .top)
+                    .clipped()
+                    .opacity(0.55)
+                    .allowsHitTesting(false)
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var words: some View {
+        VStack(spacing: 9) {
+            Text(slide.title)
+                .font(.system(size: 23, weight: .bold))
+                .multilineTextAlignment(.center)
+            Text(slide.detail)
+                .font(.system(size: 13.5))
+                .foregroundStyle(.white.opacity(0.66))
+                .multilineTextAlignment(.center)
+                .lineSpacing(2)
+                .frame(maxWidth: 640)
+                .fixedSize(horizontal: false, vertical: true)
+            keyCap
+        }
+        .padding(.horizontal, 40)
+        .frame(maxWidth: .infinity)
+        .frame(height: 150, alignment: .top)
+        .id(slide.id)                       // a new slide's words fade in as their own view
+        .transition(.opacity)
+        .animation(.easeOut(duration: 0.35), value: index)
+    }
+
+    @ViewBuilder private var keyCap: some View {
+        if let action = slide.shortcut {
+            HStack(spacing: 8) {
+                Text(ShortcutStore.shared.combo(for: action).display)
+                    .font(.system(size: 11.5, design: .monospaced)).tracking(3)
+                    .padding(.leading, 7).padding(.trailing, 4).padding(.vertical, 3)
+                    .background(RoundedRectangle(cornerRadius: 5).fill(.white.opacity(0.12)))
+                Text(action.title).font(.system(size: 11.5)).foregroundStyle(.white.opacity(0.55))
+            }
+            .padding(.top, 2)
+        } else if let hint = slide.hint {
+            Text(hint).font(.system(size: 11.5)).foregroundStyle(.white.opacity(0.45)).padding(.top, 2)
+        }
+    }
+
+    private var controls: some View {
+        HStack(spacing: 14) {
+            arrow("chevron.left", "Previous", enabled: index > 0) { step(-1) }
+            dots
+            arrow("chevron.right", "Next", enabled: index < slides.count - 1) { step(1) }
+            Spacer()
+            Text("\(index + 1) of \(slides.count)")
+                .font(.system(size: 11.5).monospacedDigit()).foregroundStyle(.white.opacity(0.45))
+            Button(action: onDismiss) {
+                Text(TutorialContent.dismiss)
+                    .font(.system(size: 13.5, weight: .semibold))
+                    .foregroundStyle(.black.opacity(0.85))
+                    .frame(width: 96, height: 32)
+                    .background(Capsule().fill(accent))
+                    .shadow(color: accent.opacity(0.4), radius: 8, y: 2)
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut(.defaultAction)
+            .accessibilityLabel(TutorialContent.dismiss)
+            .tip("OK", "Close the tutorial")
+        }
+        .padding(.horizontal, 24).padding(.bottom, 20).padding(.top, 2)
+    }
+
+    /// One dot per slide; the one showing is a bar that fills while the slide plays itself.
+    private var dots: some View {
+        HStack(spacing: 6) {
+            ForEach(Array(slides.enumerated()), id: \.element.id) { i, s in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(.white.opacity(i == index ? 0.18 : 0.10))
+                    if i == index && auto {
+                        Capsule().fill(accent).frame(width: max(4, 26 * progress))
+                    } else if i == index {
+                        Capsule().fill(accent)
+                    }
+                }
+                .frame(width: i == index ? 26 : 7, height: 7)
+                .contentShape(Rectangle())
+                .onTapGesture { go(to: i) }
+                .accessibilityLabel(s.title)
+            }
+        }
+        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: index)
+    }
+
+    private func arrow(_ symbol: String, _ name: String, enabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 12, weight: .bold))
+                .frame(width: 30, height: 30)
+                .background(Circle().fill(.white.opacity(0.08)))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.white.opacity(enabled ? 0.85 : 0.3))
+        .disabled(!enabled)
+        .accessibilityLabel(name)
+        .tip(name, name == "Next" ? "The next feature; this also stops the slides advancing by themselves"
+                                  : "The feature before this one; this also stops the slides advancing by themselves")
+    }
+
+    // MARK: Moving between slides
+
+    private func advanceClock() {
+        withAnimation { model.tick(0.05) }
+    }
+
+    private func step(_ delta: Int) { withAnimation { model.step(delta) } }
+
+    private func go(to target: Int) { withAnimation { model.go(to: target) } }
+}
+
+/// Arrow keys and Escape, which SwiftUI buttons alone cannot catch in a borderless panel.
+private struct KeyCatcher: NSViewRepresentable {
+    let onLeft: () -> Void
+    let onRight: () -> Void
+    let onClose: () -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = Catcher()
+        view.onLeft = onLeft; view.onRight = onRight; view.onClose = onClose
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        guard let c = nsView as? Catcher else { return }
+        c.onLeft = onLeft; c.onRight = onRight; c.onClose = onClose
+    }
+
+    final class Catcher: NSView {
+        var onLeft: () -> Void = {}
+        var onRight: () -> Void = {}
+        var onClose: () -> Void = {}
+        private var monitor: Any?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let monitor { NSEvent.removeMonitor(monitor); self.monitor = nil }
+            guard window != nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self, self.window?.isKeyWindow == true else { return event }
+                switch event.keyCode {
+                case 123: self.onLeft(); return nil          // ←
+                case 124: self.onRight(); return nil         // →
+                case 53:  self.onClose(); return nil         // Esc
+                default:  return event
+                }
+            }
+        }
+
+        deinit { if let monitor { NSEvent.removeMonitor(monitor) } }
+    }
+}
+
+// MARK: - Window
+
+/// Shows the tutorial, from the ? button in All Notes or from the first-run card.
+enum TutorialWindow {
+
+    private final class Panel: NSPanel {
+        override var canBecomeKey: Bool { true }
+        override func cancelOperation(_ sender: Any?) { TutorialWindow.dismiss() }
+    }
+
+    private static var panel: NSPanel?
+
+    static var isShowing: Bool { panel?.isVisible == true }
+
+    static func show() {
+        if let panel, panel.isVisible { panel.makeKeyAndOrderFront(nil); return }
+        let host = NSHostingView(rootView: TutorialView(onDismiss: { dismiss() }))
+        let size = host.fittingSize
+        let p = Panel(contentRect: NSRect(origin: .zero, size: size),
+                      styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        p.isOpaque = false
+        p.backgroundColor = .clear
+        p.hasShadow = true
+        p.level = .modalPanel
+        p.isReleasedWhenClosed = false
+        p.isMovableByWindowBackground = true
+        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        host.frame = NSRect(origin: .zero, size: size)
+        host.autoresizingMask = [.width, .height]
+        p.contentView = host
+
+        let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
+        if let visible = screen?.visibleFrame {
+            p.setFrameOrigin(NSPoint(x: visible.midX - size.width / 2, y: visible.midY - size.height / 2))
+        }
+        Motion.appear(window: p, content: host, to: 1)
+        NSApp.activate(ignoringOtherApps: true)
+        p.makeKeyAndOrderFront(nil)
+        panel = p
+    }
+
+    static func dismiss() {
+        panel?.close()
+        panel = nil
+    }
+
+    #if DEBUG
+    static var panelForTesting: NSWindow? { panel }
+    #endif
+}
