@@ -471,7 +471,11 @@ the cap so a stack never grows tall.
   sends the front note to the back, so pressing it walks the whole stack. Both only act while a
   stacked note is key; anywhere else the key is left alone.
 - **Bringing a note forward**, by a click on its title bar or by any other route that makes it the
-  active window (Mission Control, ⌘`), re-lays the whole pile with the spring: that note to the front
+  active window (Mission Control, ⌘`), re-lays the whole pile with the spring. macOS makes the window
+  whose margin covers that title bar key, which is usually the note in FRONT of the one clicked, so
+  that key event is acted on only while its window is still key and still not the front — otherwise
+  it undid the hand-off a moment later and the wrong note came forward. A note behind the front
+  reserves no room for a wrapped task tracker, whose bar would otherwise hang out below the pile: that note to the front
   place, the rest back behind it. macOS raises a clicked window on the press, so a click is anything
   under 4 pt of movement; more than that drags the whole pile. **Every point of a back title bar
   works:** the window in front's transparent margin (§5.2) lies over the lower part of the title bar

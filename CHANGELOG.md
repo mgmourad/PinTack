@@ -12,6 +12,17 @@ it stands.
 
 ---
 
+## Unreleased
+
+### Fixed
+- **In a stack, the note you clicked was not always the one that came forward (owner, twice).**
+  macOS makes the window whose margin covers a back title bar key on the press — usually the note in
+  front of the one aimed at — and that key event undid the hand-off a moment later: clicking #4
+  brought #3 up. The self-test now clicks through a pile of five faster than it animates and checks
+  that the note aimed at is the one in front; it failed three clicks in four before the fix.
+- **A todo in a pile hung its action bar out below the front note**, a stray strip of another
+  colour. Behind the front, a note no longer reserves room for a wrapped task tracker.
+
 ## Build 12 — 2026-09-22
 
 ### Added

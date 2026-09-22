@@ -429,6 +429,14 @@ Owner decisions added after the rebuild (2026-09-19):
 - All Notes and Settings tooltips read "Name | description" through `Tip.text` / `.tip(_:_:)`, after
   1 second; the All Notes glyph tabs draw their own (`GlyphTabs`, 0.5 s, orange). Every new control
   there gets one. Row icons go through `RowActionIcons`: show/hide, rename, (Unstack), delete.
+- `NotePanel.becomeKey`'s hand-forward runs only if the window is STILL key and still not the front
+  when it fires: macOS makes the window whose MARGIN covers a back title bar key on the press, and
+  that stale event used to drag the wrong note forward right after the hand-off — clicking #4 brought
+  #3 up (owner-reported twice, 2026-09-22). The self-test clicks through a pile of five faster than
+  it animates and checks the note AIMED AT is the one in front; checking only that the pile is
+  self-consistent proved nothing, because titles and geometry both come from `order`.
+- Behind the front of a stack, a note reserves NO room for a wrapped task tracker
+  (`NotePanel.footerExtra`): the bar grows downward, so a back todo's bar poked out under the pile.
 - A stacked window TAKES clicks in its margin that lie over another member's title bar and hands
   them on (`stackMemberUnder`). Without it, clicks low on a back title bar were dropped: macOS routes
   them to the front window wherever its shadow is not fully transparent. Synthetic clicks sent
