@@ -1439,7 +1439,14 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
             super.mouseDown(with: event); return
         }
         if showsOwnPin && pinRect.contains(local) { togglePin(); return }
-        if event.clickCount == 2 && titleField.frame.contains(local) { dragOrigin = nil; beginRename(); return }
+        // Double-click renames a note's title — but NOT while it is in a stack (owner's three rules,
+        // 2026-09-22): there the title bar's job is to bring that note to the front, and clicking one
+        // twice used to drop the note into rename mode, after which every further click went into a
+        // text field and the pile stopped responding. Rename a stacked note from All Notes, or
+        // unstack it first.
+        if event.clickCount == 2 && titleField.frame.contains(local) && stack == nil {
+            dragOrigin = nil; beginRename(); return
+        }
         if event.clickCount == 2 && stackNameField.frame.contains(local) && stack != nil {
             dragOrigin = nil; beginStackRename(); return
         }
@@ -1450,7 +1457,9 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
 
     /// Where the press began, on the screen. A click is anything that moved less than this.
     private var dragStart: NSPoint?
-    private static let clickSlop: CGFloat = 4
+    /// 6pt, not 4: a trackpad click drifts a couple of points under a finger, and those were being
+    /// read as a drag of the pile instead of a click on a title bar (owner, 2026-09-22).
+    private static let clickSlop: CGFloat = 6
 
     override func mouseDragged(with event: NSEvent) {
         guard let origin = dragOrigin, let window else { super.mouseDragged(with: event); return }
@@ -1458,7 +1467,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         // is the real cursor and so cannot be driven by tests).
         let current = window.convertPoint(toScreen: event.locationInWindow)
         let target = NSPoint(x: current.x - origin.x, y: current.y - origin.y)
-        // A hand never holds perfectly still: under 4pt from the press is still a click, which in a
+        // A hand never holds perfectly still: under `clickSlop` from the press is still a click, which in a
         // stack brings the note forward rather than dragging the pile a pixel.
         if let start = dragStart, !dragMoved, hypot(current.x - start.x, current.y - start.y) < NoteCardView.clickSlop { return }
         dragMoved = true

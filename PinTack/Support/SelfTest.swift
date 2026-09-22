@@ -2591,9 +2591,42 @@ enum SelfTest {
         /// The pile as it stands: front first.
         func pile() -> [String] { (sm.stack(id: made.id)?.order ?? []).map(name) }
 
+        /// What is actually ON SCREEN: where each note's card sits, which order the windows are in,
+        /// and whether every title bar can still be seen and hit. The model saying the right thing
+        /// proves nothing about the pile you are looking at.
+        func drawnFaults() -> [String] {
+            guard let st = sm.stack(id: made.id), let front = wm.panel(for: st.front ?? "") else { return ["no stack"] }
+            let base = NotePanel.cardRect(forWindow: front.frame)
+            var bad: [String] = []
+            for (place, id) in st.order.enumerated() {
+                guard let p = wm.panel(for: id) else { bad.append("\(name(id)) has no window"); continue }
+                let card = NotePanel.cardRect(forWindow: p.frame)
+                let wantTop = base.maxY + CGFloat(place) * NotePanel.headerHeight
+                if abs(card.maxY - wantTop) > 1 || abs(card.minX - base.minX) > 1 || abs(card.width - base.width) > 1 {
+                    bad.append("\(name(id)) drawn at \(Int(card.minX)),\(Int(card.maxY)) w\(Int(card.width))"
+                               + " but place \(place + 1) is \(Int(base.minX)),\(Int(wantTop)) w\(Int(base.width))")
+                }
+                // Its title bar must be reachable: whatever window macOS finds there has to lead back
+                // to this note, or the note is buried and cannot be clicked at all.
+                let point = NSPoint(x: card.midX, y: card.maxY - NotePanel.headerHeight / 2)
+                let number = NSWindow.windowNumber(at: point, belowWindowWithWindowNumber: 0)
+                guard let hit = wm.openPanels.first(where: { $0.windowNumber == number }) else {
+                    bad.append("\(name(id))'s title bar is covered by something that is not a note"); continue
+                }
+                if hit.card.debugClickTarget(atScreen: point) != id {
+                    bad.append("\(name(id))'s title bar leads to \(name(hit.card.debugClickTarget(atScreen: point)))")
+                }
+            }
+            let z = (NSWindow.windowNumbers(options: []) ?? []).compactMap { n in
+                st.order.first { wm.panel(for: $0)?.windowNumber == n.intValue }
+            }
+            if z != st.order { bad.append("drawn front-to-back \(z.map(name).joined(separator: ",")) but the pile is \(st.order.map(name).joined(separator: ","))") }
+            return bad
+        }
+
         /// A click at the middle of the title bar at `place`, delivered to whichever window macOS
         /// says is under that point — which is how the real thing reaches the app.
-        func clickTitleBar(place: Int) -> (aimedAt: String, delivered: String) {
+        func clickTitleBar(place: Int, clickCount: Int = 1) -> (aimedAt: String, delivered: String) {
             guard let s = sm.stack(id: made.id), s.order.indices.contains(place - 1),
                   let target = wm.panel(for: s.order[place - 1]) else { return ("?", "?") }
             let card = NotePanel.cardRect(forWindow: target.frame)
@@ -2604,7 +2637,7 @@ enum SelfTest {
             let inWindow = hit.convertPoint(fromScreen: point)
             for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
                 if let e = NSEvent.mouseEvent(with: type, location: inWindow, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-                                              windowNumber: hit.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
+                                              windowNumber: hit.windowNumber, context: nil, eventNumber: 0, clickCount: clickCount, pressure: 1) {
                     hit.sendEvent(e)
                 }
             }
@@ -2616,6 +2649,8 @@ enum SelfTest {
             var wrong: [String] = []
             var lost: [String] = []
             var notSwapped: [String] = []
+            var onScreen: [String] = []
+            var renamingStarted: [String] = []
             let atRest = pile()
             // Each place clicked twice, in turn, letting the pile settle between clicks.
             var steps: [(Int, Int)] = []
@@ -2629,6 +2664,10 @@ enum SelfTest {
                     check("a note brought forward trades places with the front one, and nothing else moves",
                           notSwapped.isEmpty, notSwapped.joined(separator: "; "))
                     // Ten clicks, two at each place: every place ends up back where it started.
+                    check("clicking a title bar twice does not leave a note being renamed",
+                          renamingStarted.isEmpty, renamingStarted.joined(separator: "; "))
+                    check("what is on screen matches the pile after every click: place, order and a title bar you can hit",
+                          onScreen.isEmpty, onScreen.prefix(4).joined(separator: " | "))
                     check("clicking the same title bar twice puts the pile back as it was",
                           pile() == atRest, "\(pile().joined(separator: ",")) against \(atRest.joined(separator: ","))")
                     for n in notes { wm.close(noteID: n.id) }
@@ -2637,13 +2676,22 @@ enum SelfTest {
                     return
                 }
                 let before = pile()
-                let (aimed, delivered) = clickTitleBar(place: step.0)
+                // The second click at a place lands as a DOUBLE click, which is what a person
+                // clicking twice actually sends.
+                let (aimed, delivered) = clickTitleBar(place: step.0, clickCount: step.1)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
                     let after = pile()
                     log("CLICK place \(step.0) (\(step.1) of 2): aimed at \(aimed), macOS delivered to \(delivered) — "
                         + "\(before.joined(separator: ",")) → \(after.joined(separator: ","))")
                     if after.first != aimed { wrong.append("place \(step.0)#\(step.1): clicked \(aimed), \(after.first ?? "?") came forward") }
                     if Set(after) != Set(before) || after.count != 5 { lost.append("place \(step.0)#\(step.1): pile became \(after.joined(separator: ","))") }
+                    // A double click must not leave a note being renamed, or the next click goes into
+                    // a text field instead of the pile.
+                    if let renaming = wm.openPanels.first(where: { $0.card.debugIsRenaming }) {
+                        renamingStarted.append("place \(step.0)#\(step.1) left \(name(renaming.note.id)) being renamed")
+                    }
+                    let drawn = drawnFaults()
+                    if !drawn.isEmpty { onScreen.append("place \(step.0)#\(step.1): " + drawn.joined(separator: " / ")) }
                     // A SWAP (owner, 2026-09-22): the two notes trade places and nothing else moves.
                     var want = before
                     want.swapAt(0, step.0 - 1)
