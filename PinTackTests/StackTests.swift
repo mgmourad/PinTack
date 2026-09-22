@@ -58,6 +58,57 @@ final class StackTests: VaultTestCase {
         XCTAssertEqual(result.first?.order, ["n3", "n1", "n2", "n4", "n5"])
     }
 
+    // MARK: The file is disposable, like the search index: nothing it says can stop a launch or touch a note.
+
+    func testAMissingFileMeansNoStacksAndWritesNothing() {
+        let m = StackManager()
+        m.load(from: meta, alive: ["n1", "n2"])
+        XCTAssertTrue(m.stacks.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: file.path), "no stacks, so no file is conjured up")
+    }
+
+    func testAFileThatCannotBeReadMeansNoStacks() throws {
+        try write([stack("a", ["n1", "n2"])])
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: file.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: file.path) }
+        let m = StackManager()
+        m.load(from: meta, alive: ["n1", "n2"])
+        XCTAssertTrue(m.stacks.isEmpty)
+    }
+
+    func testTheWrongShapeOfJSONMeansNoStacks() throws {
+        try FileManager.default.createDirectory(at: meta, withIntermediateDirectories: true)
+        try #"{"version": 9, "stacks": [{"id": 3, "members": "n1"}]}"#.write(to: file, atomically: true, encoding: .utf8)
+        let m = StackManager()
+        m.load(from: meta, alive: ["n1"])
+        XCTAssertTrue(m.stacks.isEmpty)
+    }
+
+    func testStaleReferencesAreDroppedEverywhereTheyAppear() throws {
+        var s = stack("a", ["n1", "gone", "n2"], order: ["gone", "n2", "n1"])
+        s.before = ["n1": .init(x: 0, y: 0, width: 1, height: 1, collapsed: false),
+                    "gone": .init(x: 0, y: 0, width: 1, height: 1, collapsed: false)]
+        try write([s, stack("b", ["gone", "also-gone"])])
+        let m = StackManager()
+        m.load(from: meta, alive: ["n1", "n2"])
+        XCTAssertEqual(m.stacks.count, 1, "a stack whose notes are all gone is gone")
+        XCTAssertEqual(m.stacks.first?.order, ["n2", "n1"])
+        XCTAssertEqual(m.stacks.first.map { Set($0.before.keys) }, ["n1"])
+    }
+
+    func testNothingInTheStackFileEverModifiesANote() throws {
+        let a = store.createNote(body: "first"), b = store.createNote(body: "second")
+        let before = try [a, b].map { try read($0.fileURL) }
+        for text in ["{ not json", #"{"version":1,"stacks":[]}"#] {
+            try FileManager.default.createDirectory(at: meta, withIntermediateDirectories: true)
+            try text.write(to: file, atomically: true, encoding: .utf8)
+            StackManager().load(from: meta, alive: [a.id, b.id])
+        }
+        try write([stack("s", [a.id, "gone", b.id])])
+        StackManager().load(from: meta, alive: [a.id, b.id])
+        XCTAssertEqual(try [a, b].map { try read($0.fileURL) }, before, "a stack file, good or bad, is never written into a note")
+    }
+
     func testAnUnreadableFileLosesNothingElse() throws {
         try FileManager.default.createDirectory(at: meta, withIntermediateDirectories: true)
         try "{ not json".write(to: file, atomically: true, encoding: .utf8)

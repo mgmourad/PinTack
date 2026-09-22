@@ -55,6 +55,10 @@ final class StackManager {
 
     private struct File: Codable { var version = 1; var stacks: [NoteStack] }
 
+    /// The file is DISPOSABLE, like the search index (owner, 2026-09-22): missing, unreadable, corrupt
+    /// or the wrong shape all mean "no stacks", never an error, never a blocked launch, and nothing
+    /// read here is ever written into a note. A bad file is left alone until the next stack change
+    /// replaces it.
     func load(from metaDirectory: URL, alive: Set<String>? = nil) {
         let url = metaDirectory.appendingPathComponent("stacks.json")
         fileURL = url
