@@ -12,7 +12,7 @@ it stands.
 
 ---
 
-## Unreleased
+## Build 11 — 2026-09-22
 
 ### Added
 - **Stack delete asks three ways (owner):** Unstack (the default, on Return), Delete N Notes (red),
