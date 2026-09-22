@@ -927,7 +927,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         let headerY = c.maxY - NotePanel.headerHeight
         let buttonY = headerY + (NotePanel.headerHeight - btn) / 2
         // The title clears the overhanging pin when the note is pinned. SPEC.md §5.2.
-        let left = c.minX + (showsOwnPin ? 24 : 12)
+        let left = c.minX + (showsOwnPin ? 28 : 12)
 
         var titleRight: CGFloat
         if stack != nil {
