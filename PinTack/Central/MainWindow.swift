@@ -87,7 +87,10 @@ struct MainWindowView: View {
             .scaleEffect(shown || !Motion.enabled ? 1 : 0.985)
             .allowsHitTesting(shown)
             .accessibilityHidden(!shown)
-            .animation(ChromeMotion.spring, value: model.tab)
+        // No `.animation(_:value:)` here. That fired on EVERY tab change, including one made while the
+        // window was closed, where the animation is never driven: the model said Settings and the
+        // window still drew All Notes (caught by the self-test, 2026-09-21). Animation comes only
+        // from an explicit withAnimation — a tab clicked, with the window on screen.
     }
 }
 
@@ -117,16 +120,20 @@ final class MainWindowController {
             if !w.setFrameUsingName("PinTackMainWindow") { w.center() }
             window = w
         }
-        if MainWindowModel.shared.tab != tab {
-            // Switched WITHOUT animation. This path is a shortcut or a menu, often pressed while
-            // another app is in front, and SwiftUI animations do not advance in an app that is not
-            // the active one: an animated switch here left the window drawing the old tab while the
-            // model said the new one (seen in the self-test, 2026-09-21). Clicks on the tabs, which
-            // can only happen with the app active, still animate.
-            withAnimation(ChromeMotion.spring) { MainWindowModel.shared.tab = tab }
-        }
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
+        if MainWindowModel.shared.tab != tab {
+            // A shortcut or menu switches the tab instantly, since the window may only just be
+            // coming forward; a click on a tab is what springs.
+            var instant = Transaction()
+            instant.disablesAnimations = true
+            withTransaction(instant) { MainWindowModel.shared.tab = tab }
+            // And once more on the next turn of the run loop. A change that lands while SwiftUI is
+            // part-way through another update (a setting changed just before) can be dropped: the
+            // model said Settings and the window drew All Notes until something else redrew it.
+            // Measured in the self-test, 2026-09-21; this nudge is what fixed it.
+            DispatchQueue.main.async { MainWindowModel.shared.objectWillChange.send() }
+        }
     }
 
     func close() { window?.close() }
