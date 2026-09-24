@@ -149,10 +149,10 @@ final class NoteFormatTests: XCTestCase {
     }
 
     func testInlineTagsMergeIntoFrontmatterButNotFromCodeOrHeadings() {
-        let n = Note(fileURL: url, body: "# Heading\nThis is #urgent and #Work/Northwind.\n```\n#notatag\n```\nissue #123 and C# too\n")
-        n.tags = ["work/northwind"]
+        let n = Note(fileURL: url, body: "# Heading\nThis is #urgent and #Work/Backend.\n```\n#notatag\n```\nissue #123 and C# too\n")
+        n.tags = ["work/backend"]
         n.mergeInlineTags()
-        XCTAssertEqual(Set(n.tags.map { $0.lowercased() }), ["work/northwind", "urgent"])
+        XCTAssertEqual(Set(n.tags.map { $0.lowercased() }), ["work/backend", "urgent"])
         XCTAssertEqual(n.tags.count, 2, "case-insensitive duplicate must not be added twice")
     }
 

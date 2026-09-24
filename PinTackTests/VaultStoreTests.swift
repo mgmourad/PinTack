@@ -102,13 +102,13 @@ final class VaultStoreTests: VaultTestCase {
     // MARK: Tags, search, duplicates
 
     func testNestedTagsCountUnderEveryAncestor() throws {
-        let a = store.createNote(body: "x"); a.tags = ["work/northwind"]
+        let a = store.createNote(body: "x"); a.tags = ["work/backend"]
         let b = store.createNote(body: "y"); b.tags = ["Work"]
         let counts = Dictionary(uniqueKeysWithValues: store.tagCounts().map { ($0.tag.lowercased(), $0.count) })
         XCTAssertEqual(counts["work"], 2)
-        XCTAssertEqual(counts["work/northwind"], 1)
+        XCTAssertEqual(counts["work/backend"], 1)
         XCTAssertTrue(store.matches(tag: "work", note: a))
-        XCTAssertFalse(store.matches(tag: "work/northwind", note: b))
+        XCTAssertFalse(store.matches(tag: "work/backend", note: b))
     }
 
     func testFullTextSearchFindsTitleBodyAndTagsWithPrefixMatching() throws {

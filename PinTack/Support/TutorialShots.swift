@@ -135,9 +135,10 @@ enum TutorialShots {
                 }
             }),
             ("tags", { done in
-                note("Northwind ring\n\nPilot users: 40\nNext wave: Monday",
+                // Nothing from anyone's real work in the shipped pictures: made-up, ordinary content.
+                note("Release 4.2\n\nPilot users: 40\nNext wave: Monday",
                      size: NSSize(width: 340, height: 240), colour: "#D9F3C9",
-                     tags: ["ops", "northwind", "intune"], caret: 0, then: done)
+                     tags: ["ops", "release", "urgent"], caret: 0, then: done)
             }),
             ("all-notes", { done in
                 sampleVault()
@@ -179,13 +180,16 @@ enum TutorialShots {
                 AppSettings.shared.vimMode = false
                 after(0.5) { run(Array(rest.dropFirst()), out: out) }
             }
+            // A note is small on screen and drawn large in the tutorial, so it is captured at 3; a
+            // whole window is already big and captured at 2, which keeps the file sensible.
+            let scale: CGFloat = panels.isEmpty ? 2 : 3
             if panels.isEmpty {
                 guard let window = MainWindowController.shared.window else { finish(); return }
-                SelfTest.snapshot(window: window, to: url, backdrop: nil) { finish() }
+                SelfTest.snapshot(window: window, to: url, backdrop: nil, scale: scale) { finish() }
             } else if panels.count > 1 {
-                SelfTest.snapshotPile(panels, to: url) { finish() }
+                SelfTest.snapshotPile(panels, to: url, scale: scale) { finish() }
             } else {
-                SelfTest.snapshot(window: panels[0], to: url, backdrop: nil) { finish() }
+                SelfTest.snapshot(window: panels[0], to: url, backdrop: nil, scale: scale) { finish() }
             }
         }
     }
@@ -216,9 +220,9 @@ enum TutorialShots {
     private static func sampleVault() {
         let folder = VaultStore.shared.createFolder("Operations") ?? ""
         let samples: [(String, String, [String])] = [
-            ("Patch Tuesday\n\n- [x] ring 1\n- [ ] ring 2", "#F6D6E8", ["todo", "ops"]),
+            ("Patch Tuesday\n\n- [x] first wave\n- [ ] second wave", "#F6D6E8", ["todo", "ops"]),
             ("Cert renewal\n\nExpires 14 Oct. Renew on the build agent.", "#FFE9A8", ["ops"]),
-            ("Intune baseline\n\nBitLocker, Defender, updates.", "#D9F3C9", ["intune"]),
+            ("Backup policy\n\nNightly, 30 days, offsite copy.", "#D9F3C9", ["ops"]),
             ("Standup\n\n@Todo Standup\n- [ ] blockers", "#CFE6FF", ["todo"]),
             ("Useful commands\n\n```bash\nssh web01 uptime\n```", "#E7DFFA", ["ops"]),
         ]

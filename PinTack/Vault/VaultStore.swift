@@ -190,7 +190,7 @@ final class VaultStore {
         return dir == root ? "" : String(dir.dropFirst(root.count + 1))
     }
 
-    /// Tag → count. Nested tags (`work/northwind`) also count under each ancestor. SPEC.md §3.5.
+    /// Tag → count. Nested tags (`work/backend`) also count under each ancestor. SPEC.md §3.5.
     func tagCounts() -> [(tag: String, count: Int)] {
         var counts: [String: (display: String, n: Int)] = [:]
         for note in notes {
