@@ -91,6 +91,8 @@ struct GlyphTabs<Value: Hashable>: View {
 
     static var tipDelay: TimeInterval { 0.5 }
 
+
+
     @Binding var selection: Value
     let items: [Item]
     @Namespace private var pill
@@ -125,10 +127,16 @@ struct GlyphTabs<Value: Hashable>: View {
                 }
                 .buttonStyle(.plain)
                 .onHover { inside in hover(inside ? item.value : nil, leaving: item.value) }
-                // Anchored to the side it is nearest, so a tip under the first or last tab stays in
-                // the sidebar instead of running off its edge.
-                .overlay(alignment: index == 0 ? .topLeading : index == items.count - 1 ? .topTrailing : .top) {
+                // Anchored to the side it is nearest: a tip centred under the second tab ran off the
+                // sidebar's left edge and lost its first words (owner, 2026-09-23).
+                .overlay(alignment: index <= 1 ? .topLeading : index >= items.count - 2 ? .topTrailing : .top) {
+                    #if DEBUG
+                    if tipFor == item.value || GlyphTabsTesting.forcedTip == index {
+                        bubble(item).offset(y: 36).allowsHitTesting(false)
+                    }
+                    #else
                     if tipFor == item.value { bubble(item).offset(y: 36).allowsHitTesting(false) }
+                    #endif
                 }
                 .zIndex(tipFor == item.value ? 1 : 0)
                 .accessibilityLabel(item.name)
@@ -235,3 +243,11 @@ struct CentredRow: LabeledContentStyle {
         }
     }
 }
+
+#if DEBUG
+/// The self-test shows one glyph tab's tooltip without a pointer, to photograph it. A type of its
+/// own because a generic view cannot hold a static of its own.
+enum GlyphTabsTesting {
+    static var forcedTip: Int?
+}
+#endif

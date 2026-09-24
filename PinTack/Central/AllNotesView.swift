@@ -160,6 +160,9 @@ struct AllNotesView: View {
             sidebar
                 .frame(width: 208)
                 .background(Color.chromeSidebar)
+                // Above the note list: the tab tooltips hang below the tabs and a little past the
+                // sidebar's edge, and were being cut off by the pane beside them (owner, 2026-09-23).
+                .zIndex(1)
             Rectangle().fill(Color.chromeHairline).frame(width: 1)
             main
                 .background(Color.chromeWindow)

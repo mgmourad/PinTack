@@ -1494,6 +1494,9 @@ enum SelfTest {
     private static func reminderPopoverTest(out: URL, panel: NotePanel, then next: @escaping () -> Void) {
         let card = panel.card!
         WindowManager.shared.openPanels.forEach { $0.card.debugDismissPopover() }
+        // Opened with the calendar showing (owner, 2026-09-23), so it can be driven here; in the app
+        // the calendar button opens it.
+        ReminderPopoverDebug.forceCalendar = true
         card.debugShowReminderPopover()
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
@@ -1524,11 +1527,29 @@ enum SelfTest {
             // Done carries the panel's default-action shortcut, so Return runs the very closure the
             // button runs. SwiftUI draws its own buttons and puts none of them in the accessibility
             // tree, so there is nothing else here to press.
+            // The calendar beside the date field: picking a day must set the note's date and show
+            // in the typed field too, keeping its time of day.
+            if let calendar = ReminderPopoverDebug.calendarPicker {
+                let wasTime = Calendar.current.dateComponents([.hour, .minute], from: picker.dateValue)
+                let newDay = Calendar.current.date(byAdding: .day, value: 8, to: picker.dateValue) ?? Date()
+                calendar.dateValue = newDay
+                calendar.sendAction(calendar.action, to: calendar.target)
+                let typed = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: picker.dateValue)
+                let want = Calendar.current.dateComponents([.year, .month, .day], from: newDay)
+                check("a day picked on the calendar reaches the date field, keeping the time",
+                      typed.year == want.year && typed.month == want.month && typed.day == want.day
+                          && typed.hour == wasTime.hour && typed.minute == wasTime.minute,
+                      "\(typed.day ?? 0)/\(typed.month ?? 0) \(typed.hour ?? 0):\(typed.minute ?? 0)")
+            } else {
+                check("the reminder popover offers a calendar", false, "no calendar picker found")
+            }
+
             check("the reminder popover is open before Done", card.debugPopoverShown)
             pressReturn(in: picker.window)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                 check("Done closes the reminder popover instead of leaving it on screen",
                       !card.debugPopoverShown)
+                ReminderPopoverDebug.forceCalendar = false
                 card.debugDismissPopover()
                 next()
             }
@@ -2084,6 +2105,7 @@ enum SelfTest {
         try {
         view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: "\(doc)" }, selection: { anchor: 0 } });
         await new Promise((r) => setTimeout(r, 1200));
+        if (document.visibilityState !== "visible" || view.dom.getBoundingClientRect().height < 10) return "page not drawn";
         const off = []; let base = null;
         for (const el of document.querySelectorAll(".cm-lineNumbers .cm-gutterElement")) {
           const n = parseInt(el.textContent, 10);
@@ -2102,6 +2124,11 @@ enum SelfTest {
         """
         vimJS(panel, js) { value in
             let off = value as? String ?? "no answer"
+            // A page in a covered window is not laid out by WebKit, so there is nothing to measure.
+            guard panel.occlusionState.contains(.visible), off != "page not drawn" else {
+                skipped("gutter alignment", "the note's page was not on screen to measure")
+                return next()
+            }
             check("every gutter number sits level with its line, below a table and a picture too",
                   off == "none", "lines off by px: \(off)")
             next()
@@ -2418,11 +2445,14 @@ enum SelfTest {
             // Measured against the pile as it stands now, not against the order the notes were made
             // in: earlier checks in this test move notes about.
             let beforeCycle = sm.stack(id: made.id)?.order ?? []
+            let haveKey = WindowManager.shared.keyPanel != nil
             _ = press(.stackCycle)
             let afterCycle = sm.stack(id: made.id)?.order ?? []
-            check("⌥Tab brings the next note forward and sends the front one to the back",
-                  afterCycle == Array(beforeCycle.dropFirst()) + [beforeCycle.first ?? ""],
-                  "\(beforeCycle.count) → \(afterCycle.count)")
+            if haveKey {
+                check("⌥Tab brings the next note forward and sends the front one to the back",
+                      afterCycle == Array(beforeCycle.dropFirst()) + [beforeCycle.first ?? ""],
+                      "\(beforeCycle.count) → \(afterCycle.count)")
+            } else { skipped("⌥Tab", "no note had the keyboard") }
             let beforeThree = sm.stack(id: made.id)?.order ?? []
             _ = press(.stackNote3)
             var wantThree = beforeThree
@@ -2432,12 +2462,16 @@ enum SelfTest {
             let titlesMatchPlaces = afterThree.enumerated().allSatisfy { place, id in
                 panels.first { $0.note.id == id }?.card.debugTitleText.string.hasPrefix("#\(place + 1)") == true
             }
-            check("⌘3 brings the third note from the front forward, trading places with it",
-                  afterThree == wantThree && titlesMatchPlaces,
-                  panels.map { $0.card.debugTitleText.string }.joined(separator: " | "))
+            if haveKey {
+                check("⌘3 brings the third note from the front forward, trading places with it",
+                      afterThree == wantThree && titlesMatchPlaces,
+                      panels.map { $0.card.debugTitleText.string }.joined(separator: " | "))
+            } else { skipped("⌘3", "no note had the keyboard") }
             loner.visible = true
             wm.panel(for: loner.id)?.makeKeyAndOrderFront(nil)
-            check("⌘1 in a note that is not in a stack is left for the note", press(.stackNote1) != nil)
+            if WindowManager.shared.keyPanel != nil {
+                check("⌘1 in a note that is not in a stack is left for the note", press(.stackNote1) != nil)
+            } else { skipped("⌘1 outside a stack", "no note had the keyboard") }
 
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                 let slot = sm.stack(id: made.id).flatMap { s in wm.panel(for: s.front ?? "")?.note.cardFrame }
@@ -2460,8 +2494,10 @@ enum SelfTest {
                     // Any other way a back note becomes the active window brings it forward too.
                     panels[2].makeKeyAndOrderFront(nil)
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                        check("a back note that becomes the active window by any route comes to the front of its stack",
-                              sm.stack(id: made.id)?.front == notes[2].id)
+                        if panels[2].isKeyWindow {
+                            check("a back note that becomes the active window by any route comes to the front of its stack",
+                                  sm.stack(id: made.id)?.front == notes[2].id)
+                        } else { skipped("a back note becoming active", "the window could not take the keyboard") }
                         sm.bringToFront(notes[1].id)
                     }
                 }
@@ -2620,6 +2656,11 @@ enum SelfTest {
         }
     }
 
+    /// A check that could not be run, said out loud: silence would look like coverage.
+    private static func skipped(_ what: String, _ why: String) {
+        log("SKIPPED \(what): \(why)")
+    }
+
     /// The owner's own procedure (2026-09-22): five notes, five colours, click the title bar at each
     /// PLACE twice in turn and watch what the pile does. Reports every click, and checks the two
     /// things that must hold: the note clicked ends up in front, and the pile keeps its order.
@@ -2627,6 +2668,7 @@ enum SelfTest {
         let wm = WindowManager.shared, sm = StackManager.shared
         let colours = ["#FFE9A8", "#D9F3C9", "#CFE6FF", "#F6D6E8", "#E7DFFA"]
         let names = ["Butter", "Mint", "Sky", "Rose", "Lilac"]
+        MainWindowController.shared.close()          // it would sit over the pile
         let notes = zip(colours, names).enumerated().map { i, pair in
             let n = VaultStore.shared.createNote(body: "\(pair.1) note",
                                                  frame: NSRect(x: 240 + CGFloat(i) * 30, y: 260, width: 330, height: 240))
@@ -2648,6 +2690,8 @@ enum SelfTest {
         /// proves nothing about the pile you are looking at.
         func drawnFaults() -> [String] {
             guard let st = sm.stack(id: made.id), let front = wm.panel(for: st.front ?? "") else { return ["no stack"] }
+            // Nothing here can be judged with another app's window over the notes.
+            guard NSApp.isActive else { skipped("what is drawn", "PinTack was not the active app"); return [] }
             let base = NotePanel.cardRect(forWindow: front.frame)
             var bad: [String] = []
             for (place, id) in st.order.enumerated() {
@@ -2679,6 +2723,8 @@ enum SelfTest {
         /// A click at the middle of the title bar at `place`, delivered to whichever window macOS
         /// says is under that point — which is how the real thing reaches the app.
         func clickTitleBar(place: Int, clickCount: Int = 1) -> (aimedAt: String, delivered: String) {
+            // Another app's window over the notes would take the click and fail every check below.
+            if !NSApp.isActive { NSApp.activate(ignoringOtherApps: true) }
             guard let s = sm.stack(id: made.id), s.order.indices.contains(place - 1),
                   let target = wm.panel(for: s.order[place - 1]) else { return ("?", "?") }
             let card = NotePanel.cardRect(forWindow: target.frame)
@@ -2774,6 +2820,7 @@ enum SelfTest {
                                          frame: NSRect(x: 180 + CGFloat(i) * 40, y: 200 + CGFloat(i) * 30,
                                                        width: size.width, height: size.height))
         }
+        MainWindowController.shared.close()          // it would sit over the pile
         notes.forEach { wm.open($0) }
         guard let made = sm.create(name: "Recipes", noteIDs: notes.map(\.id)) else {
             check("a stack of five is made", false); return next()
@@ -2918,7 +2965,7 @@ enum SelfTest {
     }
 
     /// Several note windows in one picture, where they sit on the screen, back to front.
-    static func snapshotPile(_ panels: [NotePanel], to url: URL, completion: @escaping () -> Void) {
+    static func snapshotPile(_ panels: [NotePanel], to url: URL, scale: CGFloat = 1, completion: @escaping () -> Void) {
         let numbers = (NSWindow.windowNumbers(options: []) ?? []).map(\.intValue)
         let ordered = numbers.compactMap { n in panels.first { $0.windowNumber == n } }.reversed()
         let union = ordered.reduce(NSRect.null) { $0.union($1.frame) }
@@ -2933,12 +2980,12 @@ enum SelfTest {
                     }
                     return true
                 }
-                save(image, to: url)
+                save(image, to: url, scale: scale)
                 completion()
                 return
             }
             let file = FileManager.default.temporaryDirectory.appendingPathComponent("pile-\(parts.count).png")
-            snapshot(window: p, to: file, backdrop: nil) { parts.append((p.frame, file)); shoot(Array(rest.dropFirst())) }
+            snapshot(window: p, to: file, backdrop: nil, scale: scale) { parts.append((p.frame, file)); shoot(Array(rest.dropFirst())) }
         }
         shoot(Array(ordered))
     }
@@ -2984,9 +3031,19 @@ enum SelfTest {
     }
 
     private static func rowActionsTabs(out: URL, then next: @escaping () -> Void) {
-        AllNotesModel.shared.mode = .todo
+        // The glyph tabs' own tooltip, which is drawn rather than the system's: it used to be cut off
+        // by the pane beside the sidebar, and the second tab's ran off the left edge.
+        GlyphTabsTesting.forcedTip = 1
+        AllNotesModel.shared.mode = .tags
         AllNotesWindowController.shared.show()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
+            if let w = MainWindowController.shared.window {
+                snapshot(window: w, to: out.appendingPathComponent("tab-tooltip.png")) {}
+            }
+            GlyphTabsTesting.forcedTip = nil
+            AllNotesModel.shared.mode = .todo
+            AllNotesWindowController.shared.show()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
             guard let w = MainWindowController.shared.window else { next(); return }
             snapshot(window: w, to: out.appendingPathComponent("all-notes-todos.png")) {
                 AllNotesModel.shared.mode = .templates
@@ -2995,6 +3052,7 @@ enum SelfTest {
                         AllNotesModel.shared.mode = .folders
                         MainWindowController.shared.close()
                         next()
+                    }
                     }
                 }
             }
@@ -3012,6 +3070,10 @@ enum SelfTest {
         check("every slide's picture ships inside the app", missing.isEmpty, missing.joined(separator: ", "))
         check("…and each is a real screenshot, not a thumbnail",
               slides.allSatisfy { (TutorialContent.picture($0.image)?.size.width ?? 0) > 200 })
+        // Nothing from anyone's real work ships in the pictures or the words (owner, 2026-09-23).
+        let words = (slides.map { $0.title + " " + $0.detail } + [TutorialContent.subtitle]).joined(separator: " ").lowercased()
+        let named = ["northwind", "cymentix"].filter(words.contains)
+        check("the tutorial names no real company or customer", named.isEmpty, named.joined(separator: ", "))
         check("a slide that names a shortcut reads it from the live bindings",
               slides.compactMap(\.shortcut).allSatisfy { !ShortcutStore.shared.combo(for: $0).display.isEmpty })
 
@@ -3180,7 +3242,7 @@ enum SelfTest {
 
     /// `backdrop` nil keeps the transparent margin transparent, for pictures made of several windows.
     static func snapshot(window: NSWindow, to url: URL, backdrop: NSColor? = NSColor(srgbRed: 0.36, green: 0.40, blue: 0.48, alpha: 1),
-                                 completion: @escaping () -> Void) {
+                                 scale: CGFloat = 1, completion: @escaping () -> Void) {
         guard let view = window.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { completion(); return }
         view.cacheDisplay(in: view.bounds, to: rep)
         let base = NSImage(size: view.bounds.size)
@@ -3203,7 +3265,7 @@ enum SelfTest {
                 for (frame, image) in shots { image.draw(in: frame) }
                 return true
             }
-            save(composed, to: url)
+            save(composed, to: url, scale: scale)
             completion()
         }
     }
@@ -3232,9 +3294,23 @@ enum SelfTest {
         save(img, to: url)
     }
 
-    static func save(_ image: NSImage, to url: URL) {
-        guard let tiff = image.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
-              let png = rep.representation(using: .png, properties: [:]) else { return }
+    /// `scale` 1 writes a picture the size of the window in points. The tutorial's pictures are
+    /// written at 2, because `tiffRepresentation` flattens an image to 72 dpi and threw away every
+    /// Retina pixel — which is why the first tutorial looked soft (owner, 2026-09-23).
+    static func save(_ image: NSImage, to url: URL, scale: CGFloat = 1) {
+        let size = image.size
+        guard size.width > 0, size.height > 0 else { return }
+        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil,
+                                         pixelsWide: Int(size.width * scale), pixelsHigh: Int(size.height * scale),
+                                         bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                         colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { return }
+        rep.size = size
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        NSGraphicsContext.current?.imageInterpolation = .high
+        image.draw(in: NSRect(origin: .zero, size: size))
+        NSGraphicsContext.restoreGraphicsState()
+        guard let png = rep.representation(using: .png, properties: [:]) else { return }
         try? png.write(to: url)
     }
 }
