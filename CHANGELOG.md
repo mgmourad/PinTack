@@ -12,6 +12,20 @@ it stands.
 
 ---
 
+## Build 18 — 2026-09-23
+
+### Fixed
+- **No real company name in the tutorial (owner).** Two slides carried a customer's name; the scenes
+  are invented content now, and a check fails if those words ever return.
+- **The tutorial's pictures are sharp.** They were being flattened to 72 dpi when saved, throwing
+  away every Retina pixel; they are now written at 2x for windows and 3x for notes.
+- **The All Notes tab tooltips are no longer cut off (owner):** the sidebar draws above the pane
+  beside it, and a tip anchors to the side it is nearest instead of running off the left edge.
+
+### Added
+- **A calendar button beside a todo's due date (owner).** It carries the day; the field keeps the
+  time of day.
+
 ## Build 17 — 2026-09-22
 
 ### Fixed

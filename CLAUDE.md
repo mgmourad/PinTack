@@ -231,8 +231,8 @@ preservation, atomic writes, import safety and search.
 **Phase 4, plugins and Runner: built.** The WidgetKit widget is **shelved by the owner**: it needs a real
 Apple signing team (app group must carry the Team ID, trap 2), so it waits on that decision.
 
-**As of 2026-09-22: 0.1.0, build 17, in beta with testers.** `verify.sh` covers a Release build, 241
-unit tests and 247 self-test checks. `CHANGELOG.md` records every change, day by day, with the reason
+**As of 2026-09-22: 0.1.0, build 18, in beta with testers.** `verify.sh` covers a Release build, 241
+unit tests and 249 self-test checks. `CHANGELOG.md` records every change, day by day, with the reason
 — read it before assuming something is an accident. Honest view of what separates this from a 1.0:
 signing and notarization, a stretch of daily use with no new bugs (bugs were still being found by
 use at a rate of about ten a session), a measurement with many notes open and a large vault, and a
@@ -431,6 +431,12 @@ Owner decisions added after the rebuild (2026-09-19):
   deletes its notes, always behind `StackDeleteAlert`, whose DEFAULT (Return) is Unstack — the
   answer that loses nothing — and whose destructive button needs a click. The self-test presses
   Return on the real alert. `WindowManager.delete(_:onUndo:)` brings the stack back on Undo.
+- Pictures for the tutorial are saved through `SelfTest.save(_:to:scale:)`: `tiffRepresentation`
+  rasterises at 72 dpi and loses every Retina pixel, so a scale is passed (2 windows, 3 notes).
+- NOTHING of anyone's real work goes in a shipped picture or example. A customer's name reached two
+  tutorial slides once; a self-test check now fails if those words come back.
+- A self-test check that cannot be judged (another app over the notes, a page not drawn, no key
+  window) must say `skipped(...)`, never fail: a false failure is as bad as a missed one.
 - The Tutorial (owner, 2026-09-22, SPEC §8.4) shows REAL screenshots: `scripts/make-tutorial-shots.sh`
   drives the app (`TutorialShots`, Debug + throwaway vault only) and writes
   `PinTack/Resources/Tutorial/*.png`, which ship in the bundle. Re-run it when a feature's look

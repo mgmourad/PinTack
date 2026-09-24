@@ -1,6 +1,6 @@
 # PinTack — Technical Specification
 
-**Version:** 0.1.0 (build 17) — last brought up to date 2026-09-22
+**Version:** 0.1.0 (build 18) — last brought up to date 2026-09-22
 **Status:** Built and running; in beta with testers. Phases 1–4 complete; Phase 5 (signing,
 notarization, Sparkle) and the WidgetKit widget are not built — see §11 and §15. `CHANGELOG.md`
 records how it got here.
@@ -665,11 +665,15 @@ sidebar's bottom corner beside Settings, and opens a presentation: **one slide p
 with a **real screenshot** of that feature in use, a title, a couple of sentences, and the live
 binding of the shortcut that reaches it.
 
+- **Nothing real ships in them.** The scenes are invented content; a customer's name once reached
+  two slides and is now barred by a self-test check.
 - **The pictures are made by the app**, by `scripts/make-tutorial-shots.sh` → `TutorialShots`
   (Debug only, throwaway vault only): it builds each scene — a note mid-edit, the slash menu open, a
   stack, vim's folded table, each All Notes tab, Settings — and photographs the real windows the way
-  the self-test does. They are written into `PinTack/Resources/Tutorial/` and ship in the bundle, so
-  a Release build needs nothing. Re-run it whenever a feature's look changes; a slide can then never
+  the self-test does, and written at 2x (windows) or 3x (notes), because `tiffRepresentation`
+  flattens an image to 72 dpi and threw every Retina pixel away — which is why the first tutorial
+  looked soft. They land in `PinTack/Resources/Tutorial/` and ship in the bundle, so a Release build
+  needs nothing. Re-run it whenever a feature's look changes; a slide can then never
   show a PinTack that no longer exists.
 - **It plays itself**, a slide every 5 seconds, with the showing slide's dot filling as a progress
   bar. `‹`, `›`, a dot, ← or → takes over, and from then on it stays where it is put. **OK** at the
@@ -702,6 +706,9 @@ once made Settings unreadable. Choices in this window are **our own controls** (
 `ChromeProminentButtonStyle`), not the system segmented picker or prominent button: those draw the
 chosen item in the accent with white text, and no tint reaches it. Every orange selection carries
 near-black lettering, 9 : 1 against the orange.
+
+The reminder panel (§6) has a **calendar button** beside the date field: the calendar carries the
+day, the field keeps the time of day, and the two never disagree.
 
 Notes pane covers the outline, the pinned glow and its strength, faded notes (§5.8), new-note size
 and placement, auto-save and the action bar.
