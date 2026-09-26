@@ -3004,6 +3004,12 @@ enum SelfTest {
               UserDefaults.standard.integer(forKey: "NSInitialToolTipDelay") == 1000 && GlyphTabs<Int>.tipDelay == 0.5)
         check("tooltips read “Name | description”", Tip.text("Rename", "Change the title") == "Rename | Change the title")
         check("the unstack glyph is drawn (SF Symbols has no struck paperclip)", NoteCardView.struckPaperclip() != nil)
+        // The eye says at a glance which notes are out on the desk (owner, 2026-09-26).
+        let onDesk = RowActionIcons.EyeStyle.of(shown: true), offDesk = RowActionIcons.EyeStyle.of(shown: false)
+        check("a note on the desk gets a plain eye, lit in the app's orange",
+              onDesk.symbol == "eye" && onDesk.glowing && onDesk.tint == Brand.accentNS)
+        check("a hidden note gets a struck eye, grey and unlit",
+              offDesk.symbol == "eye.slash" && !offDesk.glowing && offDesk.tint != Brand.accentNS)
         // The strike runs top-left to bottom-right, ACROSS the clip, which itself leans the other way.
         if let glyph = NoteCardView.struckPaperclip(), let tiff = glyph.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff) {
             let w = rep.pixelsWide, h = rep.pixelsHigh

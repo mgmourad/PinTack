@@ -26,10 +26,14 @@ struct RowIconButton: View {
     var image: NSImage?
     let name: String
     let description: String
+    var tint: Color?
+    var glowing = false
     let action: () -> Void
 
-    init(_ symbol: String, _ name: String, _ description: String, action: @escaping () -> Void) {
-        self.symbol = symbol; self.name = name; self.description = description; self.action = action
+    init(_ symbol: String, _ name: String, _ description: String,
+         tint: Color? = nil, glowing: Bool = false, action: @escaping () -> Void) {
+        self.symbol = symbol; self.name = name; self.description = description
+        self.tint = tint; self.glowing = glowing; self.action = action
     }
 
     init(image: NSImage?, _ name: String, _ description: String, action: @escaping () -> Void) {
@@ -43,9 +47,10 @@ struct RowIconButton: View {
                 else if let symbol { Image(systemName: symbol) }
             }
             .frame(width: 22, height: 22).contentShape(Rectangle())
+            .shadow(color: glowing ? (tint ?? .clear).opacity(0.7) : .clear, radius: 5)
         }
         .buttonStyle(.plain)
-        .foregroundStyle(.secondary)
+        .foregroundStyle(tint ?? .secondary)
         .tip(name, description)
         .accessibilityLabel(name)
     }
@@ -132,9 +137,26 @@ struct RowActionIcons: View {
     var onUnstack: (() -> Void)? = nil
     let onDelete: () -> Void
 
+    /// The eye's look, as data rather than as an expression buried in the view, so the self-test can
+    /// assert it: on the desk it is lit in the app's orange, off the desk it is struck through and
+    /// grey, so a glance down the list says which notes are out (owner, 2026-09-26).
+    struct EyeStyle {
+        let symbol: String
+        let tint: NSColor
+        let glowing: Bool
+
+        static func of(shown: Bool) -> EyeStyle {
+            shown ? EyeStyle(symbol: "eye", tint: Brand.accentNS, glowing: true)
+                  : EyeStyle(symbol: "eye.slash", tint: .secondaryLabelColor, glowing: false)
+        }
+    }
+
     var body: some View {
-        HStack(spacing: 2) {
-            RowIconButton(shown ? "eye" : "eye.slash", shown ? "Hide" : "Show", shown ? hideTip : showTip, action: onToggleShown)
+        let eye = EyeStyle.of(shown: shown)
+        return HStack(spacing: 2) {
+            RowIconButton(eye.symbol, shown ? "Hide" : "Show", shown ? hideTip : showTip,
+                          tint: Color(nsColor: eye.tint).opacity(eye.glowing ? 1 : 0.65),
+                          glowing: eye.glowing, action: onToggleShown)
             RowIconButton("pencil", "Rename", renameTip, action: onRename)
             if let onUnstack {
                 RowIconButton(image: NoteCardView.struckPaperclip(), "Unstack",
