@@ -647,7 +647,9 @@ corner switches to the Settings tab.
   Delete selected, which asks first because it deletes the notes.
 
 Every row, in every tab, carries its actions as icons at its right edge, always in one order:
-**show / hide, rename, then Unstack (Stacks only), and delete last** (`RowActionIcons`) (a template's rename changes its `@name`, under the same rules as `/template`). The Todos
+**show / hide, rename, then Unstack (Stacks only), and delete last** (`RowActionIcons`) (a template's rename changes its `@name`, under the same rules as `/template`).
+The eye says which notes are out on the desk (owner, 2026-09-26): a note on the desk gets a plain
+eye, lit in the app's orange with a glow; a note that is not gets a struck eye, grey and unlit. The Todos
 tab's circle is a **selection** box, like every other tab's; **Mark Complete** ticks every task in
 the selected todos and **Delete selected** bins them. The window's All Notes tab has the owner's own
 sticky-pad glyph (`Assets.xcassets/AllNotesTab`), so it no longer shares the Stacks icon.
@@ -656,7 +658,11 @@ sticky-pad glyph (`Assets.xcassets/AllNotesTab`), so it no longer shares the Sta
 (`Tip.text`), and they wait 1 second (`NSInitialToolTipDelay`, registered as a default, never
 written into the user's preferences). The All Notes glyph tabs draw their own, sooner (0.5 s) and
 more prominent: solid orange, the name in bold over what the tab holds. macOS has a single tooltip
-delay per app, so a faster one cannot be a system tooltip.
+delay per app, so a faster one cannot be a system tooltip. Each one hangs from **its tab's left
+edge** and runs right, into a window far wider than the strip: centring it lost the first words of
+the second tab's tip, and hanging the last two from their right edge lost the first words of the
+fourth's the same way. The self-test photographs all five and checks the frame each bubble actually
+landed in, not the rule that was meant to place it.
 
 ### 8.4 Tutorial | Help (owner, 2026-09-22)
 
@@ -682,6 +688,11 @@ binding of the shortcut that reaches it.
   reflection, sliding and fading between slides.
 - The first-run card (§3.0) carries a **Show Tutorial** button to the same presentation, and both
   now use the app's dark theme rather than the system's grey HUD material.
+- **It can be moved, and it stays on top** (owner, 2026-09-26). The whole page is a drag handle, so
+  the reader can put the tutorial beside the thing it is describing and try it as they read. The
+  window sits at `.modalPanel` level and does not hide when PinTack stops being the active app.
+  `isMovableByWindowBackground` alone does nothing here: the page is SwiftUI and its own views take
+  the mouse before AppKit sees a background drag, so a drag layer sits behind the content.
 
 ### 8.3 Quick capture
 
@@ -700,6 +711,10 @@ dictionaries.
 
 The Settings tab of the one window (§8.0). Seven panes in a sidebar (a `TabView` overflowed into a
 "»" menu and looked unfinished): Appearance, Notes, Shortcuts, Editor, Vault, Plugins, About.
+
+**About** shows the app's icon large (160pt) over its name, the slogan **“Stick it. Stack it. Ship
+it.”** in Comic Sans — the app's own hand, and the default note font — the version and build, and the
+licence. The slogan also heads the first-run card (§3.0), and nowhere else.
 
 App chrome uses the fixed `Brand.accentNS`, **never** the user's outline colour — a dark outline
 once made Settings unreadable. Choices in this window are **our own controls** (`ChromeSegmented`,

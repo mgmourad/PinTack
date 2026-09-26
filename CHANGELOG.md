@@ -12,6 +12,37 @@ it stands.
 
 ---
 
+## Build 19 — 2026-09-26
+
+### Added
+- **The slogan, “Stick it. Stack it. Ship it.” (owner)**, in Comic Sans — the app's own hand, and the
+  default note font. It heads the first-run card and sits under the icon in About, and nowhere else.
+- **The tutorial can be dragged anywhere on screen and stays above every window (owner).** The whole
+  page is a drag handle, so it can sit beside the thing it describes while the reader tries it.
+  `isMovableByWindowBackground` does nothing here — the page is SwiftUI and takes the mouse first —
+  so a drag layer sits behind the content.
+
+### Changed
+- **A more professional app icon (owner's own artwork)**, in the Dock, in the gallery and in About.
+- **About is bigger (owner):** a 160pt icon over the name, the slogan, the version and build, and the
+  licence, centred in a pane that was mostly empty.
+- **The eye in every All Notes row says which notes are out (owner):** a note on the desk gets a
+  plain eye, lit in the app's orange with a glow; a note that is not gets a struck eye, grey and
+  unlit.
+
+### Fixed
+- **Every All Notes tab tooltip is drawn whole (owner).** The Templates tip hung off the window's
+  left edge: build 18 hung the last two tabs' tips from their RIGHT edge, and a 180pt bubble does not
+  fit to the left of a tab 150pt from the edge. Every tip now hangs from its own tab's left edge and
+  runs right, into a window ten times wider than the strip.
+- **A tooltip check that could not fail.** The self-test moved the tip on the model's side and
+  photographed the same tab five times: a plain static does not make SwiftUI redraw. It now observes
+  the change, and checks the frame each bubble actually landed in — all five, because a fix on one
+  proves nothing about the rest.
+- **Two checks that failed for want of focus now say `skipped`.** A paste that never reached the note
+  and a `/find` check with no key window mean another app was in front; a false failure is as bad as
+  a missed one.
+
 ## Build 18 — 2026-09-23
 
 ### Fixed

@@ -465,6 +465,19 @@ Owner decisions added after the rebuild (2026-09-19):
   more on the next run-loop turn. Without that nudge, a tab change landing while SwiftUI was mid-update
   was dropped: the model said Settings while the window drew All Notes, one run in two (measured
   2026-09-21 by `SelfTest.drawnTab`, which reads the pixels, not the model). Only a click springs.
+- A glyph-tab tooltip hangs from ITS TAB'S LEFT EDGE and runs right (owner-reported twice). Centring
+  it lost the first words of the second tab's; hanging the last two from their RIGHT edge lost the
+  first words of the fourth's — a 180pt bubble does not fit left of a tab 150pt from the window edge.
+  The tab showing a tip takes `zIndex` 1, because the bubble now crosses the tabs after it.
+- The slogan is `Brand.slogan`, "Stick it. Stack it. Ship it.", set in Comic Sans (`Brand.sloganFont`)
+  — the app's own hand and the default note font. It appears on the first-run card and in About,
+  nowhere else (owner, 2026-09-26).
+- The tutorial window is `.modalPanel` with `hidesOnDeactivate = false` and a `WindowDragArea` behind
+  the page: it can be moved and it stays above everything (owner, 2026-09-26).
+  `isMovableByWindowBackground` alone does nothing — SwiftUI's own views take the mouse first.
+- A self-test hook that only a static holds does NOT make SwiftUI redraw: `GlyphTabsTesting` is an
+  `ObservableObject` for that reason. Five identical pictures of the "different" tooltips is what a
+  plain static produced, and it hid the bug the owner had already reported.
 
 ### Scope: a sticky-note app, not a note-taking app
 
