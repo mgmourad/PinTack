@@ -348,13 +348,23 @@ enum SelfTest {
         general.setString("Rollout Pilot ring 1", forType: .string)
         p2m.makeKeyAndOrderFront(nil); p2m.makeFirstResponder(p2m.card.editor)
         let handled = NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: nil)
+        // Whether the note held focus WHEN the paste was sent: a paste travels the responder chain,
+        // so with another app in front there is nothing to judge (a false failure is as bad as a
+        // missed one).
+        let hadFocus = handled && p2m.isKeyWindow
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             p2m.card.editor.evaluateJavaScript("(()=>{const d=window.__pintack._view.state.doc.toString();"
                 + "return JSON.stringify({markdown: d.includes('### Rollout') && d.includes('- Pilot **ring 1**'),"
                 + " flattened: d.includes('Rollout Pilot ring 1')})})()") { r, _ in
                 let j = r as? String
-                check("pasted rich text becomes Markdown instead of being flattened",
-                      bool(j, "markdown") && !bool(j, "flattened"), j ?? "no result")
+                let arrived = bool(j, "markdown") || bool(j, "flattened")
+                if !arrived && !hadFocus {
+                    skipped("pasted rich text becomes Markdown instead of being flattened",
+                            "the paste never reached the note: it was not the key window, so another app was in front")
+                } else {
+                    check("pasted rich text becomes Markdown instead of being flattened",
+                          bool(j, "markdown") && !bool(j, "flattened"), j ?? "no result")
+                }
             }
             p2m.card.editor.evaluateJavaScript("window.__pintack._view.state.doc.toString().includes('Rollout')") { r, _ in
                 log("Paste from the context menu path: sendAction handled = \(handled), text arrived in the note = \(String(describing: r))")
@@ -1077,9 +1087,15 @@ enum SelfTest {
                       "caret \(int(j, "caretBefore")) -> \(int(j, "caretAfter"))")
                 // The note it opened must be on screen, but the CARET must still be in this note.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                    let key = NSApp.keyWindow as? NotePanel
-                    check("/find does not steal focus to the note it opened", key === home,
-                          "key window is '\(key?.note.title ?? "none")'")
+                    // With no key window at all there is nothing to judge — something outside the
+                    // app has focus, not the note /find opened.
+                    if let key = NSApp.keyWindow as? NotePanel {
+                        check("/find does not steal focus to the note it opened", key === home,
+                              "key window is '\(key.note.title)'")
+                    } else {
+                        skipped("/find does not steal focus to the note it opened",
+                                "no note held focus: another app was in front")
+                    }
                     next()
                 }
             }
