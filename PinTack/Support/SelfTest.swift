@@ -1450,6 +1450,13 @@ enum SelfTest {
                   OnboardingContent.shortcuts.allSatisfy { !ShortcutStore.shared.combo(for: $0).display.isEmpty },
                   OnboardingContent.shortcuts.map { ShortcutStore.shared.combo(for: $0).display }.joined(separator: " "))
             check("the greeting offers the tutorial", OnboardingContent.tutorial == "Show Tutorial")
+            // The slogan (owner, 2026-09-26), on the first screen and in About, in Comic Sans — the
+            // app's own hand, and the default note font.
+            let hand = Brand.sloganNSFont(size: 16)
+            check("the slogan is the owner's words, written in Comic Sans",
+                  Brand.slogan == "Stick it. Stack it. Ship it."
+                      && (hand.familyName == "Comic Sans MS" || NSFont(name: "Comic Sans MS", size: 16) == nil),
+                  "\(Brand.slogan) in \(hand.familyName ?? "?")")
 
             // And the card really drew: a window that laid out to nothing, or came up blank, would
             // pass every check above.

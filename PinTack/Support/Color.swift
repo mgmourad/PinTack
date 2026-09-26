@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 
 extension NSColor {
 
@@ -135,4 +136,20 @@ enum NotePalette {
 /// dark red on a dark window. Orange reads on both light and dark windows.
 enum Brand {
     static let accentNS = NSColor(srgbRed: 1.0, green: 0.62, blue: 0.04, alpha: 1)      // #FF9F0A
+
+    /// The app's line (owner, 2026-09-26). Written in Comic Sans, the same face a note is written
+    /// in by default, because the joke is the point: this is a sticky-note app.
+    static let slogan = "Stick it. Stack it. Ship it."
+
+    /// Comic Sans MS if the Mac has it (every Mac with the standard fonts does), and a rounded
+    /// system face if it ever does not, so the line never falls back to plain body text.
+    static func sloganFont(size: CGFloat) -> Font {
+        if NSFont(name: "Comic Sans MS", size: size) != nil { return .custom("Comic Sans MS", size: size) }
+        return .system(size: size, weight: .semibold, design: .rounded)
+    }
+
+    static func sloganNSFont(size: CGFloat) -> NSFont {
+        NSFont(name: "Comic Sans MS", size: size)
+            ?? NSFont.systemFont(ofSize: size, weight: .semibold)
+    }
 }

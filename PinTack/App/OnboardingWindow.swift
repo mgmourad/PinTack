@@ -101,6 +101,11 @@ struct OnboardingView: View {
             }
             Text(OnboardingContent.title)
                 .font(.system(size: 30, weight: .bold))
+            // The slogan, in the app's own hand (owner, 2026-09-26): the first screen and the About
+            // pane are where it belongs; nothing else says it.
+            Text(Brand.slogan)
+                .font(Brand.sloganFont(size: 16))
+                .foregroundStyle(accent)
             Text(OnboardingContent.subtitle)
                 .font(.system(size: 13.5))
                 .foregroundStyle(.white.opacity(0.62))

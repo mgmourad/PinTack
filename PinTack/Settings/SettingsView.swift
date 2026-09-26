@@ -667,21 +667,28 @@ private struct AboutPane: View {
     private static let headingHeight: CGFloat = 72
 
     var body: some View {
-        VStack(spacing: 12) {
+        // Bigger than it was (owner, 2026-09-26): this pane is mostly empty, and the icon is the
+        // owner's own artwork.
+        VStack(spacing: 16) {
             if let icon = NSApp.applicationIconImage {
                 Image(nsImage: icon)
                     .resizable().interpolation(.high)
-                    .frame(width: 96, height: 96)
+                    .frame(width: 160, height: 160)
+                    .shadow(color: Color(nsColor: Brand.accentNS).opacity(0.35), radius: 26)
                     .tip("PinTack", "Sticky notes backed by plain Markdown files")
             }
-            VStack(spacing: 5) {
-                Text("PinTack").font(.system(size: 26, weight: .bold))
-                Text("Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1.0")")
-                    .font(.system(size: 12.5)).foregroundStyle(.secondary)
+            VStack(spacing: 8) {
+                Text("PinTack").font(.system(size: 34, weight: .bold))
+                Text(Brand.slogan)
+                    .font(Brand.sloganFont(size: 17))
+                    .foregroundStyle(Color(nsColor: Brand.accentNS))
+                Text("Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1.0")"
+                     + " (build \(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"))")
+                    .font(.system(size: 14)).foregroundStyle(.secondary)
             }
-            VStack(spacing: 4) {
-                Text("Sticky notes backed by plain Markdown files.")
-                Text("Open source under the GPL-3.0-or-later license.").font(.caption)
+            VStack(spacing: 6) {
+                Text("Sticky notes backed by plain Markdown files.").font(.system(size: 15))
+                Text("Open source under the GPL-3.0-or-later license.").font(.system(size: 13))
             }
             .foregroundStyle(.secondary)
         }
