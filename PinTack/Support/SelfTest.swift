@@ -3132,6 +3132,17 @@ enum SelfTest {
             check("the tutorial window is a presentation, not a sliver", size.width > 800 && size.height > 500,
                   "\(Int(size.width))×\(Int(size.height))")
             check("the tutorial actually painted itself", paintedFraction(of: window) > 0.5)
+            // Draggable, and still above everything while the reader clicks around (owner, 2026-09-26).
+            check("the tutorial floats above every other window, this app's and everyone else's",
+                  window.level == .modalPanel && !window.hidesOnDeactivate,
+                  "level \(window.level.rawValue), hidesOnDeactivate \(window.hidesOnDeactivate)")
+            let before = window.frame.origin
+            let dragged = TutorialWindow.dragForTesting(by: NSSize(width: 70, height: -45))
+            let moved = NSSize(width: window.frame.origin.x - before.x, height: window.frame.origin.y - before.y)
+            check("dragging the page moves the tutorial across the screen",
+                  dragged && abs(moved.width - 70) < 2 && abs(moved.height + 45) < 2,
+                  "moved (\(Int(moved.width)), \(Int(moved.height)))")
+            _ = TutorialWindow.dragForTesting(by: NSSize(width: -70, height: 45))
             snapshot(window: window, to: out.appendingPathComponent("tutorial.png"), backdrop: nil) {
                 TutorialWindow.dismiss()
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {

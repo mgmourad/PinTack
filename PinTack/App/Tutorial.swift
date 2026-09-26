@@ -140,6 +140,7 @@ struct TutorialView: View {
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(.white.opacity(0.09)))
         .foregroundStyle(.white.opacity(0.92))
+        .background(WindowDragArea())          // the whole page drags the window (owner, 2026-09-26)
         .onReceive(tick) { _ in advanceClock() }
         .onAppear { withAnimation(.easeOut(duration: 0.5)) { appeared = true } }
         .background(KeyCatcher(onLeft: { step(-1) }, onRight: { step(1) }, onClose: onDismiss))
@@ -335,12 +336,34 @@ struct TutorialView: View {
     // MARK: Moving between slides
 
     private func advanceClock() {
-        withAnimation { model.tick(0.05) }
+        withAnimation { _ = model.tick(0.05) }
     }
 
     private func step(_ delta: Int) { withAnimation { model.step(delta) } }
 
     private func go(to target: Int) { withAnimation { model.go(to: target) } }
+}
+
+/// Drags the window by its background. `isMovableByWindowBackground` alone does nothing here: the
+/// page is SwiftUI, and its own views take the mouse before AppKit ever sees a background drag.
+private struct WindowDragArea: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { Dragger() }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    final class Dragger: NSView {
+        private var origin: NSPoint?
+
+        override func mouseDown(with event: NSEvent) { origin = event.locationInWindow }
+
+        override func mouseDragged(with event: NSEvent) {
+            guard let origin, let window else { return super.mouseDragged(with: event) }
+            // From the event, not NSEvent.mouseLocation: the same rule the note windows follow.
+            let onScreen = window.convertPoint(toScreen: event.locationInWindow)
+            window.setFrameOrigin(NSPoint(x: onScreen.x - origin.x, y: onScreen.y - origin.y))
+        }
+
+        override func mouseUp(with event: NSEvent) { origin = nil }
+    }
 }
 
 /// Arrow keys and Escape, which SwiftUI buttons alone cannot catch in a borderless panel.
@@ -408,7 +431,10 @@ enum TutorialWindow {
         p.isOpaque = false
         p.backgroundColor = .clear
         p.hasShadow = true
+        // Above every other window, this app's and everyone else's, and it stays there while the
+        // reader clicks around (owner, 2026-09-26).
         p.level = .modalPanel
+        p.hidesOnDeactivate = false
         p.isReleasedWhenClosed = false
         p.isMovableByWindowBackground = true
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
@@ -433,5 +459,31 @@ enum TutorialWindow {
 
     #if DEBUG
     static var panelForTesting: NSWindow? { panel }
+
+    /// Drags the page the way the pointer does — down on the drag layer behind the content, then a
+    /// move — so the self-test exercises the same code a hand does, not `setFrameOrigin`.
+    static func dragForTesting(by delta: NSSize) -> Bool {
+        guard let panel, let dragger = firstDragger(in: panel.contentView) else { return false }
+        let start = NSPoint(x: panel.frame.width / 2, y: panel.frame.height / 2)
+        func event(_ type: NSEvent.EventType, _ at: NSPoint) -> NSEvent? {
+            NSEvent.mouseEvent(with: type, location: at, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                               windowNumber: panel.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
+        }
+        guard let down = event(.leftMouseDown, start),
+              let moved = event(.leftMouseDragged, NSPoint(x: start.x + delta.width, y: start.y + delta.height)),
+              let up = event(.leftMouseUp, NSPoint(x: start.x + delta.width, y: start.y + delta.height))
+        else { return false }
+        dragger.mouseDown(with: down)
+        dragger.mouseDragged(with: moved)
+        dragger.mouseUp(with: up)
+        return true
+    }
+
+    private static func firstDragger(in view: NSView?) -> WindowDragArea.Dragger? {
+        guard let view else { return nil }
+        if let dragger = view as? WindowDragArea.Dragger { return dragger }
+        for sub in view.subviews { if let found = firstDragger(in: sub) { return found } }
+        return nil
+    }
     #endif
 }
