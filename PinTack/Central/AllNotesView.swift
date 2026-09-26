@@ -182,7 +182,7 @@ struct AllNotesView: View {
                 .init(value: .tags, symbol: "number", text: "", name: "Tags", detail: "Your notes, by #tag"),
                 .init(value: .todo, symbol: nil, text: "@", name: "Todos", detail: "Every todo note and how done it is"),
                 .init(value: .templates, symbol: "cube.box.fill", text: "", name: "Templates", detail: "Notes saved as @name, to drop into any note"),
-                .init(value: .stacks, symbol: "square.stack.3d.up.fill", text: "", name: "Stacks", detail: "Temporary piles of open notes to save screen space."),
+                .init(value: .stacks, symbol: "square.stack.3d.up.fill", text: "", name: "Stacks", detail: "Temporary piles of open notes to save screen space"),
             ])
             .padding(.horizontal, 12).padding(.top, 14).padding(.bottom, 4)
             // The tabs' tooltips hang down over the list below; they must draw on top of it.

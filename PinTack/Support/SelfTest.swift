@@ -3046,14 +3046,33 @@ enum SelfTest {
     private static func rowActionsTabs(out: URL, then next: @escaping () -> Void) {
         // The glyph tabs' own tooltip, which is drawn rather than the system's: it used to be cut off
         // by the pane beside the sidebar, and the second tab's ran off the left edge.
-        GlyphTabsTesting.forcedTip = 1
+        // EVERY tab's tip, one picture each: the owner has now reported two of them cut off, so a
+        // fix on one proves nothing about the rest (2026-09-26).
         AllNotesModel.shared.mode = .tags
         AllNotesWindowController.shared.show()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
-            if let w = MainWindowController.shared.window {
-                snapshot(window: w, to: out.appendingPathComponent("tab-tooltip.png")) {}
+        func shootTip(_ index: Int, _ done: @escaping () -> Void) {
+            guard index < 5 else { GlyphTabsTesting.forcedTip = nil; return done() }
+            GlyphTabsTesting.forcedTip = index
+            MainWindowModel.shared.objectWillChange.send()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                guard let w = MainWindowController.shared.window, let content = w.contentView else {
+                    return shootTip(index + 1, done)
+                }
+                // Where the bubble ACTUALLY landed, not where the alignment was meant to put it: the
+                // fourth tab's tip hung off the window's left edge for three builds while the rule
+                // read as if it were right (owner, 2026-09-26).
+                let tip = GlyphTabsTesting.shared.bubbleFrame
+                let names = ["Folders", "Tags", "Todos", "Templates", "Stacks"]
+                let name = index < names.count ? names[index] : "\(index)"
+                check("the \(name) tab's tooltip is drawn whole, inside the window",
+                      tip.width > 100 && tip.minX >= 0 && tip.maxX <= content.bounds.width,
+                      "x \(Int(tip.minX))…\(Int(tip.maxX)) in a window \(Int(content.bounds.width)) wide")
+                snapshot(window: w, to: out.appendingPathComponent("tab-tooltip-\(index).png")) {
+                    shootTip(index + 1, done)
+                }
             }
-            GlyphTabsTesting.forcedTip = nil
+        }
+        shootTip(0) {
             AllNotesModel.shared.mode = .todo
             AllNotesWindowController.shared.show()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {

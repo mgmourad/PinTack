@@ -99,6 +99,9 @@ struct GlyphTabs<Value: Hashable>: View {
     @State private var hovered: Value?
     @State private var tipFor: Value?
     @State private var hoverToken = 0
+    #if DEBUG
+    @ObservedObject private var testing = GlyphTabsTesting.shared
+    #endif
 
     var body: some View {
         HStack(spacing: 2) {
@@ -127,18 +130,30 @@ struct GlyphTabs<Value: Hashable>: View {
                 }
                 .buttonStyle(.plain)
                 .onHover { inside in hover(inside ? item.value : nil, leaving: item.value) }
-                // Anchored to the side it is nearest: a tip centred under the second tab ran off the
-                // sidebar's left edge and lost its first words (owner, 2026-09-23).
-                .overlay(alignment: index <= 1 ? .topLeading : index >= items.count - 2 ? .topTrailing : .top) {
+                // Always hung from the tab's LEFT edge and running right, into a window that is far
+                // wider than this strip. Centring it lost the first words of the second tab's tip
+                // (owner, 2026-09-23), and hanging the last two from their RIGHT edge lost the first
+                // words of the fourth's the same way (owner, 2026-09-26): a 180pt bubble does not fit
+                // to the left of a tab 150pt from the window's edge.
+                .overlay(alignment: .topLeading) {
                     #if DEBUG
-                    if tipFor == item.value || GlyphTabsTesting.forcedTip == index {
+                    if tipFor == item.value || testing.forcedTip == index {
                         bubble(item).offset(y: 36).allowsHitTesting(false)
+                            .background(GeometryReader { geo in
+                                Color.clear.onAppear { GlyphTabsTesting.shared.bubbleFrame = geo.frame(in: .global) }
+                            })
                     }
                     #else
                     if tipFor == item.value { bubble(item).offset(y: 36).allowsHitTesting(false) }
                     #endif
                 }
+                // The bubble runs to the RIGHT, over the tabs after it, so the one showing a tip has to
+                // be drawn last.
+                #if DEBUG
+                .zIndex(tipFor == item.value || testing.forcedTip == index ? 1 : 0)
+                #else
                 .zIndex(tipFor == item.value ? 1 : 0)
+                #endif
                 .accessibilityLabel(item.name)
                 .accessibilityHint(item.detail)
                 .accessibilityAddTraits(chosen ? .isSelected : [])
@@ -247,7 +262,18 @@ struct CentredRow: LabeledContentStyle {
 #if DEBUG
 /// The self-test shows one glyph tab's tooltip without a pointer, to photograph it. A type of its
 /// own because a generic view cannot hold a static of its own.
-enum GlyphTabsTesting {
-    static var forcedTip: Int?
+final class GlyphTabsTesting: ObservableObject {
+    static let shared = GlyphTabsTesting()
+    /// An `@Published` rather than a plain static: SwiftUI re-evaluates `GlyphTabs` only when one of
+    /// its own inputs changes, so a bare static moved the tip on the model's side and left the drawn
+    /// window on the first tab — five identical pictures (2026-09-26).
+    @Published var forcedTip: Int?
+    /// Where the bubble actually landed, in the window's own coordinates. Deliberately NOT published:
+    /// it is written while the view is being laid out, and republishing it there would loop.
+    var bubbleFrame: CGRect = .zero
+    static var forcedTip: Int? {
+        get { shared.forcedTip }
+        set { shared.forcedTip = newValue }
+    }
 }
 #endif
