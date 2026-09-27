@@ -1,4 +1,5 @@
 import SwiftUI
+import QuartzCore
 import AppKit
 
 /// The Tutorial | Help presentation (owner, 2026-09-22). SPEC.md §8.4.
@@ -88,15 +89,59 @@ enum TutorialContent {
 /// a step of a drag takes. A choppy drag is a number, not an impression (owner, 2026-09-26).
 enum TutorialProbe {
     static var bodyEvaluations = 0
+
+    /// Frame intervals straight from the window's own display link, so what is measured is what the
+    /// screen did, not what the app intended. It reports when a frame was DUE, which is why the
+    /// processor time spent on a transition is measured beside it.
+    final class FrameMeter: NSObject {
+        private var link: CADisplayLink?
+        private var last: CFTimeInterval = 0
+        private(set) var intervals: [Double] = []
+
+        func start(on window: NSWindow) {
+            intervals = []
+            last = 0
+            let link = window.displayLink(target: self, selector: #selector(frame(_:)))
+            link.add(to: .main, forMode: .common)
+            self.link = link
+        }
+
+        @objc private func frame(_ link: CADisplayLink) {
+            if last > 0 { intervals.append(link.timestamp - last) }
+            last = link.timestamp
+        }
+
+        func stop() { link?.invalidate(); link = nil }
+
+        var lateFrames: Int { intervals.filter { $0 > 0.017 }.count }
+    }
 }
 #endif
 
 /// Which slide is showing, and whether the slides are still advancing by themselves. Apart from the
 /// view so the self-test can run the clock without watching pixels.
+/// The filling bar under the slide showing, and nothing else.
+///
+/// Its own object on purpose: it changes five times a second, and any change published by the model
+/// rebuilds the WHOLE 980×700 page. Measured (2026-09-26): the page sitting there cost 250 ms of
+/// processor time a second, which is what made dragging and the slide changes choppy — there was
+/// nothing left to draw them with.
+final class TutorialBar: ObservableObject {
+    @Published var progress: Double = 0
+}
+
 final class TutorialModel: ObservableObject {
     @Published private(set) var index = 0
     @Published private(set) var auto = true
-    @Published private(set) var progress: Double = 0
+    let bar = TutorialBar()
+    var progress: Double { bar.progress }
+
+    #if DEBUG
+    /// The model the window on screen is actually using, so the self-test can turn a slide and
+    /// measure the frames that result. A model of its own would animate nothing.
+    static weak var debugShared: TutorialModel?
+    init() { TutorialModel.debugShared = self }
+    #endif
 
     var slides: [TutorialContent.Slide] { TutorialContent.slides }
 
@@ -104,9 +149,9 @@ final class TutorialModel: ObservableObject {
     @discardableResult
     func tick(_ seconds: TimeInterval) -> Bool {
         guard auto else { return false }
-        progress += seconds / TutorialContent.autoAdvance
-        guard progress >= 1 else { return false }
-        progress = 0
+        bar.progress += seconds / TutorialContent.autoAdvance
+        guard bar.progress >= 1 else { return false }
+        bar.progress = 0
         index = (index + 1) % slides.count
         return true
     }
@@ -116,7 +161,7 @@ final class TutorialModel: ObservableObject {
 
     func go(to target: Int) {
         auto = false
-        progress = 0
+        bar.progress = 0
         index = target
     }
 }
@@ -324,23 +369,7 @@ struct TutorialView: View {
 
     /// One dot per slide; the one showing is a bar that fills while the slide plays itself.
     private var dots: some View {
-        HStack(spacing: 6) {
-            ForEach(Array(slides.enumerated()), id: \.element.id) { i, s in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(.white.opacity(i == index ? 0.18 : 0.10))
-                    if i == index && auto {
-                        Capsule().fill(accent).frame(width: max(4, 26 * progress))
-                    } else if i == index {
-                        Capsule().fill(accent)
-                    }
-                }
-                .frame(width: i == index ? 26 : 7, height: 7)
-                .contentShape(Rectangle())
-                .onTapGesture { go(to: i) }
-                .accessibilityLabel(s.title)
-            }
-        }
-        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: index)
+        TutorialDots(bar: model.bar, index: index, auto: auto, slides: slides, accent: accent) { go(to: $0) }
     }
 
     private func arrow(_ symbol: String, _ name: String, enabled: Bool, action: @escaping () -> Void) -> some View {
@@ -380,12 +409,45 @@ struct TutorialView: View {
         // Never while the page is being dragged: the drag itself costs 0.2 ms a step (measured), so
         // what made it choppy was the page rebuilding underneath it.
         guard grab == nil else { return }
-        withAnimation(.linear(duration: TutorialView.tickInterval)) { _ = model.tick(TutorialView.tickInterval) }
+        _ = model.tick(TutorialView.tickInterval)
     }
 
     private func step(_ delta: Int) { withAnimation { model.step(delta) } }
 
     private func go(to target: Int) { withAnimation { model.go(to: target) } }
+}
+
+/// The row of dots, which is the ONLY thing that changes while a slide plays itself. It watches the
+/// bar rather than the model, so a tick redraws 26×7 points instead of the whole page.
+private struct TutorialDots: View {
+    @ObservedObject var bar: TutorialBar
+    let index: Int
+    let auto: Bool
+    let slides: [TutorialContent.Slide]
+    let accent: Color
+    let go: (Int) -> Void
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(Array(slides.enumerated()), id: \.element.id) { i, s in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(.white.opacity(i == index ? 0.18 : 0.10))
+                    if i == index && auto {
+                        // No animation: the bar moves about a point per tick, and an animation here
+                        // is an animation on the whole window, for ever.
+                        Capsule().fill(accent).frame(width: max(4, 26 * bar.progress))
+                    } else if i == index {
+                        Capsule().fill(accent)
+                    }
+                }
+                .frame(width: i == index ? 26 : 7, height: 7)
+                .contentShape(Rectangle())
+                .onTapGesture { go(i) }
+                .accessibilityLabel(s.title)
+            }
+        }
+        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: index)
+    }
 }
 
 /// Hands the view's window back to SwiftUI. The drag itself is a SwiftUI gesture (see
