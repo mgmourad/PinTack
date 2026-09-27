@@ -78,3 +78,6 @@ appcast.xml
 
 ## Node (editor vendoring scratch)
 node_modules/
+
+## Private working material, not for the repository
+outreach-drafts.md

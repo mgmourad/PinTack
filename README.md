@@ -6,10 +6,12 @@
 
 **Sticky notes for macOS, with Obsidian's editing model and a plugin system.**
 
+*Stick it. Stack it. Ship it.*
+
 Plain Markdown files. Live Preview rendering. Todos with reminders. A plugin system.
 Open source, GPL-3.0.
 
-`Status: built, running, in beta with testers (0.1.0, build 18). Phases 1–4 complete.`
+`Status: built, running, in beta with testers (0.1.0, build 21). Phases 1–4 complete.`
 `Not yet signed or notarized — see Distribution.`
 `Seeking a macOS developer to own the codebase.`
 
@@ -30,7 +32,7 @@ A commercial sticky-notes app on the Mac App Store does the basics well and sits
 
 Its users have been asking the same things for years: a hotkey to start a note, a pin to float it on top, an opacity slider, a central window listing every note, folders, tags, widgets, and a way to get your data out. The requests go unanswered, and the architecture is most of the reason why. WidgetKit is effectively out of reach from Electron. Native window levels and non-activating panels are awkward through a browser abstraction.
 
-PinTack is the native answer to that feature list. The app is **14 MB**; the disk image is about 6 MB.
+PinTack is the native answer to that feature list. The app is **20 MB**; the disk image is 8.6 MB.
 
 ## What makes it different
 
@@ -93,13 +95,13 @@ Runner is built strictly against the public plugin API with no private hooks int
 | 🧩 Extension | JavaScript plugin API with a capability/permission/approval model, Runner bundled. WidgetKit widget designed but not built |
 | ⌨️ Vim | Optional vim keys (off by default): NORMAL/INSERT/VISUAL shown in the action bar, `:` and `/` open in the action bar, `:w` `:q` `:wq` `ZZ`, a line-number gutter where a table is a fold (`[+3]`, `zo`/`zc`); line numbers in code blocks as their own setting |
 | 🗃️ Stacks | Pile 2 to 10 notes into one with the paperclip: title bars fanned, a stack bar to rename, add or remove notes, pin (the whole pile glows), collapse, close or unstack, #1–#10 on ⌘1–⌘9 and ⌘0, ⌥Tab to cycle, and a Stacks tab in All Notes |
-| 🧊 Extras | Templates recalled with `@name`, quick capture from any app, `/find` fuzzy open, link previews (off by default), Undo for five seconds after a delete, empty notes that clean up after themselves, a one-screen welcome on first launch |
+| 🧊 Extras | Templates recalled with `@name`, quick capture from any app, `/find` fuzzy open, link previews (off by default), Undo for five seconds after a delete, empty notes that clean up after themselves, a one-screen welcome on first launch, and a **Tutorial** of twelve slides whose screenshots are taken by the app itself |
 
 ## Architecture in one paragraph
 
 A Swift/AppKit shell hosts one `NSPanel` per note. Each panel embeds a `WKWebView` running CodeMirror 6, which provides Live Preview and doubles as the plugin execution context. A `VaultStore` owns all file I/O against the Markdown vault, with an FSEvents watcher and an SQLite FTS5 search index that is fully disposable. All Notes and Settings share one SwiftUI window. The widget, when it is built, will read a denormalized snapshot through an App Group container.
 
-**`WKWebView` is not Electron.** It uses the WebKit already installed in macOS. Nothing is bundled, which is the entire difference between 14 MB and 377 MB.
+**`WKWebView` is not Electron.** It uses the WebKit already installed in macOS. Nothing is bundled, which is the entire difference between 20 MB and 377 MB.
 
 Full detail in **[SPEC.md](SPEC.md)**, which is written for a developer picking this up cold.
 
@@ -114,10 +116,11 @@ Full detail in **[SPEC.md](SPEC.md)**, which is written for a developer picking 
 | 4 | WidgetKit widget | Shelved — needs a signing team |
 | 5 | Signing, notarization, Sparkle, DMG, Homebrew | Styled DMG **done**; the rest waits on a signing team |
 
-Verified three ways by one command: a Release build (what actually ships), 230 unit tests, and a
-self-test that launches the app, drives its own windows and web views with real events, asserts 141
-things about what happened, photographs every window as evidence, and exits non-zero if any of them
-is wrong:
+Verified three ways by one command: a Release build (what actually ships), **241 unit tests**, and a
+self-test that launches the app, drives its own windows and web views with real events, asserts
+**over 270** things about what happened, photographs every window as evidence, and exits non-zero if
+any of them is wrong. A check it cannot fairly judge — another app in front, no window holding the
+keyboard, a person typing while it runs — says *skipped* rather than failing:
 
 ```bash
 scripts/verify.sh

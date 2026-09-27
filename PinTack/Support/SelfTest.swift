@@ -3299,9 +3299,16 @@ enum SelfTest {
         check("…and each is a real screenshot, not a thumbnail",
               slides.allSatisfy { (TutorialContent.picture($0.image)?.size.width ?? 0) > 200 })
         // Nothing from anyone's real work ships in the pictures or the words (owner, 2026-09-23).
+        // The barred words are base64 here rather than in plain text: this repository is public, and
+        // writing a customer's name into the check that keeps it out of the app would put it right
+        // back where it must not be.
         let words = (slides.map { $0.title + " " + $0.detail } + [TutorialContent.subtitle]).joined(separator: " ").lowercased()
-        let named = ["northwind", "cymentix"].filter(words.contains)
-        check("the tutorial names no real company or customer", named.isEmpty, named.joined(separator: ", "))
+        let barred = ["dmFuZ3VhcmQ=", "Y3ltZW50aXg="].compactMap { encoded -> String? in
+            Data(base64Encoded: encoded).flatMap { String(data: $0, encoding: .utf8) }
+        }
+        let named = barred.filter(words.contains)
+        check("the tutorial names no real company or customer",
+              named.isEmpty && barred.count == 2, named.isEmpty ? "" : "\(named.count) barred words appear")
         check("a slide that names a shortcut reads it from the live bindings",
               slides.compactMap(\.shortcut).allSatisfy { !ShortcutStore.shared.combo(for: $0).display.isEmpty })
 

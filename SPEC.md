@@ -1,6 +1,6 @@
 # PinTack — Technical Specification
 
-**Version:** 0.1.0 (build 18) — last brought up to date 2026-09-22
+**Version:** 0.1.0 (build 21) — last brought up to date 2026-09-26
 **Status:** Built and running; in beta with testers. Phases 1–4 complete; Phase 5 (signing,
 notarization, Sparkle) and the WidgetKit widget are not built — see §11 and §15. `CHANGELOG.md`
 records how it got here.
@@ -693,7 +693,10 @@ binding of the shortcut that reaches it.
   needs nothing. Re-run it whenever a feature's look changes; a slide can then never
   show a PinTack that no longer exists.
 - **It plays itself**, a slide every 5 seconds, with the showing slide's dot filling as a progress
-  bar. `‹`, `›`, a dot, ← or → takes over, and from then on it stays where it is put. **OK** at the
+  bar. The bar moves in steps of about a point and is **not animated**, and the clock stops while the
+  page is being dragged: an animation on that bar is an animation on the whole window, which cost
+  250 ms of processor time a second and made both dragging and the slide changes choppy (owner,
+  2026-09-26; 14 ms/s after). `‹`, `›`, a dot, ← or → takes over, and from then on it stays where it is put. **OK** at the
   bottom right and **✕** at the top right close it; so does Esc.
 - **The look** is the app's own dark indigo with an orange bloom, the screenshot floating over its
   reflection, sliding and fading between slides.

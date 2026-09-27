@@ -31,8 +31,8 @@ scripts/make-dmg.sh        # -> dist/PinTack-<version>.dmg (universal, ad-hoc si
 ```
 
 A styled disk image: the app and an Applications alias on a paper background, laid out by Finder and
-checked by the script afterwards. The app inside is about 14 MB; the image about 6 MB. Tester builds
-so far live in `dist/tester-build-<n>/`, one folder per build number.
+checked by the script afterwards. The app inside is about 20 MB; the image 8.6 MB. Tester builds so
+far live in `dist/tester-build-<n>/`, one folder per build number — `dist/` is not in the repository.
 
 The other Mac's Gatekeeper blocks the first launch until notarization exists (Phase 5); the DMG's
 background explains the ways past it (right-click → Open is the simplest).
@@ -49,10 +49,25 @@ background explains the ways past it (right-click → Open is the simplest).
 | `PinTack/Support/` | Motion (window animation on the app's own clock), reminders, toasts, the Debug self-test |
 | `Editor/` | The Live Preview editor (HTML/JS/CSS), copied into the app as a folder |
 | `Editor/vendor/` | CodeMirror 6, vendored (MIT). Regenerate: `scripts/vendor-codemirror.sh` |
-| `PinTackTests/` | Unit tests (230): the vault and its formats, import safety, blank-note discard, settings, tag colours, reminders, plugin security |
+| `PinTackTests/` | Unit tests (241): the vault and its formats, import safety, blank-note discard, settings, tag colours, reminders, plugin security |
 | `Plugins/runner/` | The bundled Runner plugin, written only against the public API |
 | `docs/assets/` | The icon as rendered for the README, its source art, the DMG background, the original HTML prototype |
 | `PinTack/AppIcon.icon` | The app icon, an Icon Composer document — preview with `ictool` (see CLAUDE.md) |
+
+## Starting from a clean slate
+
+Installing a new build over the old one never shows the first-run experience: every "once" marker
+lives outside the app — the greeting card's and the welcome note's in the vault, the plugin trust key
+in `~/Library/Application Support/PinTack`, the vault path in the preferences plist.
+
+```bash
+scripts/reset-first-run.sh --dry-run     # say what would move
+scripts/reset-first-run.sh               # move it all into one dated folder on the Desktop
+```
+
+Nothing is deleted; a reset is undone by moving the folder back. `--keep-vault` resets the markers,
+settings and approvals but keeps the notes. Two things it cannot reset, because macOS keeps them by
+bundle identifier: notification permission and the login item.
 
 ## Working on the editor without the app
 
