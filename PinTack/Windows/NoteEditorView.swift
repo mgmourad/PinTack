@@ -176,6 +176,17 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
         pendingScripts.append((js, completionHandler))
     }
 
+    /// A question the APP asks the page for its own bookkeeping — where the caret is before parking,
+    /// which process it is in. It does NOT count as the note being used: parking asks the page where
+    /// the reader is, and counting that made the note "used a moment ago" and refuse the very park
+    /// that asked, for ever (2026-09-27).
+    func askQuietly(_ js: String, then: @escaping (Any?) -> Void) {
+        let was = lastUsed, by = lastUsedBy
+        evaluateJavaScript(js) { result, _ in then(result) }
+        lastUsed = was
+        lastUsedBy = by
+    }
+
     /// When anything last spoke to this page. A note that was being used a moment ago keeps its
     /// editor even if it has fallen out of the pool: parking it while something is still working
     /// with it takes the page away mid-sentence (SPEC.md §5.11).
@@ -239,13 +250,24 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
         loadNote(focus: focus)
     }
 
+    /// A page that has not started takes no clicks: it can do nothing with one, and taking it would
+    /// take first responder with it and swallow whatever is typed next. The card handles both until
+    /// the page is ready (SPEC.md §5.11) — without this, clicking a note as it woke lost every
+    /// keystroke that followed, five of five (measured, 2026-09-27).
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        isReady ? super.hitTest(point) : nil
+    }
+
     /// Whether the page has started and taken its note. Until it has, it can neither show anything
     /// nor accept a keystroke, so the card keeps the keyboard and holds what is typed.
     var isPageReady: Bool { isReady }
 
+    /// Called when the page has started and taken its note: the card waits for this to put its
+    /// picture away, replay the click that woke it and hand over what was typed meanwhile. Not a
+    /// debug hook — the pool depends on it — though the probes use it to time a wake.
+    var onReady: (() -> Void)?
+
     #if DEBUG
-    /// Called when the page has started and taken its first note. The wake probe times this.
-    var debugOnReady: (() -> Void)?
     var debugIsReady: Bool { isReady }
     #endif
 
@@ -484,9 +506,7 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
             // The page just (re)loaded, so it has no note and no plugins yet: send them first, then
             // anything that was waiting (a focus request, say).
             isReady = true
-            #if DEBUG
-            debugOnReady?()
-            #endif
+            onReady?()
             loadNote(focus: false)
             runPendingScripts()
             queued.forEach { evaluateJavaScript($0, completionHandler: nil) }

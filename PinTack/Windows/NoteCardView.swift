@@ -53,6 +53,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     private let parkedView = ParkedNoteView(frame: .zero)
     private var parkedPosition: (caret: Int?, scroll: Double?) = (nil, nil)
     private var pendingKeys = ""
+    private var isParking = false
     /// The click that woke the note, waiting to be given to the page that comes back.
     private var pendingClick: NSPoint?
 
@@ -1149,45 +1150,47 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     /// `force` is for the self-test, which parks a note deliberately to measure what that costs. The
     /// pool never forces: a note that is busy keeps its editor until it is not.
     func park(force: Bool = false, then done: @escaping (Bool) -> Void) {
+        guard !isParking else { return done(false) }
         guard let live = liveEditor, force || canPark else { return done(false) }
+        // Parking takes two answers from the page — where the reader is, then the picture — and a
+        // page can stop answering (it is reloading, it has gone). Without a way out, one park that
+        // never finished used to block every later one: twenty notes, nothing parked (2026-09-27).
+        isParking = true
+        var finished = false
+        let finish: (Bool) -> Void = { [weak self] parked in
+            guard !finished else { return }
+            finished = true
+            self?.isParking = false
+            done(parked)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4) { finish(false) }
         let bounds = live.bounds
-        guard bounds.width > 1, bounds.height > 1 else { return done(false) }
+        guard bounds.width > 1, bounds.height > 1 else { return finish(false) }
         // Where the reader is NOW, asked of the page itself. The position it volunteers with its
         // text is where the caret was when the text last CHANGED, not where it was left: a note
         // parked with the caret at 223 came back reporting 0 (measured, 2026-09-27).
-        live.evaluateJavaScript("(() => { const v = window.__pintack && window.__pintack._view; if (!v) return null;"
+        live.askQuietly("(() => { const v = window.__pintack && window.__pintack._view; if (!v) return null;"
             + " return JSON.stringify({ caret: v.state.selection.main.head,"
-            + " scroll: v.scrollDOM ? v.scrollDOM.scrollTop : 0 }); })()") { [weak self] answer, _ in
-            guard let self, let live = self.liveEditor else { return done(false) }
+            + " scroll: v.scrollDOM ? v.scrollDOM.scrollTop : 0 }); })()") { [weak self] answer in
+            guard let self, let live = self.liveEditor else { return finish(false) }
             if let json = answer as? String, let data = json.data(using: .utf8),
                let position = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
                 live.savedPosition = (position["caret"] as? Int, position["scroll"] as? Double)
             }
-            // The page paints the note's paper for the moment the picture is taken. WebKit's
-            // snapshot composites anything half-transparent — the code panel, a table's header row —
-            // against WHITE, so a picture of a page with no background of its own came out lighter
-            // than the page itself (measured: the code panel 0.15 grey live, 0.23 parked). Given the
-            // paper to composite against, the picture is what the reader was looking at.
-            let paper = (self.note.color.usingColorSpace(.sRGB) ?? .white)
-            let css = String(format: "rgb(%d,%d,%d)", Int(paper.redComponent * 255),
-                             Int(paper.greenComponent * 255), Int(paper.blueComponent * 255))
-            live.evaluateJavaScript("document.documentElement.style.backgroundColor = '\(css)'") { _, _ in
+            // `takeSnapshot(with: nil)`, with NO configuration: given one, WebKit composites
+            // anything half-transparent — a code panel, a table's header row — against white.
             live.takeSnapshot(with: nil) { [weak self] image, _ in
             // Between asking for the picture and getting it the note may have been clicked into, so
             // everything is checked again. Saying so matters: the pool only takes a note off its
             // list when the park really happened, and comes back for it when it did not.
-            guard let self, let live = self.liveEditor, force || self.canPark else {
-                self?.liveEditor?.evaluateJavaScript("document.documentElement.style.backgroundColor = ''")
-                return done(false)
-            }
+            guard let self, let live = self.liveEditor, force || self.canPark else { return finish(false) }
             self.parkedView.show(image: image, note: self.note, frame: live.frame)
             self.addSubview(self.parkedView)
             self.parkedPosition = live.savedPosition
             EditorPool.shared.give(up: live)
             self.liveEditor = nil
             self.needsLayout = true
-            done(true)
-            }
+            finish(true)
             }
         }
     }
@@ -1204,16 +1207,18 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         view.savedPosition = parkedPosition
         view.onModeChange = { [weak self] _ in self?.refreshModeGlyph() }
         view.contextMenuItems = { [weak self] in self?.contextMenuItems(editing: true) ?? [] }
-        view.isHidden = note.collapsed
+        // Hidden until the page has drawn, so the picture stays put and nothing flashes blank.
+        view.isHidden = true
         liveEditor = view
         addSubview(view)
         view.frame = parkedView.frame
         // The picture stays until the page has drawn, so nothing flashes empty in between.
-        view.debugOnReady = { [weak self] in
+        view.onReady = { [weak self] in
             guard let self else { return }
             // Straight away: the picture is only there to cover the moment the page is not. Waiting
             // even 50 ms here was a third of the whole wake (2026-09-27).
             DispatchQueue.main.async {
+                self.liveEditor?.isHidden = self.note.collapsed
                 self.parkedView.removeFromSuperview()
                 if let point = self.pendingClick {
                     self.pendingClick = nil
@@ -1231,6 +1236,10 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     /// Keystrokes that arrived while the note was parked or waking. A person who clicks a note and
     /// types immediately must not lose a character or have them come out in the wrong order.
     private func flushTypedWhileWaking() {
+        if ProcessInfo.processInfo.environment["PINTACK_POOL_LOG"] != nil {
+            NSLog("PinTack pool: giving “%@” to %@ (page %@)", pendingKeys, note.title,
+                  liveEditor == nil ? "gone" : (liveEditor!.isPageReady ? "ready" : "starting"))
+        }
         guard !pendingKeys.isEmpty, let live = liveEditor else { return }
         let text = pendingKeys
         pendingKeys = ""
@@ -1248,6 +1257,9 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
             if let characters = event.characters, !characters.isEmpty,
                event.modifierFlags.intersection([.command, .control, .option]).isEmpty {
                 pendingKeys += characters
+                if ProcessInfo.processInfo.environment["PINTACK_POOL_LOG"] != nil {
+                    NSLog("PinTack pool: held “%@” for %@", characters, note.title)
+                }
                 wake(reason: "typing")
                 return
             }
@@ -1623,6 +1635,11 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
 
     override func mouseDown(with event: NSEvent) {
         let local = convert(event.locationInWindow, from: nil)
+        if ProcessInfo.processInfo.environment["PINTACK_POOL_LOG"] != nil {
+            NSLog("PinTack pool: click on %@ (parked %@, ready %@, in editor %@)", note.title,
+                  isParked ? "yes" : "no", liveEditor?.isPageReady == true ? "yes" : "no",
+                  (parkedView.frame.contains(local) || liveEditor?.frame.contains(local) == true) ? "yes" : "no")
+        }
         // A click in the body of a note that is parked OR still waking is held here: it wakes the
         // note, and the click is given to the page that comes back so it does what it would have
         // done on a live note — put the caret there, tick that checkbox, open that link. The card
@@ -2052,24 +2069,40 @@ extension NoteCardView {
 /// always right even if the picture is a moment out of date.
 final class ParkedNoteView: NSView {
 
-    /// Drawn, not handed to a layer: a layer flattens the picture's transparency against white, and
-    /// everything half-transparent in a note — the code panel, a table's header row — then came out
-    /// lighter than the live page (measured: 0.15 grey live, 0.23 parked). Drawn here it composites
-    /// over the note's paper exactly as the page does.
-    private var picture: NSImage?
+    /// The picture goes to a LAYER rather than being drawn in `draw(_:)`: drawing it costs about
+    /// 1.3 MB of extra backing store per parked note (23 MB over twenty) and looks exactly the same.
+    ///
+    /// Known and small: anything half-transparent in a note — a code panel, a table's header row —
+    /// comes out a shade lighter parked than live (measured: 0.15 grey against 0.23), because
+    /// WebKit's snapshot composites half-transparent pixels against white whatever it is asked. The
+    /// self-test compares the two as a grid of cells for that reason. Making the page paint its own
+    /// paper would fix it outright and is the obvious next step if it ever grates.
+    private let imageLayer = CALayer()
     /// The note itself, so what a screen reader reads is the note's text as it is now, not a copy
     /// taken when the picture was.
     private weak var note: Note?
 
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.addSublayer(imageLayer)
+        imageLayer.contentsGravity = .resize
+        imageLayer.masksToBounds = true
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
     func show(image: NSImage?, note: Note, frame: NSRect) {
         self.frame = frame
         self.note = note
-        self.picture = image
-        needsDisplay = true
+        imageLayer.contentsScale = window?.backingScaleFactor ?? 2
+        imageLayer.frame = bounds
+        imageLayer.contents = image
     }
 
-    override func draw(_ dirtyRect: NSRect) {
-        picture?.draw(in: bounds, from: .zero, operation: .sourceOver, fraction: 1)
+    override func layout() {
+        super.layout()
+        imageLayer.frame = bounds
     }
 
     /// A parked note does not take the mouse: the card handles the click, wakes the note and gives

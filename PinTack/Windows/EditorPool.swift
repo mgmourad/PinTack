@@ -35,8 +35,6 @@ final class EditorPool {
     }
     /// A page that has already started, waiting for whichever note needs it next.
     private var spare: NoteEditorView?
-    /// Set while a card is parking or waking, so the bookkeeping cannot recurse into itself.
-    private var settling = false
 
     var isEnabled: Bool { AppSettings.shared.parkIdleNotesEffective }
     var maxLive: Int { max(1, AppSettings.shared.editorPoolSizeEffective) }
@@ -81,7 +79,7 @@ final class EditorPool {
     /// vim prompt, cropping a picture, running a command, waiting to be saved — is never parked; it
     /// simply keeps its editor until it is idle again.
     func trim() {
-        guard isEnabled, !settling else { return }
+        guard isEnabled else { return }
         prune()
         // The note with the keyboard is always one of the live ones, whether or not it has been
         // through `used` — at launch macOS gives a window the keyboard without anyone asking. Left
@@ -111,10 +109,8 @@ final class EditorPool {
                 #endif
                 continue
             }
-            settling = true
             card.park { [weak self] parked in
                 guard let self else { return }
-                self.settling = false
                 // Only a park that actually happened takes the note off the list. A park that gave
                 // up half way left the note holding a page that nothing tracked, for the rest of the
                 // session (measured: five live pages for a pool of four).

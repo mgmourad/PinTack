@@ -51,7 +51,7 @@ enum WakeProbe {
         let start = Date()
         let view = NoteEditorView(note: note)
         view.frame = NSRect(x: 0, y: 0, width: 340, height: 260)
-        view.debugOnReady = {
+        view.onReady = {
             let ms = Date().timeIntervalSince(start) * 1000
             kept.append(view)                     // kept alive: releasing it would skew the next run
             cold(runs: runs, left: left - 1, times: times + [ms])
@@ -65,7 +65,7 @@ enum WakeProbe {
             return rebind(runs: runs, left: runs, cold: cold, reload: times, times: [])
         }
         let start = Date()
-        view.debugOnReady = {
+        view.onReady = {
             reload(runs: runs, left: left - 1, cold: cold, times: times + [Date().timeIntervalSince(start) * 1000])
         }
         view.load(URLRequest(url: NoteEditorView.pageURL))
