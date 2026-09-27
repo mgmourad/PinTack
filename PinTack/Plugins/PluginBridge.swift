@@ -311,6 +311,14 @@ final class PluginBridge {
 
     var activeRunCount: Int { runs.count }
 
+    /// Whether a command is running in this note's page. A note with a command still running is
+    /// never parked (SPEC.md §5.11): letting its page go would kill the command.
+    func isRunning(owner: AnyObject?) -> Bool {
+        guard let owner else { return false }
+        let id = ObjectIdentifier(owner)
+        return runs.values.contains { $0.owner == id }
+    }
+
     // MARK: - Helpers
 
     private func note(_ id: String, _ vault: VaultStore) throws -> Note {

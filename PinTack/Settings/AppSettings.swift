@@ -70,6 +70,24 @@ final class AppSettings: ObservableObject {
     /// A fenced code block numbers its own lines. Off by default; stands aside while vim mode
     /// numbers the whole note.
     @Published var codeLineNumbers = false
+    /// Only a few notes keep a live editor; the rest are parked (SPEC.md §5.11). On by default,
+    /// because twenty open notes cost about 695 MB without it and a quarter of that with it.
+    @Published var parkIdleNotes = true { didSet { guard !loading else { return }; EditorPool.shared.settingsChanged() } }
+    /// How many notes keep a live editor at once — the note you are in and the one before it.
+    /// Two by default, with a warm spare page beside them: each page costs about 34 MB, and three
+    /// pages in total is what keeps a deskful of twenty notes inside 300 MB (SPEC.md §5.11).
+    @Published var editorPoolSize = 2 { didSet { guard !loading else { return }; EditorPool.shared.settingsChanged() } }
+
+    /// Development overrides, so a measurement or a self-test run can set the pool without touching
+    /// anybody's settings file: PINTACK_PARK=0 and PINTACK_POOL_SIZE=n.
+    var parkIdleNotesEffective: Bool {
+        if let raw = ProcessInfo.processInfo.environment["PINTACK_PARK"] { return raw != "0" }
+        return parkIdleNotes
+    }
+    var editorPoolSizeEffective: Int {
+        if let raw = ProcessInfo.processInfo.environment["PINTACK_POOL_SIZE"], let n = Int(raw) { return max(1, n) }
+        return editorPoolSize
+    }
     /// Whether the one-time notice about vim mode's rough edges has been shown. Kept in the vault's
     /// settings like everything else, so it is shown once per vault rather than once per Mac.
     @Published var vimNoticeShown = false
@@ -86,7 +104,7 @@ final class AppSettings: ObservableObject {
         "spellcheck", "slashCommands", "imagePaste", "bulletEmoji", "enabledPlugins", "plugins", "linkPreviews",
         "inlineCodeColor", "inlineCodeOpacity", "codeBlockColor", "codeBlockOpacity", "pasteAsMarkdown",
         "settingsVersion", "hoverRevealsNote", "tagColors", "pinnedGlowStrength", "vimMode",
-        "codeLineNumbers", "vimNoticeShown",
+        "codeLineNumbers", "vimNoticeShown", "parkIdleNotes", "editorPoolSize",
     ]
 
     /// Bumped when the file's MEANING changes. Version 1 (no key at all) wrote every value, chosen or
@@ -147,6 +165,7 @@ final class AppSettings: ObservableObject {
         func s(_ k: String) -> String? { dict[k] as? String }
         func d(_ k: String) -> Double? { (dict[k] as? NSNumber)?.doubleValue }
         func b(_ k: String) -> Bool? { dict[k] as? Bool }
+        func i(_ k: String) -> Int? { (dict[k] as? NSNumber)?.intValue }
 
         appTheme = s("appTheme") ?? appTheme
         defaultColorHex = s("defaultColor") ?? defaultColorHex
@@ -181,6 +200,8 @@ final class AppSettings: ObservableObject {
         pasteAsMarkdown = b("pasteAsMarkdown") ?? pasteAsMarkdown
         vimMode = b("vimMode") ?? vimMode
         codeLineNumbers = b("codeLineNumbers") ?? codeLineNumbers
+        parkIdleNotes = b("parkIdleNotes") ?? parkIdleNotes
+        editorPoolSize = max(1, min(24, i("editorPoolSize") ?? editorPoolSize))
         vimNoticeShown = b("vimNoticeShown") ?? vimNoticeShown
         enabledPlugins = (dict["enabledPlugins"] as? [String: Bool]) ?? enabledPlugins
 
@@ -192,7 +213,7 @@ final class AppSettings: ObservableObject {
                                   "inlineCodeColor", "inlineCodeOpacity", "codeBlockColor",
                                   "codeBlockOpacity", "pasteAsMarkdown", "settingsVersion",
                                   "hoverRevealsNote", "tagColors", "pinnedGlowStrength", "vimMode",
-                                  "codeLineNumbers", "vimNoticeShown"]
+                                  "codeLineNumbers", "vimNoticeShown", "parkIdleNotes", "editorPoolSize"]
         extra = dict.filter { !known.contains($0.key) }
         applyRuntimeEffects()
     }
@@ -261,6 +282,8 @@ final class AppSettings: ObservableObject {
         dict["pasteAsMarkdown"] = pasteAsMarkdown
         dict["vimMode"] = vimMode
         dict["codeLineNumbers"] = codeLineNumbers
+        dict["parkIdleNotes"] = parkIdleNotes
+        dict["editorPoolSize"] = editorPoolSize
         dict["vimNoticeShown"] = vimNoticeShown
         dict["enabledPlugins"] = enabledPlugins
         return dict

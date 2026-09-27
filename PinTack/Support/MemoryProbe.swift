@@ -98,8 +98,11 @@ enum MemoryProbe {
             if name.contains("WebContent") { s.webContent += 1 }
         }
         // What each page says its own process is: a private WebKit property, Debug only.
+        // `editorIfLive`, NEVER `editor`: reaching for a parked note's editor WAKES it, so asking
+        // every note which process it is in was enough to wake all twenty and report that nothing
+        // was parked — the measurement destroying the thing it measured (2026-09-27).
         let pages = WindowManager.shared.openPanels.compactMap {
-            ($0.card.editor.value(forKey: "_webProcessIdentifier") as? NSNumber)?.int32Value
+            ($0.card.editorIfLive?.value(forKey: "_webProcessIdentifier") as? NSNumber)?.int32Value
         }
         s.pagesSay = Set(pages.filter { $0 > 0 }).count
         return s

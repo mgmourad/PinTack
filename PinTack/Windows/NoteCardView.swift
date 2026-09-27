@@ -1,4 +1,5 @@
 import AppKit
+import WebKit
 import SwiftUI
 
 /// The note's visible card: chrome, header controls, editor, footer. SPEC.md §5.3.
@@ -46,7 +47,14 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     private let tagPills = TagPillsView()                      // shows the tags; ignores the mouse so it drags
     private let grip = ResizeGripView()
     private let freezeButton = ToolButton()      // snowflake, beside the grip
-    let editor: NoteEditorView
+    /// The live editor, or nil while this note is parked (SPEC.md §5.11). Reach for it through
+    /// `editor`, which wakes the note, or `editorIfLive`, which does not.
+    private var liveEditor: NoteEditorView?
+    private let parkedView = ParkedNoteView(frame: .zero)
+    private var parkedPosition: (caret: Int?, scroll: Double?) = (nil, nil)
+    private var pendingKeys = ""
+    /// The click that woke the note, waiting to be given to the page that comes back.
+    private var pendingClick: NSPoint?
 
     // The action bar: a `>` in the footer that opens formatting tools. SPEC.md §5.3 keeps the
     // always-visible footer to three controls; everything else lives behind this one.
@@ -110,7 +118,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     init(note: Note, panel: NotePanel) {
         self.note = note
         self.panel = panel
-        self.editor = NoteEditorView(note: note)
+        self.liveEditor = NoteEditorView(note: note)
         super.init(frame: .zero)
         wantsLayer = true
         buildSubviews()
@@ -882,7 +890,8 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
 
     func updateCollapsedState() {
         let c = note.collapsed
-        editor.isHidden = c
+        editorIfLive?.isHidden = c
+        parkedView.isHidden = c
         appearanceButton.isHidden = c
         expandButton.isHidden = c
         grip.isHidden = c
@@ -1016,8 +1025,10 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         titleField.frame = NSRect(x: left, y: headerY + 7, width: max(20, titleRight - left), height: 17)
 
         let footer = footerHeight
-        editor.frame = NSRect(x: c.minX + 1, y: c.minY + footer, width: c.width - 2,
-                              height: max(0, c.height - NotePanel.headerHeight - stackBarHeight - footer))
+        let editorFrame = NSRect(x: c.minX + 1, y: c.minY + footer, width: c.width - 2,
+                                 height: max(0, c.height - NotePanel.headerHeight - stackBarHeight - footer))
+        liveEditor?.frame = editorFrame
+        if parkedView.superview != nil { parkedView.frame = editorFrame }
 
         // Footer, left to right: 🎨  >  then either the tags or the tools; the resize grip at the far right.
         // The controls stay on the TOP row of the bar; extra tracker rows hang below them.
@@ -1094,6 +1105,156 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         }
     }
 
+
+    // MARK: - Parking (SPEC.md §5.11)
+
+    /// The editor, waking the note if it was parked. Anything that reaches for the editor needs a
+    /// live one, so reaching for it IS a wake — which is why broadcasts to every note (a settings
+    /// change, a tag rename) use `editorIfLive` instead and leave parked notes alone.
+    var editor: NoteEditorView {
+        if let liveEditor { return liveEditor }
+        wake(reason: "something asked for the editor")
+        return liveEditor ?? NoteEditorView(note: note)
+    }
+
+    /// The editor only if this note has one. Use it for anything that must not wake a note.
+    var editorIfLive: NoteEditorView? { liveEditor }
+
+    var isParked: Bool { liveEditor == nil }
+
+    /// Whether this note may be parked right now. A note in the middle of something keeps its editor
+    /// until it has finished, however long the pool has to wait.
+    var canPark: Bool { parkRefusal == nil }
+
+    /// Why this note is keeping its editor, or nil if it may park. Named rather than boolean so the
+    /// pool can say what is holding a note awake.
+    var parkRefusal: String? {
+        if isParked { return "already parked" }
+        guard let panel = window as? NotePanel else { return "no window" }
+        if panel.isKeyWindow { return "has the keyboard" }
+        if titleField.currentEditor() != nil { return "being renamed" }
+        if popover?.isShown == true { return "a popover is open" }
+        if barOverlay != .none { return "the action bar is busy" }
+        if SaveCoordinator.shared.hasPending(noteID: note.id) { return "waiting to be saved" }
+        if PluginBridge.shared.isRunning(owner: liveEditor) { return "a command is running" }
+        if liveEditor?.isPageReady == false { return "still starting" }
+        if let live = liveEditor, live.wasUsedRecently {
+            return String(format: "used %.1fs ago (%@)", Date().timeIntervalSince(live.lastUsed), live.lastUsedBy)
+        }
+        return nil
+    }
+
+    /// Gives the editor up and shows the page as it last looked, with the note's own text behind it
+    /// for anything that reads the screen.
+    /// `force` is for the self-test, which parks a note deliberately to measure what that costs. The
+    /// pool never forces: a note that is busy keeps its editor until it is not.
+    func park(force: Bool = false, then done: @escaping (Bool) -> Void) {
+        guard let live = liveEditor, force || canPark else { return done(false) }
+        let bounds = live.bounds
+        guard bounds.width > 1, bounds.height > 1 else { return done(false) }
+        // Where the reader is NOW, asked of the page itself. The position it volunteers with its
+        // text is where the caret was when the text last CHANGED, not where it was left: a note
+        // parked with the caret at 223 came back reporting 0 (measured, 2026-09-27).
+        live.evaluateJavaScript("(() => { const v = window.__pintack && window.__pintack._view; if (!v) return null;"
+            + " return JSON.stringify({ caret: v.state.selection.main.head,"
+            + " scroll: v.scrollDOM ? v.scrollDOM.scrollTop : 0 }); })()") { [weak self] answer, _ in
+            guard let self, let live = self.liveEditor else { return done(false) }
+            if let json = answer as? String, let data = json.data(using: .utf8),
+               let position = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
+                live.savedPosition = (position["caret"] as? Int, position["scroll"] as? Double)
+            }
+            // The page paints the note's paper for the moment the picture is taken. WebKit's
+            // snapshot composites anything half-transparent — the code panel, a table's header row —
+            // against WHITE, so a picture of a page with no background of its own came out lighter
+            // than the page itself (measured: the code panel 0.15 grey live, 0.23 parked). Given the
+            // paper to composite against, the picture is what the reader was looking at.
+            let paper = (self.note.color.usingColorSpace(.sRGB) ?? .white)
+            let css = String(format: "rgb(%d,%d,%d)", Int(paper.redComponent * 255),
+                             Int(paper.greenComponent * 255), Int(paper.blueComponent * 255))
+            live.evaluateJavaScript("document.documentElement.style.backgroundColor = '\(css)'") { _, _ in
+            live.takeSnapshot(with: nil) { [weak self] image, _ in
+            // Between asking for the picture and getting it the note may have been clicked into, so
+            // everything is checked again. Saying so matters: the pool only takes a note off its
+            // list when the park really happened, and comes back for it when it did not.
+            guard let self, let live = self.liveEditor, force || self.canPark else {
+                self?.liveEditor?.evaluateJavaScript("document.documentElement.style.backgroundColor = ''")
+                return done(false)
+            }
+            self.parkedView.show(image: image, note: self.note, frame: live.frame)
+            self.addSubview(self.parkedView)
+            self.parkedPosition = live.savedPosition
+            EditorPool.shared.give(up: live)
+            self.liveEditor = nil
+            self.needsLayout = true
+            done(true)
+            }
+            }
+        }
+    }
+
+    /// Takes an editor back — the warm spare if the pool has one — and puts the note back in it,
+    /// where it was. Anything typed while this was happening is replayed in order afterwards.
+    func wake(reason: String) {
+        guard liveEditor == nil else { return }
+        // The card takes the keyboard while the page starts, so anything typed in between is caught
+        // here rather than falling into the window and vanishing. It hands it to the page the moment
+        // that page is ready.
+        if window?.isKeyWindow == true { window?.makeFirstResponder(self) }
+        let view = EditorPool.shared.takeEditor(for: note, card: self)
+        view.savedPosition = parkedPosition
+        view.onModeChange = { [weak self] _ in self?.refreshModeGlyph() }
+        view.contextMenuItems = { [weak self] in self?.contextMenuItems(editing: true) ?? [] }
+        view.isHidden = note.collapsed
+        liveEditor = view
+        addSubview(view)
+        view.frame = parkedView.frame
+        // The picture stays until the page has drawn, so nothing flashes empty in between.
+        view.debugOnReady = { [weak self] in
+            guard let self else { return }
+            // Straight away: the picture is only there to cover the moment the page is not. Waiting
+            // even 50 ms here was a third of the whole wake (2026-09-27).
+            DispatchQueue.main.async {
+                self.parkedView.removeFromSuperview()
+                if let point = self.pendingClick {
+                    self.pendingClick = nil
+                    self.liveEditor?.send("click.replay", ["x": point.x, "y": point.y])
+                }
+                if self.window?.isKeyWindow == true, self.window?.firstResponder === self {
+                    self.window?.makeFirstResponder(self.liveEditor)
+                }
+                self.flushTypedWhileWaking()
+            }
+        }
+        needsLayout = true
+    }
+
+    /// Keystrokes that arrived while the note was parked or waking. A person who clicks a note and
+    /// types immediately must not lose a character or have them come out in the wrong order.
+    private func flushTypedWhileWaking() {
+        guard !pendingKeys.isEmpty, let live = liveEditor else { return }
+        let text = pendingKeys
+        pendingKeys = ""
+        let escaped = text.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+        live.send("text.insert", ["text": escaped])
+    }
+
+    /// The card can hold the keyboard, which it does only while a note is waking.
+    override var acceptsFirstResponder: Bool { true }
+
+    /// While parked or waking, the card itself takes the keyboard, so nothing is dropped between the
+    /// click and the page being ready.
+    override func keyDown(with event: NSEvent) {
+        if isParked || liveEditor?.isPageReady == false {
+            if let characters = event.characters, !characters.isEmpty,
+               event.modifierFlags.intersection([.command, .control, .option]).isEmpty {
+                pendingKeys += characters
+                wake(reason: "typing")
+                return
+            }
+        }
+        super.keyDown(with: event)
+    }
+
     // MARK: - Refresh from model
 
     /// The note changed underneath us (Appearance popover, hotkey, external edit).
@@ -1101,7 +1262,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         panel.applyOpacity()
         panel.applyPinned()
         applyColors()
-        editor.pushSettings()
+        editorIfLive?.pushSettings()
         // A note can BECOME a todo (typing @todo), which changes what the action bar shows.
         todoSignature = currentTodoSignature
         updateActionBar()
@@ -1116,11 +1277,16 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         panel.applyOpacity()
         tagPills.needsDisplay = true              // a tag's colour may just have been changed
         applyColors()
-        editor.pushSettings()
+        editorIfLive?.pushSettings()
         needsDisplay = true
     }
 
     @objc private func bodyChanged(_ n: Notification) {
+        // A parked note shows a picture of the page it had; if the text has changed underneath it —
+        // an edit in another app, a sync — the picture is out of date. Waking it draws the new text,
+        // and the pool parks it again a moment later with a fresh picture. Rare enough to be cheap:
+        // the watcher debounces bursts of file events into one.
+        if isParked, (n.object as? Note) === note { wake(reason: "the file changed on disk") }
         needsLayout = true
         if titleField.currentEditor() == nil { refreshTitle() }
         refreshTagsButton()
@@ -1129,7 +1295,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
 
     @objc private func tagsMayHaveChanged() {
         refreshTagsButton()
-        editor.pushTags()
+        editorIfLive?.pushTags()
         // Tagging a note `todo` is one of the two ways it becomes one, so the bar may change here too.
         syncTodoState()
         needsLayout = true
@@ -1457,6 +1623,22 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
 
     override func mouseDown(with event: NSEvent) {
         let local = convert(event.locationInWindow, from: nil)
+        // A click in the body of a note that is parked OR still waking is held here: it wakes the
+        // note, and the click is given to the page that comes back so it does what it would have
+        // done on a live note — put the caret there, tick that checkbox, open that link. The card
+        // keeps the keyboard until then, because handing it to a page that has not loaded loses
+        // everything typed into it (measured: five keystrokes of five, SPEC.md §5.11).
+        if isParked || liveEditor?.isPageReady == false, !note.collapsed,
+           (parkedView.frame.contains(local) || liveEditor?.frame.contains(local) == true) {
+            let area = isParked ? parkedView.frame : (liveEditor?.frame ?? parkedView.frame)
+            pendingClick = NSPoint(x: local.x - area.minX, y: area.maxY - local.y)   // CSS pixels, y down
+            window?.makeKeyAndOrderFront(nil)
+            wake(reason: "a click in the body")
+            // The card holds the keyboard until the page is ready, whatever the click would
+            // otherwise have given it to.
+            window?.makeFirstResponder(self)
+            return
+        }
         // A click that landed on this window's margin over another stacked note's title bar is that
         // note's click (see hitTest): it comes to the front, as a click on its title bar would.
         if !cardRect.contains(local), let other = stackMemberUnder(local) {
@@ -1798,6 +1980,10 @@ extension NoteCardView {
     var debugIsRenaming: Bool { titleField.isRenaming }
     var debugTitleCenter: NSPoint { NSPoint(x: titleField.frame.midX, y: titleField.frame.midY) }
     var debugPopoverWindow: NSWindow? { popover?.contentViewController?.view.window }
+    var debugNoteTitle: String { note.title }
+    /// What a screen reader gets from a parked note.
+    var debugParkedAccessibilityText: String { (parkedView.accessibilityValue() as? String) ?? "" }
+    var debugParkedPosition: String { "caret \(parkedPosition.caret.map(String.init) ?? "-"), scroll \(parkedPosition.scroll.map { String(Int($0)) } ?? "-")" }
     var debugPopoverShown: Bool { popover?.isShown == true }
     /// The appearance button's rect in screen coordinates.
     var debugAppearanceButtonScreenRect: NSRect {
@@ -1855,3 +2041,45 @@ extension NoteCardView {
     var debugHasPopover: Bool { popover?.isShown == true }
 }
 #endif
+
+/// What a parked note shows: the page exactly as it last looked, with the note's own text behind it
+/// for VoiceOver and anything else that reads the screen (SPEC.md §5.11).
+///
+/// The picture is what the page drew, so a parked note and a live one are the same pixels — tables,
+/// code panels with their language badges, images, coloured spans and checkboxes included. A picture
+/// alone would be no good to a screen reader, so the view is an accessibility element in its own
+/// right, carrying the note's text; that text comes from the note, not from the picture, so it is
+/// always right even if the picture is a moment out of date.
+final class ParkedNoteView: NSView {
+
+    /// Drawn, not handed to a layer: a layer flattens the picture's transparency against white, and
+    /// everything half-transparent in a note — the code panel, a table's header row — then came out
+    /// lighter than the live page (measured: 0.15 grey live, 0.23 parked). Drawn here it composites
+    /// over the note's paper exactly as the page does.
+    private var picture: NSImage?
+    /// The note itself, so what a screen reader reads is the note's text as it is now, not a copy
+    /// taken when the picture was.
+    private weak var note: Note?
+
+    func show(image: NSImage?, note: Note, frame: NSRect) {
+        self.frame = frame
+        self.note = note
+        self.picture = image
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        picture?.draw(in: bounds, from: .zero, operation: .sourceOver, fraction: 1)
+    }
+
+    /// A parked note does not take the mouse: the card handles the click, wakes the note and gives
+    /// the click to the page that comes back.
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    // MARK: Readable without a live page
+
+    override func isAccessibilityElement() -> Bool { true }
+    override func accessibilityRole() -> NSAccessibility.Role? { .staticText }
+    override func accessibilityValue() -> Any? { note?.body ?? "" }
+    override func accessibilityLabel() -> String? { "Note text" }
+}

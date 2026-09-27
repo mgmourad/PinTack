@@ -60,6 +60,10 @@ final class NotePanel: NSPanel {
 
     override func becomeKey() {
         super.becomeKey()
+        // The note you are in always has a live editor, and the pool parks whatever has fallen out
+        // of it (SPEC.md §5.11).
+        card.wake(reason: "the note took the keyboard")
+        EditorPool.shared.used(card)
         WindowManager.shared.noteBecameFocused(note)
         // A note behind the front of its stack that becomes the active window by ANY route — a click
         // on its title bar (macOS raises it on the press), Mission Control, ⌘` — comes to the front

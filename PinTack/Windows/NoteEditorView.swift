@@ -87,7 +87,10 @@ final class EditorSchemeHandler: NSObject, WKURLSchemeHandler {
 /// One CodeMirror editor per note, hosted in a WKWebView. SPEC.md §2.1.
 final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDelegate {
 
-    private let note: Note
+    /// Not `let`: a warm spare page is built before anyone asks for it and then bound to whichever
+    /// note needs waking (SPEC.md §5.11), which is what makes waking cost milliseconds instead of
+    /// the four seconds a page takes to start from cold.
+    private var note: Note
     private var isReady = false
     private var queued: [String] = []
     private lazy var lastTitle: String = note.title
@@ -118,6 +121,9 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
         config.userContentController.add(proxy, name: "pintack")
         super.init(frame: .zero, configuration: config)
         proxy.target = self
+        #if DEBUG
+        NoteEditorView.debugInstances += 1
+        #endif
 
         navigationDelegate = self
         setValue(false, forKey: "drawsBackground")       // the note color shows through
@@ -153,8 +159,95 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
         guard let data = try? JSONSerialization.data(withJSONObject: msg),
               let json = String(data: data, encoding: .utf8) else { return }
         let js = "window.__pintack.receive(\(json))"
+        lastUsed = Date()
+        lastUsedBy = "send: " + type
         if isReady { evaluateJavaScript(js, completionHandler: nil) } else { queued.append(js) }
     }
+
+    /// Runs JavaScript in the page, waiting if the page is still starting.
+    ///
+    /// A note that has just woken has a page that is loading, and WebKit answers a call into a page
+    /// that is not ready with nothing at all. Every caller would then have to know whether the note
+    /// it is touching happens to be awake, so the wait lives here instead.
+    override func evaluateJavaScript(_ js: String, completionHandler: ((Any?, Error?) -> Void)? = nil) {
+        lastUsed = Date()
+        lastUsedBy = "js: " + js.prefix(28)
+        guard !isReady else { return super.evaluateJavaScript(js, completionHandler: completionHandler) }
+        pendingScripts.append((js, completionHandler))
+    }
+
+    /// When anything last spoke to this page. A note that was being used a moment ago keeps its
+    /// editor even if it has fallen out of the pool: parking it while something is still working
+    /// with it takes the page away mid-sentence (SPEC.md §5.11).
+    private(set) var lastUsed = Date()
+    private(set) var lastUsedBy = "opened"
+    var wasUsedRecently: Bool { Date().timeIntervalSince(lastUsed) < 5 }
+
+    private var pendingScripts: [(String, ((Any?, Error?) -> Void)?)] = []
+
+    private func runPendingScripts() {
+        let waiting = pendingScripts
+        pendingScripts.removeAll()
+        for (js, handler) in waiting { super.evaluateJavaScript(js, completionHandler: handler) }
+    }
+
+    /// Made ready to be handed to whichever note needs it next: no note's content, no plugins, no
+    /// keyboard. The page itself stays started, which is what makes waking cost 21 ms instead of 100.
+    func prepareAsSpare() {
+        PluginManager.shared.endSession(for: self)
+        PluginBridge.shared.cancelRuns(owner: self)
+        isHidden = true
+        onModeChange = nil
+        contextMenuItems = nil
+        onFocusChange = nil
+    }
+
+    /// Takes on a note: the page is loaded again so the note gets a session of its own, with fresh
+    /// capability tokens, exactly as it would if the note had just been opened.
+    func adopt(_ newNote: Note) {
+        PluginManager.shared.endSession(for: self)
+        PluginBridge.shared.cancelRuns(owner: self)
+        note = newNote
+        lastTitle = newNote.title
+        lastCaret = nil
+        lastScroll = nil
+        isHidden = false
+        alphaValue = 1
+        isReady = false
+        queued.removeAll()
+        load(URLRequest(url: NoteEditorView.pageURL))
+    }
+
+    /// Where the caret and scroll were when the page last reported them, so a note that parks and
+    /// wakes comes back where it was rather than at the top.
+    var savedPosition: (caret: Int?, scroll: Double?) {
+        get { (lastCaret, lastScroll) }
+        set { lastCaret = newValue.caret; lastScroll = newValue.scroll }
+    }
+
+    /// Binds this page to a different note and loads it. Used for the warm spare and when a parked
+    /// note wakes: the page, CodeMirror and the plugins are already running, so only the content and
+    /// the note's own settings change.
+    func rebind(to newNote: Note, focus: Bool) {
+        guard newNote !== note else { loadNote(focus: focus); return }
+        PluginManager.shared.endSession(for: self)
+        PluginBridge.shared.cancelRuns(owner: self)
+        note = newNote
+        lastCaret = nil
+        lastScroll = nil
+        lastTitle = newNote.title
+        loadNote(focus: focus)
+    }
+
+    /// Whether the page has started and taken its note. Until it has, it can neither show anything
+    /// nor accept a keystroke, so the card keeps the keyboard and holds what is typed.
+    var isPageReady: Bool { isReady }
+
+    #if DEBUG
+    /// Called when the page has started and taken its first note. The wake probe times this.
+    var debugOnReady: (() -> Void)?
+    var debugIsReady: Bool { isReady }
+    #endif
 
     /// The editor page itself, served from the app's own scheme (SPEC.md §4.4).
     static let pageURL = URL(string: "\(EditorSchemeHandler.scheme)://editor/index.html")!
@@ -235,7 +328,16 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
     deinit {
         PluginManager.shared.endSession(for: self)
         PluginBridge.shared.cancelRuns(owner: self)
+        #if DEBUG
+        NoteEditorView.debugInstances -= 1
+        #endif
     }
+
+    #if DEBUG
+    /// How many editor pages exist right now. A parked note is supposed to have given its one back,
+    /// and this is how that is checked rather than assumed.
+    static var debugInstances = 0
+    #endif
 
     func reloadBody() { send("note.reload", ["body": note.body]) }
     func pushSettings() { send("settings.changed", settingsPayload()) }
@@ -382,7 +484,11 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
             // The page just (re)loaded, so it has no note and no plugins yet: send them first, then
             // anything that was waiting (a focus request, say).
             isReady = true
+            #if DEBUG
+            debugOnReady?()
+            #endif
             loadNote(focus: false)
+            runPendingScripts()
             queued.forEach { evaluateJavaScript($0, completionHandler: nil) }
             queued.removeAll()
 

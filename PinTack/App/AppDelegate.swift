@@ -56,6 +56,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
         WindowManager.shared.restoreVisibleNotes()
         StackManager.shared.layoutAll()
+        // Notes restored at launch all draw first, then everything past the pool parks itself: a
+        // parked note shows the page it drew, so it has to have drawn once (SPEC.md §5.11).
+        EditorPool.shared.prepareSpare()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { EditorPool.shared.parkEverythingIdle() }
         if WindowManager.shared.openPanels.isEmpty { AllNotesWindowController.shared.show() }
 
         if ProcessInfo.processInfo.environment["PINTACK_NO_HOTKEYS"] == nil {
@@ -70,12 +74,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // a modal panel taking key status at launch would break every check that types into a note.
         #if DEBUG
         if !SelfTest.isRequested && MemoryProbe.requested == nil && TutorialShots.requestedDirectory == nil
-            && StackStress.requested == nil && FocusProbe.requested == nil { OnboardingWindow.showIfFirstRun() }
+            && StackStress.requested == nil && FocusProbe.requested == nil && WakeProbe.requested == nil {
+            OnboardingWindow.showIfFirstRun()
+        }
         SelfTest.runIfRequested(appDelegate: self, statusItem: statusItemController)
         MemoryProbe.runIfRequested()
         TutorialShots.runIfRequested()
         StackStress.runIfRequested()
         FocusProbe.runIfRequested()
+        WakeProbe.runIfRequested()
         #else
         OnboardingWindow.showIfFirstRun()
         #endif

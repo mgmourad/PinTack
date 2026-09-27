@@ -82,6 +82,9 @@ final class WindowManager {
 
         let panel = NotePanel(note: note)
         panels[note.id] = panel
+        // Every open note is in the pool's list, most recently opened first; whatever falls out of
+        // the pool parks itself once it has drawn (SPEC.md §5.11).
+        EditorPool.shared.used(panel.card)
         // Restoring a deskful of notes at launch animates nothing: a dozen cards fading in at once
         // is a light show, not feedback.
         if animated { Motion.appear(window: panel, content: panel.card, to: panel.effectiveOpacity) }
@@ -154,9 +157,13 @@ final class WindowManager {
     func close(noteID: String) {
         guard let panel = panels.removeValue(forKey: noteID) else { return }
         // Tell plugins (best effort: the page is about to go away), and make sure that none of this
-        // note's commands keep running whether or not they got the message.
-        panel.card.editor.sendPluginEvent("note:close", ["noteId": noteID])
-        PluginBridge.shared.cancelRuns(owner: panel.card.editor)
+        // note's commands keep running whether or not they got the message. A parked note has no
+        // page to tell and no commands to stop, and must not be woken just to be closed.
+        EditorPool.shared.forget(panel.card)
+        if let live = panel.card.editorIfLive {
+            live.sendPluginEvent("note:close", ["noteId": noteID])
+            PluginBridge.shared.cancelRuns(owner: live)
+        }
         Motion.dismiss(window: panel, content: panel.card) {
             panel.orderOut(nil)
             panel.close()

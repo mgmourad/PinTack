@@ -1639,6 +1639,30 @@ window.__pintack = {
         if (!pluginsStarted) { pluginsStarted = true; runtime.loadPlugins(p.plugins || []); }
         break;
       case "note.reload": setBody(p.body || "", true); break;
+      // Characters typed while the note was waking up (SPEC.md §5.11): the card holds them so none
+      // is lost, and they go in here in the order they were typed.
+      case "text.insert": {
+        const at = view.state.selection.main;
+        view.dispatch({ changes: { from: at.from, to: at.to, insert: p.text || "" },
+                        selection: { anchor: at.from + (p.text || "").length }, userEvent: "input.type" });
+        view.focus();
+        break;
+      }
+      // The click that woke the note, replayed at the same place so it does what it would have done
+      // on a live note: put the caret there, tick that checkbox, open that link.
+      case "click.replay": {
+        const el = document.elementFromPoint(p.x, p.y);
+        if (el) {
+          const opts = { bubbles: true, cancelable: true, clientX: p.x, clientY: p.y, view: window };
+          el.dispatchEvent(new MouseEvent("mousedown", opts));
+          el.dispatchEvent(new MouseEvent("mouseup", opts));
+          el.dispatchEvent(new MouseEvent("click", opts));
+        }
+        const pos = view.posAtCoords({ x: p.x, y: p.y });
+        if (pos != null) view.dispatch({ selection: { anchor: pos } });
+        view.focus();
+        break;
+      }
       case "settings.changed": applySettings(p); break;
       case "tags.changed": noteState.tags = p.tags || []; break;
       case "templates.changed": noteState.templates = p.templates || []; break;

@@ -250,6 +250,23 @@ private struct NotesPane: View {
                 }
                 .disabled(!s.pinnedGlow)
             }
+            Section("Memory") {
+                Toggle("Keep only the notes you are using loaded", isOn: $s.parkIdleNotes)
+                    .tip("Loaded notes", "Notes you are not using are shown as they were and cost almost nothing")
+                LabeledContent("Notes kept loaded") {
+                    HStack {
+                        Stepper(value: $s.editorPoolSize, in: 1...12) {
+                            Text("\(s.editorPoolSize)").monospacedDigit().frame(width: 24, alignment: .trailing)
+                        }
+                        .tip("Notes kept loaded", "The note you are in, plus the most recent few. Each one costs about 34 MB")
+                    }
+                }
+                .disabled(!s.parkIdleNotes)
+                Text("A note you are not using keeps what it looked like and gives its editor back. "
+                     + "Twenty open notes cost about 695 MB with everything loaded, and about 290 MB this way. "
+                     + "Clicking a note loads it again in well under a fifth of a second.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("Faded notes") {
                 Toggle("Show a faded note fully while the pointer is over it", isOn: $s.hoverRevealsNote)
                     .tip("Reveal on hover", "A see-through note turns solid while the pointer is over it")
