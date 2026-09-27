@@ -61,5 +61,14 @@ printf "app_mb=%.1f webkit_mb=%.1f total_mb=%.1f webcontent=%d gpu=%d networking
   $(( appkb / 1024.0 )) $(( webkb / 1024.0 )) $(( (appkb + webkb) / 1024.0 )) \
   $webcontent $gpu $net ${#new[@]} \
   $(( cpuwindow > 0 ? (cpu1 - cpu0) * 100.0 / cpuwindow : 0 ))
+# Wait for this run's WebKit processes to actually go before returning: the next run counts every
+# WebKit process that is new, and a leftover from the last one is counted as this one's. That made a
+# five-note run report ten WebContent processes (2026-09-27).
 kill -9 $apppid 2>/dev/null || true
-sleep 1
+for _ in $(seq 1 40); do
+  left=0
+  for p in $new; do kill -0 $p 2>/dev/null && left=$(( left + 1 )); done
+  (( left == 0 )) && break
+  sleep 0.25
+done
+sleep 0.5

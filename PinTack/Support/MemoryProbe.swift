@@ -31,6 +31,7 @@ enum MemoryProbe {
         // Notes created on top of the welcome note the fresh vault opens with.
         let steps = Array(Set([0, min(10, n), min(25, n), n])).sorted()
         var lines = ["PinTack memory probe, \(n) notes, macOS \(ProcessInfo.processInfo.operatingSystemVersionString)",
+                     "shared website data store: \(NoteEditorView.usesSharedStore ? "ON" : "off") (PINTACK_SHARED_WEBSTORE)",
                      "notes  webcontent  (pages say)  pintack-rss  webkit-rss  total-rss  |  pintack-fp  webkit-fp  total-fp   (MB)"]
         var opened = 0
         func step(_ rest: [Int]) {
@@ -69,11 +70,11 @@ enum MemoryProbe {
     }
 
     struct Sample {
-        var webContent = 0, pagesSay = 0
+        var webContent = 0, pagesSay = 0, stores = 0
         var appRSS = 0.0, webRSS = 0.0, appFootprint = 0.0, webFootprint = 0.0
         func line(notes: Int) -> String {
             func mb(_ v: Double) -> String { String(format: "%10.0f", v / 1_048_576) }
-            return String(format: "%5d  %10d  %11d", notes, webContent, pagesSay)
+            return String(format: "%5d  %10d  %11d  stores:%-3d", notes, webContent, pagesSay, stores)
                 + "  " + mb(appRSS) + "  " + mb(webRSS) + " " + mb(appRSS + webRSS)
                 + "  |" + mb(appFootprint) + " " + mb(webFootprint) + " " + mb(appFootprint + webFootprint)
         }
@@ -102,6 +103,11 @@ enum MemoryProbe {
             ($0.card.editor.value(forKey: "_webProcessIdentifier") as? NSNumber)?.int32Value
         }
         s.pagesSay = Set(pages.filter { $0 > 0 }).count
+        // Proof that the stores really are shared, rather than a flag that was read and ignored:
+        // how many DISTINCT data-store objects the open notes hold between them.
+        s.stores = Set(WindowManager.shared.openPanels.map {
+            ObjectIdentifier($0.card.editor.configuration.websiteDataStore)
+        }).count
         return s
     }
 
