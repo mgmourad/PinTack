@@ -661,6 +661,7 @@ private struct OrphanSheet: View {
 // MARK: - About
 
 private struct AboutPane: View {
+    @State private var showingAcknowledgements = false
     /// Height of the pane heading above this view ("About": 22pt bold plus its padding). Taking it
     /// off the bottom centres the block in the WINDOW rather than in the space under the heading,
     /// which is what the eye reads as centred.
@@ -688,13 +689,55 @@ private struct AboutPane: View {
             }
             VStack(spacing: 6) {
                 Text("Sticky notes backed by plain Markdown files.").font(.system(size: 15))
-                Text("Open source under the GPL-3.0-or-later license.").font(.system(size: 13))
+                Text("Free software under GPL-3.0-or-later. Copyright © 2026 Mohammed Mourad.")
+                    .font(.system(size: 13))
             }
             .foregroundStyle(.secondary)
+
+            // The permissive licences PinTack builds on require their notices to travel with it,
+            // so the text ships inside the app rather than living on a website.
+            Button("Acknowledgements") { showingAcknowledgements = true }
+                .buttonStyle(ChromeProminentButtonStyle())
+                .tip("Acknowledgements", "The third-party components PinTack uses, and their licences")
         }
         .multilineTextAlignment(.center)
         .padding(.bottom, AboutPane.headingHeight)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        .sheet(isPresented: $showingAcknowledgements) { AcknowledgementsSheet() }
+    }
+}
+
+/// The third-party notices, read from the copy inside the app bundle.
+private struct AcknowledgementsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    private var text: String {
+        guard let url = Bundle.main.url(forResource: "ACKNOWLEDGEMENTS", withExtension: "md"),
+              let text = try? String(contentsOf: url, encoding: .utf8) else {
+            return "The acknowledgements file is missing from this build."
+        }
+        return text
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Acknowledgements").font(.system(size: 15, weight: .semibold))
+                Spacer()
+                Button("Done") { dismiss() }.buttonStyle(ChromeProminentButtonStyle())
+            }
+            .padding(14)
+            Divider()
+            ScrollView {
+                Text(text)
+                    .font(.system(size: 11.5, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(14)
+            }
+        }
+        .frame(width: 640, height: 520)
+        .background(Color.chromeWindow)
     }
 }
 

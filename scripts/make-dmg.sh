@@ -61,6 +61,8 @@ Needs macOS 14 (Sonoma) or newer. Runs on both Apple Silicon and Intel.
 EOF
 
 [ -z "$CHANGELOG_FILE" ] || cp "$CHANGELOG_FILE" "$STAGE/build-changelog.md"
+# What a tester should know: it is a beta, it carries no warranty, keep a backup.
+cp BETA-TERMS.md "$STAGE/BETA-TERMS.md"
 
 # A read/WRITE image first: Finder cannot lay out a window on a compressed read-only one.
 rm -f "$DMG" dist/.pintack-rw.dmg
