@@ -475,6 +475,12 @@ Owner decisions added after the rebuild (2026-09-19):
 - The tutorial window is `.modalPanel` with `hidesOnDeactivate = false` and a `WindowDragArea` behind
   the page: it can be moved and it stays above everything (owner, 2026-09-26).
   `isMovableByWindowBackground` alone does nothing — SwiftUI's own views take the mouse first.
+- `scripts/reset-first-run.sh` puts a Mac back to a brand-new user's state (the greeting card, the
+  welcome note, default settings, no approvals): it MOVES the vault, `~/Library/Application
+  Support/PinTack`, the preferences plist and the web-view caches into one dated folder on the
+  Desktop, so a reset can be undone. Two things it cannot reset, because macOS keeps them by bundle
+  identifier: notification permission and the login item. Keep it current when the app starts
+  writing somewhere new.
 - A stack holds up to TEN notes (owner, 2026-09-26), because ten is as many places as the number row
   has keys: ⌘1–⌘9 and ⌘0 (`ShortcutAction.stackPlaceActions`). A place with no key is a place nobody
   can reach. The All Notes colour fan closes up as the pile grows, so ten swatches still fit a row.
