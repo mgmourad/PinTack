@@ -2794,11 +2794,12 @@ enum SelfTest {
             check("a stack to test the late raise on", false); return next()
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            let began = Date()
             var wrong: [String] = []
             func clickStep(_ rest: [Int]) {
                 guard let place = rest.first else {
-                    check("a click still brings its own note forward when macOS raises the clicked window late",
-                          wrong.isEmpty, wrong.joined(separator: "; "))
+                    checkUndisturbed("a click still brings its own note forward when macOS raises the clicked window late",
+                                     since: began, wrong.isEmpty, wrong.joined(separator: "; "))
                     for n in notes { wm.close(noteID: n.id) }
                     if let s = sm.stack(id: made.id) { sm.unstack(s.id) }
                     return next()
@@ -2833,6 +2834,31 @@ enum SelfTest {
     /// A check that could not be run, said out loud: silence would look like coverage.
     private static func skipped(_ what: String, _ why: String) {
         log("SKIPPED \(what): \(why)")
+    }
+
+    /// A check the person at the keyboard can break. Passing is still passing; a failure counts only
+    /// if nobody touched the machine while the test ran.
+    private static func checkUndisturbed(_ what: String, since start: Date, _ ok: Bool, _ detail: String = "") {
+        if ok { check(what, true, detail); return }
+        if humanInputWithin(Date().timeIntervalSince(start) + 1) {
+            skipped(what, "a real key or click arrived while the harness owned the screen — \(detail)")
+        } else {
+            check(what, false, detail)
+        }
+    }
+
+    /// Whether a REAL key or mouse has been used in the last `seconds`. The self-test takes the
+    /// machine over — it activates itself and clicks its own windows — so anything typed or clicked
+    /// by a person while it runs lands in ITS notes. That happened (owner, 2026-09-26): keystrokes
+    /// meant for a terminal went into a stacked note, and four checks on the owner's own worst bug
+    /// failed for a reason that had nothing to do with the app. A check that cannot be judged must
+    /// say so.
+    ///
+    /// Only HARDWARE events count: `CGEventSource` does not see what the harness posts, and asking
+    /// it costs no permission (it reads a timer, it does not watch events).
+    static func humanInputWithin(_ seconds: TimeInterval) -> Bool {
+        let kinds: [CGEventType] = [.keyDown, .leftMouseDown, .rightMouseDown, .mouseMoved, .scrollWheel]
+        return kinds.contains { CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: $0) < seconds }
     }
 
     /// The owner's own procedure (2026-09-22): five notes, five colours, click the title bar at each
@@ -2917,6 +2943,7 @@ enum SelfTest {
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            let began = Date()
             log("PILE at rest: \(pile().joined(separator: " → "))")
             var wrong: [String] = []
             var lost: [String] = []
@@ -2930,18 +2957,19 @@ enum SelfTest {
 
             func run(_ rest: [(Int, Int)]) {
                 guard let step = rest.first else {
-                    check("clicking a title bar brings THAT note to the front, at every place in the pile",
-                          wrong.isEmpty, wrong.joined(separator: "; "))
-                    check("…and every note is still in the pile afterwards", lost.isEmpty, lost.joined(separator: "; "))
-                    check("a note brought forward trades places with the front one, and nothing else moves",
-                          notSwapped.isEmpty, notSwapped.joined(separator: "; "))
+                    checkUndisturbed("clicking a title bar brings THAT note to the front, at every place in the pile",
+                                     since: began, wrong.isEmpty, wrong.joined(separator: "; "))
+                    checkUndisturbed("…and every note is still in the pile afterwards",
+                                     since: began, lost.isEmpty, lost.joined(separator: "; "))
+                    checkUndisturbed("a note brought forward trades places with the front one, and nothing else moves",
+                                     since: began, notSwapped.isEmpty, notSwapped.joined(separator: "; "))
                     // Ten clicks, two at each place: every place ends up back where it started.
-                    check("clicking a title bar twice does not leave a note being renamed",
-                          renamingStarted.isEmpty, renamingStarted.joined(separator: "; "))
-                    check("what is on screen matches the pile after every click: place, order and a title bar you can hit",
-                          onScreen.isEmpty, onScreen.prefix(4).joined(separator: " | "))
-                    check("clicking the same title bar twice puts the pile back as it was",
-                          pile() == atRest, "\(pile().joined(separator: ",")) against \(atRest.joined(separator: ","))")
+                    checkUndisturbed("clicking a title bar twice does not leave a note being renamed",
+                                     since: began, renamingStarted.isEmpty, renamingStarted.joined(separator: "; "))
+                    checkUndisturbed("what is on screen matches the pile after every click: place, order and a title bar you can hit",
+                                     since: began, onScreen.isEmpty, onScreen.prefix(4).joined(separator: " | "))
+                    checkUndisturbed("clicking the same title bar twice puts the pile back as it was", since: began,
+                                     pile() == atRest, "\(pile().joined(separator: ",")) against \(atRest.joined(separator: ","))")
                     for n in notes { wm.close(noteID: n.id) }
                     if let s = sm.stack(id: made.id) { sm.unstack(s.id) }
                     next()
@@ -3043,6 +3071,7 @@ enum SelfTest {
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            let began = Date()
             check("a pile of five different-sized notes lines up", faults("settled").isEmpty, faults("settled").joined(separator: "; "))
             // A todo behind the front used to hang its own action bar out below the pile — a strip of
             // another colour under the front note, which is what the owner saw (2026-09-22).
@@ -3060,10 +3089,10 @@ enum SelfTest {
                     // Let everything settle, then look again.
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                         let bad = faults("after clicks")
-                        check("the note you click is the note that comes forward, every time",
-                              wrongFront.isEmpty, wrongFront.joined(separator: "; "))
-                        check("clicking through a pile faster than it animates leaves every note in its place",
-                              bad.isEmpty, bad.joined(separator: "; "))
+                        checkUndisturbed("the note you click is the note that comes forward, every time",
+                                         since: began, wrongFront.isEmpty, wrongFront.joined(separator: "; "))
+                        checkUndisturbed("clicking through a pile faster than it animates leaves every note in its place",
+                                         since: began, bad.isEmpty, bad.joined(separator: "; "))
                         for n in notes { wm.close(noteID: n.id) }
                         if let s = sm.stack(id: made.id) { sm.unstack(s.id) }
                         next()
@@ -3299,6 +3328,32 @@ enum SelfTest {
             check("the tutorial window is a presentation, not a sliver", size.width > 800 && size.height > 500,
                   "\(Int(size.width))×\(Int(size.height))")
             check("the tutorial actually painted itself", paintedFraction(of: window) > 0.5)
+            // How much work a drag costs, measured: the owner reports it moving as if at 30fps.
+            func rendersPerSecond() -> Int {
+                TutorialProbe.bodyEvaluations = 0
+                RunLoop.current.run(until: Date().addingTimeInterval(1.0))
+                return TutorialProbe.bodyEvaluations
+            }
+            let idleRenders = rendersPerSecond()
+            // The app's own work per step, timed with nothing else in the way.
+            let dragStarted = Date()
+            for _ in 0..<10 { _ = TutorialWindow.dragForTesting(by: NSSize(width: 6, height: -4), pace: 0) }
+            let perStep = Date().timeIntervalSince(dragStarted) / 10 / 6      // six events per drag
+            // …and what else runs DURING a drag that takes as long as a hand's, which is what made it
+            // choppy: the page was rebuilding under the drag several times a second.
+            // ONE drag, held for about as long as a hand holds one (six steps, 60 ms apart). Five
+            // short drags would count the ticks in the GAPS between them, when the clock is meant to
+            // be running.
+            TutorialProbe.bodyEvaluations = 0
+            _ = TutorialWindow.dragForTesting(by: NSSize(width: 40, height: -30), pace: 0.06)
+            let dragRenders = TutorialProbe.bodyEvaluations
+            log("tutorial cost: \(idleRenders) page rebuilds a second while idle, "
+                + "\(dragRenders) during a drag of the same length, "
+                + String(format: "%.1f ms per step", perStep * 1000))
+            check("the page does not rebuild itself while it is being dragged", dragRenders == 0,
+                  "\(dragRenders) rebuilds in \(String(format: "%.2f", 6 * 0.06)) s of dragging, "
+                      + "against \(idleRenders) a second while it sits there")
+            _ = TutorialWindow.dragForTesting(by: NSSize(width: -40, height: 30))
             // Draggable, and still above everything while the reader clicks around (owner, 2026-09-26).
             check("the tutorial floats above every other window, this app's and everyone else's",
                   window.level == .modalPanel && !window.hidesOnDeactivate,
