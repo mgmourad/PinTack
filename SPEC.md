@@ -385,6 +385,22 @@ note has no hue to keep, so it still glows white. **Settings → Notes → Glow 
 from 25% to 200% (a third, tight pass carries it past 100%); it is mostly brightness, and the halo never widens past the 24 pt margin, where
 the window edge would slice it flat.
 
+### 4.7 When a note's page dies
+
+WebKit kills a page that runs out of memory, and a page can crash on its own. Until build 22 the note
+was then left **blank** until the app was relaunched: nothing handled it.
+
+A note whose page process dies now **loads itself again**, with the text the app holds and the caret
+and scroll from the last position the page reported (the page sends both with the text it already
+posts 120 ms after you stop typing). Nothing typed is lost beyond that 120 ms window, because the app
+— not the page — is what holds a note's text, and the file is written through the ordinary save path.
+
+`load(URLRequest:)`, **not** `reload()`: a web view whose process has died has no current URL left,
+so `reload()` does nothing at all and the note stays blank. Measured, not assumed — the first version
+called `reload()`, the handler fired, and the note never came back. The self-test kills a note's page
+process on purpose and asserts that the note returns, keeps its text, takes typing again, leaves its
+neighbour alone, and writes its file the ordinary way.
+
 ### 5.5 Placement
 
 New notes are placed by the configured rule (cursor, centred, cascade) and clamped on screen.

@@ -125,7 +125,7 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
         if #available(macOS 13.3, *) { isInspectable = true }
         #endif
 
-        load(URLRequest(url: URL(string: "\(EditorSchemeHandler.scheme)://editor/index.html")!))
+        load(URLRequest(url: NoteEditorView.pageURL))
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
@@ -156,8 +156,16 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
         if isReady { evaluateJavaScript(js, completionHandler: nil) } else { queued.append(js) }
     }
 
+    /// The editor page itself, served from the app's own scheme (SPEC.md §4.4).
+    static let pageURL = URL(string: "\(EditorSchemeHandler.scheme)://editor/index.html")!
+
+    /// The last caret and scroll the page reported, so a page that had to be reloaded comes back
+    /// where the reader left it rather than at the top.
+    private var lastCaret: Int?
+    private var lastScroll: Double?
+
     func loadNote(focus: Bool) {
-        send("note.load", [
+        var payload: [String: Any] = [
             "body": note.body,
             "mode": mode,
             "tags": VaultStore.shared.tagCounts().map(\.tag),
@@ -165,7 +173,10 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
             "focus": focus,
             "plugins": pluginSession(),
             "templates": NoteEditorView.templatePayload(),
-        ])
+        ]
+        if let lastCaret { payload["caret"] = lastCaret }
+        if let lastScroll { payload["scroll"] = lastScroll }
+        send("note.load", payload)
     }
 
     // MARK: Plugins
@@ -188,6 +199,30 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
         guard hasPlugins, let p = PluginManager.shared.plugin(id: id) else { return }
         send("plugin.settings", ["id": id, "settings": PluginManager.shared.settingsValues(for: p)])
     }
+
+    /// The note's page process died — WebKit kills a page that runs out of memory, and a page can
+    /// crash on its own. Without this the note is left BLANK until the app is relaunched, which is
+    /// what it did until now (SPEC.md §4.7).
+    ///
+    /// Nothing typed is lost: the page posts its text to the app 120 ms after you stop typing, and
+    /// the app holds it in the note, so the reload puts back what the app already has — through the
+    /// ordinary save path, writing the file no differently from any other save. The caret and the
+    /// scroll come back from the last position the page reported.
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        NSLog("PinTack: the page process for “%@” died; reloading it", note.title)
+        PluginBridge.shared.cancelRuns(owner: self)
+        isReady = false
+        queued.removeAll()
+        // LOAD the page again rather than `reload()`: a web view whose process has died has no
+        // current URL left to reload, and reload() then does nothing at all — measured, the note
+        // stayed blank with the handler firing (2026-09-27). The page is served from the app's own
+        // scheme, so this comes from disk with no network anywhere.
+        load(URLRequest(url: NoteEditorView.pageURL))
+        recoveries += 1
+    }
+
+    /// How many times this note's page has had to be brought back. The self-test reads it.
+    private(set) var recoveries = 0
 
     /// Reloads the page (and so the plugins). Used when a plugin is switched on or off.
     func reloadEditor() {
@@ -352,6 +387,9 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
             queued.removeAll()
 
         case "content.changed":
+            // Where the reader was, kept for a page that dies: the app cannot ask a dead page.
+            if let caret = payload["caret"] as? Int { lastCaret = caret }
+            if let scroll = payload["scroll"] as? Double { lastScroll = scroll }
             guard let body = payload["body"] as? String, body != note.body else { return }
             note.body = body
             // A ✕'d preview is forgotten once its link is gone, so pasting the link again previews it.

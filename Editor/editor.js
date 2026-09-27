@@ -1531,7 +1531,11 @@ const view = new EditorView({
           for (const url of [...dismissedLinks]) if (!text.includes(url)) dismissedLinks.delete(url);
         }
         clearTimeout(debounce);
-        debounce = setTimeout(() => post("content.changed", { body: u.state.doc.toString() }), 120);
+        debounce = setTimeout(() => post("content.changed", {
+          body: u.state.doc.toString(),
+          caret: u.state.selection.main.head,
+          scroll: view.scrollDOM ? view.scrollDOM.scrollTop : 0,
+        }), 120);
       }),
     ],
   }),
@@ -1624,6 +1628,13 @@ window.__pintack = {
         if (p.settings) applySettings(p.settings);
         setMode(p.mode || "live");
         setBody(p.body || "", false);
+        // A page that died and was reloaded comes back where it was, as closely as it can: the app
+        // remembers the last caret and scroll it was told about (SPEC.md §4.7).
+        if (typeof p.caret === "number") {
+          const at = Math.max(0, Math.min(p.caret, view.state.doc.length));
+          view.dispatch({ selection: { anchor: at }, scrollIntoView: true });
+        }
+        if (typeof p.scroll === "number" && view.scrollDOM) view.scrollDOM.scrollTop = p.scroll;
         if (p.focus) view.focus();
         if (!pluginsStarted) { pluginsStarted = true; runtime.loadPlugins(p.plugins || []); }
         break;

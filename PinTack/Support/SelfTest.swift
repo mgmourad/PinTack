@@ -3289,6 +3289,66 @@ enum SelfTest {
 
     /// The Tutorial | Help presentation (SPEC.md §8.4): a slide per feature, each with a real
     /// picture that ships in the app, slides that advance themselves until somebody takes over.
+    /// A note's page process is killed on purpose. Until build 22 the note was simply left blank
+    /// until the app was relaunched (SPEC.md §4.7) — WebKit kills a page that runs out of memory, so
+    /// this is not hypothetical.
+    private static func crashRecoveryTest(then next: @escaping () -> Void) {
+        let wm = WindowManager.shared
+        let note = VaultStore.shared.createNote(body: "Crash me\n\nsecond line",
+                                                frame: NSRect(x: 320, y: 320, width: 340, height: 260))
+        let panel = wm.open(note, focus: true)
+        let bystanderNote = VaultStore.shared.createNote(body: "Bystander",
+                                                        frame: NSRect(x: 700, y: 320, width: 300, height: 240))
+        let bystander = wm.open(bystanderNote)
+        let typeJS = "(() => { const v = window.__pintack && window.__pintack._view; if (!v) return 'no editor';"
+            + " v.dispatch({ changes: { from: v.state.doc.length, insert: '\\nbefore the crash' },"
+            + " selection: { anchor: v.state.doc.length + 6 } }); return 'typed'; })()"
+        let readJS = "window.__pintack && window.__pintack._view ? window.__pintack._view.state.doc.toString() : null"
+        let typeAgainJS = "(() => { const v = window.__pintack && window.__pintack._view; if (!v) return 'dead';"
+            + " v.dispatch({ changes: { from: v.state.doc.length, insert: ' after' } });"
+            + " return v.state.doc.toString(); })()"
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+            panel.card.editor.evaluateJavaScript(typeJS) { _, _ in
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                    // Something typed BEFORE the crash has to survive, and it is the app that holds it.
+                    let hadText = note.body.contains("before the crash")
+                    guard let pid = (panel.card.editor.value(forKey: "_webProcessIdentifier") as? NSNumber)?.int32Value,
+                          pid > 0 else {
+                        skipped("a note whose page process is killed comes back",
+                                "the page would not say which process it is")
+                        wm.close(noteID: note.id); wm.close(noteID: bystanderNote.id)
+                        return next()
+                    }
+                    kill(pid, SIGKILL)
+                    // Long enough for WebKit to notice and for the page to load itself again.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) {
+                        panel.card.editor.evaluateJavaScript(readJS) { doc, _ in
+                            let text = doc as? String
+                            check("a note whose page process is killed brings itself back, with its text",
+                                  hadText && text?.contains("before the crash") == true
+                                      && panel.card.editor.recoveries >= 1,
+                                  "text before: \(hadText), after: \(text?.contains("before the crash") ?? false), reloads: \(panel.card.editor.recoveries)")
+                            check("…and the note beside it is untouched", bystander.card.editor.recoveries == 0)
+                            panel.card.editor.evaluateJavaScript(typeAgainJS) { after, _ in
+                                check("…and it accepts typing again",
+                                      (after as? String)?.contains("after") == true,
+                                      (after as? String)?.suffix(28).replacingOccurrences(of: "\n", with: "⏎") ?? "no answer")
+                                // Nothing reaches disk that an ordinary save would not.
+                                SaveCoordinator.shared.flush(noteID: note.id)
+                                let onDisk = (try? String(contentsOf: note.fileURL, encoding: .utf8)) ?? ""
+                                check("…and its file is written the ordinary way",
+                                      onDisk.contains("before the crash") && onDisk.hasPrefix("---"))
+                                wm.close(noteID: note.id); wm.close(noteID: bystanderNote.id)
+                                next()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     private static func tutorialTest(out: URL, then next: @escaping () -> Void) {
         let slides = TutorialContent.slides
         check("the tutorial has a slide for every feature, each with words of its own",
@@ -3457,7 +3517,7 @@ enum SelfTest {
     }
 
     private static func renderWindows(out: URL) {
-        runnerTest(out: out) { linkPreviewTest(out: out) { imageEditTest(out: out) { freezeTest { reminderTest(out: out) { findTest(out: out) { quickCaptureTest { templateTest { actionBarTest { testerBugsTest { todoBarTest(out: out) { onboardingTest(out: out) { strandedNotesTest { collapsedTodoTest(out: out) { blankCloseTest { undoDeleteTest { tagColourTest(out: out) { glowStrengthTest { vimTest(out: out) { codeLineNumbersTest(out: out) { vimBannerTest(out: out) { stackTest(out: out) { rowActionsTest(out: out) { tutorialTest(out: out) { renderWindowsNow(out: out) } } } } } } } } } } } } } } } } } } } } } } } }
+        runnerTest(out: out) { linkPreviewTest(out: out) { imageEditTest(out: out) { freezeTest { reminderTest(out: out) { findTest(out: out) { quickCaptureTest { templateTest { actionBarTest { testerBugsTest { todoBarTest(out: out) { onboardingTest(out: out) { strandedNotesTest { collapsedTodoTest(out: out) { blankCloseTest { undoDeleteTest { tagColourTest(out: out) { glowStrengthTest { vimTest(out: out) { codeLineNumbersTest(out: out) { vimBannerTest(out: out) { stackTest(out: out) { rowActionsTest(out: out) { crashRecoveryTest { tutorialTest(out: out) { renderWindowsNow(out: out) } } } } } } } } } } } } } } } } } } } } } } } } }
     }
 
     private static func renderWindowsNow(out: URL) {
