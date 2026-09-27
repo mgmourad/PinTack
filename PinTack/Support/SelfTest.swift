@@ -3554,7 +3554,7 @@ enum SelfTest {
                 guard parked else {
                     skipped("a parked note follows its file", "the note would not park")
                     wm.close(noteID: note.id); wm.close(noteID: away.id)
-                    return poolBudget(out: out, then: next)
+                    return poolStack(out: out, then: next)
                 }
                 note.body = "After the edit, from outside"
                 NotificationCenter.default.post(name: .noteBodyDidChange, object: note)
@@ -3565,8 +3565,68 @@ enum SelfTest {
                           woke || readable.contains("After the edit"),
                           woke ? "it woke to draw the new text" : "read as “\(readable.prefix(20))…”")
                     wm.close(noteID: note.id); wm.close(noteID: away.id)
-                    poolBudget(out: out, then: next)
+                    poolStack(out: out, then: next)
                 }
+            }
+        }
+    }
+
+    /// A note in a stack on the desk never parks (SPEC.md §5.11).
+    ///
+    /// macOS raises the window you click at the PRESS, before the app is handed the event. On a
+    /// parked note what that raise shows is the PICTURE, and the live page replaces it a moment
+    /// later — while the pile is still springing the note to the front. Two visual changes in one
+    /// gesture, which the owner reported as a "split second preview" that looked "jittery and cheap"
+    /// (2026-09-27). A stack is the worst case for the pool by its nature: only the front note is
+    /// ever the one in use, so every note behind it is a candidate to park.
+    ///
+    /// The loose notes are as much the point of the check as the stacked ones: without at least one
+    /// of them parking, "no member of the pile parked" would pass just as well in a run where the
+    /// pool parked nothing at all.
+    private static func poolStack(out: URL, then next: @escaping () -> Void) {
+        let wm = WindowManager.shared, sm = StackManager.shared
+        for panel in wm.openPanels { wm.close(noteID: panel.note.id) }
+        let members = (1...4).map { i in
+            VaultStore.shared.createNote(body: "Pile \(i)\n\nA note in the pile.",
+                                         frame: NSRect(x: 460, y: 220, width: 300, height: 240))
+        }
+        let loose = (1...3).map { i in
+            VaultStore.shared.createNote(body: "Loose \(i)\n\nNot in a pile.",
+                                         frame: NSRect(x: 60 + CGFloat(i) * 40, y: 620, width: 280, height: 200))
+        }
+        (members + loose).forEach { wm.open($0) }
+        guard let pile = sm.create(name: "Pool", noteIDs: members.map(\.id)) else {
+            check("a stack of four is made for the pool check", false)
+            return poolBudget(out: out, then: next)
+        }
+        // The tightest the pool goes: one note kept loaded, everything else a candidate.
+        let wasPool = AppSettings.shared.editorPoolSize
+        AppSettings.shared.editorPoolSize = 1
+        func parked(_ notes: [Note]) -> [NotePanel] {
+            notes.compactMap { wm.panel(for: $0.id) }.filter(\.card.isParked)
+        }
+        func whenSettled(_ tries: Int, _ then: @escaping () -> Void) {
+            EditorPool.shared.parkEverythingIdle()
+            if !parked(loose).isEmpty || tries <= 0 { return then() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { whenSettled(tries - 1, then) }
+        }
+        // A note spoken to a moment ago keeps its editor for a few seconds; this waits that out.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 7) {
+            whenSettled(12) {
+                let sleeping = parked(members)
+                if parked(loose).isEmpty {
+                    skipped("a note in a stack keeps its editor however tight the pool is",
+                            "the pool parked nothing at all in this run, so there is nothing to judge")
+                } else {
+                    check("a note in a stack keeps its editor however tight the pool is, so clicking a pile never swaps a picture for a page",
+                          sleeping.isEmpty,
+                          sleeping.isEmpty
+                              ? "pool set to 1: all \(members.count) of the pile loaded, \(parked(loose).count) of \(loose.count) loose notes parked"
+                              : "\(sleeping.count) of \(members.count) parked: " + sleeping.map { $0.note.title }.joined(separator: ", "))
+                }
+                AppSettings.shared.editorPoolSize = wasPool
+                sm.unstack(pile.id)
+                poolBudget(out: out, then: next)
             }
         }
     }

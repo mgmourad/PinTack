@@ -1127,11 +1127,29 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     /// until it has finished, however long the pool has to wait.
     var canPark: Bool { parkRefusal == nil }
 
+    /// A note in a stack that is on the desk NEVER parks, and does not count against the pool either
+    /// (SPEC.md §5.11).
+    ///
+    /// macOS raises the window you click at the press, before the app is handed the event. On a
+    /// parked note what it raises is the PICTURE, and the live page replaces it a moment later —
+    /// while the pile is still springing the note to the front. Two visual changes in one gesture,
+    /// which the owner reported as a "split second preview" that "looks jittery and cheap"
+    /// (2026-09-27). A stack is the worst case for the pool by its nature: only the front note is
+    /// ever the one being used, so every note behind it is a candidate to park.
+    ///
+    /// The cost is honest and bounded — a stack holds at most ten notes, so at most ten pages, and
+    /// only while the pile is on the desk. Raising the pool's own default instead was considered and
+    /// turned down: it would charge everyone about 370 MB of pages whether they stack or not, and it
+    /// would still drift, because the pool is most-recently-used and the notes behind the front one
+    /// are by definition not recently used.
+    var isStacked: Bool { stack != nil }
+
     /// Why this note is keeping its editor, or nil if it may park. Named rather than boolean so the
     /// pool can say what is holding a note awake.
     var parkRefusal: String? {
         if isParked { return "already parked" }
         guard let panel = window as? NotePanel else { return "no window" }
+        if isStacked { return "in a stack on the desk" }
         if panel.isKeyWindow { return "has the keyboard" }
         if titleField.currentEditor() != nil { return "being renamed" }
         if popover?.isShown == true { return "a popover is open" }

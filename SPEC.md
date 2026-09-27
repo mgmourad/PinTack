@@ -436,6 +436,17 @@ command bar open, one with edits not yet saved, one running a plugin command, on
 finished starting, and one that anything spoke to in the last five seconds. A note that is busy
 keeps its editor and the pool comes back for it.
 
+**A note in a stack on the desk is never parked, and does not count against the pool either.** macOS
+raises the window you click at the *press*, before the app is handed the event; on a parked note
+what that raise shows is the picture, and the live page replaces it a moment later — while the pile
+is still springing the note to the front. Two visual changes in one gesture, which reads as a flicker
+(owner-reported, 2026-09-27). A stack is the worst case for the pool by its nature: only the front
+note is ever the one in use, so every note behind it is a candidate. The cost is bounded — a stack
+holds at most ten notes, and only while the pile is on the desk. Raising the pool's own default
+instead was considered and turned down: it would charge everyone about 370 MB of pages whether they
+stack or not, and it would still drift, because the pool is most-recently-used and the notes behind
+the front one are by definition not recently used.
+
 **Caret, scroll and undo** survive: the position is read from the page as it parks (the position it
 volunteers with its text is where the caret was when the text last *changed*, which is not the same
 thing), and put back when it wakes.

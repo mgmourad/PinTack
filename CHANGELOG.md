@@ -5,11 +5,39 @@ compiled code to the beta it is now.
 
 **How to read this.** The version has been **0.1.0** throughout; the **build number** is what changes,
 and each build below is a disk image. **Builds 1–21 were internal**, used by the owner alone and
-given to nobody; build 22 is the first meant for outside testers. Every entry names what changed and, where
+given to nobody; build 22 was the first meant for outside testers. Every entry names what changed and, where
 the history records it, *why* — the reason is the part that stops someone "fixing" it later. Commit
 hashes are given so any entry can be traced, and undone, with `git revert`. Decisions the project
 owner made are marked **(owner)**; `CLAUDE.md` records them in full and `SPEC.md` describes the app as
 it stands.
+
+---
+
+## Build 23 — 2026-09-27
+
+One fix, reported by the owner: clicking a note in a stack flickered.
+
+### Fixed
+- **Clicking a note in a stack no longer flickers.** A note that had been sitting at the back of a
+  pile was, by then, parked — its editor given up and a picture shown in its place (build 22's memory
+  work). macOS raises the window you click at the *press*, before the app is handed the event, so what
+  appeared first was the picture, and the live page replaced it a moment later, while the pile was
+  still springing the note to the front. Two visual changes in one gesture, which read as a stutter:
+  "a split second preview of the note clicked… jittery and cheap" (owner, 2026-09-27).
+
+  **A note in a stack that is on the desk now never parks, and does not count against the pool
+  either.** A pile is the worst case for the pool by its nature — only the front note is ever the one
+  in use, so every note behind it is a candidate to park. The cost is bounded and only paid while a
+  pile is on the desk: at most ten notes, because that is the most a stack holds. Raising the pool's
+  own default instead was considered and turned down (owner asked): it would charge everyone about
+  370 MB of pages whether they stack or not, and it would still drift, because the pool is
+  most-recently-used and the notes behind the front one are by definition not recently used. Notes
+  that are not in a stack are unaffected — the default is still two loaded, and twenty open notes
+  still cost about 290 MB rather than 695 MB.
+
+  The disk image window was also laid out properly for this build: the background no longer carries
+  "PinTack" and "Applications" baked in under Finder's own labels, and the three documents have a row
+  of their own instead of one of them landing in the middle of the window.
 
 ---
 

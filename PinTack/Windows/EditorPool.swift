@@ -23,6 +23,25 @@ final class EditorPool {
 
     static let shared = EditorPool()
 
+    private init() {
+        // Joining a stack wakes a parked note, and leaving one puts it back in the pool's care.
+        NotificationCenter.default.addObserver(forName: .stacksDidChange, object: nil, queue: .main) { [weak self] _ in
+            self?.stacksChanged()
+        }
+    }
+
+    /// A note that has just joined a stack takes its editor back: a stacked note is never a picture
+    /// (`NoteCardView.isStacked`). A note that has left one is poolable again, so the pool comes
+    /// round. Posted on every rearrangement of a pile too, which is harmless — both halves are
+    /// guarded and `trim` on an unchanged pool does nothing.
+    private func stacksChanged() {
+        guard isEnabled else { return }
+        for card in cards.values where card.isStacked && card.isParked {
+            card.wake(reason: "the note joined a stack")
+        }
+        trim()
+    }
+
     /// Notes that currently hold a live editor, most recently used first.
     private var live: [ObjectIdentifier] = []
     /// Weakly: a card whose note has been closed must be able to go. Held strongly, a closed note's
@@ -90,7 +109,17 @@ final class EditorPool {
             live.removeAll { $0 == id }
             live.insert(id, at: 0)
         }
-        guard live.count > maxLive else { return }
+        // A note in a stack on the desk neither parks nor counts against the pool
+        // (`NoteCardView.isStacked`). Counted, a five-note pile would fill a pool of two and push the
+        // note being typed in out of it.
+        let poolable = live.filter { cards[$0]?.isStacked != true }
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["PINTACK_POOL_LOG"] != nil {
+            NSLog("PinTack pool: trim — %d live, %d poolable, pool %d, retry %@",
+                  live.count, poolable.count, maxLive, retryScheduled ? "pending" : "none")
+        }
+        #endif
+        guard poolable.count > maxLive else { return }
         var skipped = false
         #if DEBUG
         var refusals: [String] = []
@@ -100,7 +129,7 @@ final class EditorPool {
             }
         }
         #endif
-        for id in live.dropFirst(maxLive) {
+        for id in poolable.dropFirst(maxLive) {
             guard let card = cards[id] else { continue }
             if let why = card.parkRefusal {
                 skipped = true

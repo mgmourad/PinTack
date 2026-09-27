@@ -505,6 +505,22 @@ Owner decisions added after the rebuild (2026-09-19):
     exactly 7.7% before this was understood.
   - The warm spare is one page (~34 MB) and turns a 101 ms wake into 21 ms. Two live notes plus a
     spare cost what three live notes cost, and are quicker — which is why the default pool is 2.
+  - **A note in a stack on the desk NEVER parks, and does not count against the pool**
+    (`NoteCardView.isStacked`, build 23). macOS raises the clicked window at the PRESS, so on a
+    parked note what you see first is the PICTURE, and the live page lands a moment later — while the
+    pile is still springing the note forward. Two visual changes in one gesture: the owner reported it
+    as a "split second preview" that looked "jittery and cheap" (2026-09-27), and switching parking
+    off, or setting the pool to at least the pile's size, both cured it. Do not "fix" this by raising
+    the pool's DEFAULT instead: that charges everyone ~370 MB of pages whether they stack or not, and
+    it still drifts, because the pool is most-recently-used and the notes behind the front one are by
+    definition not recently used. Counted against the pool they would be just as wrong — a five-note
+    pile would fill a pool of two and push the note being typed in out of it.
+  - Parking is easy to *think* you have reproduced and not have. `PINTACK_POOL_LOG=1` prints a line
+    per `trim` (how many live, how many poolable, the pool size) and names what is keeping each note
+    awake. Two ways a hand-run reproduction lies: the stack-click harness clicks a note every second,
+    which keeps every note inside the five-second grace so NOTHING ever parks (measured: "6 cards, 6
+    still have an editor"), and an app that is not the active one may never finish a snapshot. Check
+    the log says something actually parked before believing a pool measurement.
 - **WebKit runs ONE WebContent process per note, by design.** Each open note costs about 31 MB, 27 of
   it that process; twenty notes are ~695 MB and fifty ~1.6 GB (measured, `scripts/bench-memory.sh`,
   medians of five). The content barely matters: a code block with its parser adds 2–3 MB, an image
