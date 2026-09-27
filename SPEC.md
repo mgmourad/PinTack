@@ -401,6 +401,48 @@ called `reload()`, the handler fired, and the note never came back. The self-tes
 process on purpose and asserts that the note returns, keeps its text, takes typing again, leaves its
 neighbour alone, and writes its file the ordinary way.
 
+### 5.11 Only the notes you are using keep an editor (the pool)
+
+WebKit gives every web view its own WebContent process, and nothing makes two views share one: a
+shared website data store was measured and changed nothing (CLAUDE.md). At about 31 MB an open note,
+27 of it that process, twenty notes cost **695 MB**. The only lever left is having fewer live pages.
+
+**The pool.** The note you are in, and the most recently used few, keep a live editor — two by
+default, a setting (Settings → Notes → Memory), one to twelve. Every other open note is **parked**:
+its web view is released and the process goes with it.
+
+**What a parked note shows.** The picture its own page last drew, taken with `takeSnapshot` at the
+moment it parked, with the note's text behind it as an accessibility element. So a parked note is
+its live self to look at — table, picture, code panel with its language badge, coloured spans,
+checkboxes — and readable by VoiceOver, which a picture alone would not be. The text comes from the
+note rather than from the picture, so what a screen reader says is right even if the picture is a
+moment old. A parked note whose **file changes underneath it** wakes, draws the new text, and parks
+again with a fresh picture; the watcher debounces bursts, so this is rare and cheap.
+
+**Waking.** Clicking the body of a parked note wakes it and the click is **replayed into the page**
+that comes back, so it does what it would have done on a live note: place the caret there, tick that
+checkbox, open that link. A **warm spare** page is kept ready — measured, a brand-new page costs
+101 ms and a spare one 21 ms — and the spare costs the same as any other page, so two live notes and
+a spare cost exactly what three live notes would, and are quicker. Click-to-type on a parked note is
+**105 ms** (median of five); on a live note it is unchanged, about 16 ms.
+
+**Nothing typed is lost.** While a note is parked or its page is still starting, the CARD holds the
+keyboard and keeps what is typed, then puts it into the page in order once it is ready. Handing the
+keyboard to a page that has not loaded loses every keystroke — measured, five of five — so a click
+on a waking note does not give it away either.
+
+**What is never parked:** the note with the keyboard, one being renamed, one with a popover or the
+command bar open, one with edits not yet saved, one running a plugin command, one whose page has not
+finished starting, and one that anything spoke to in the last five seconds. A note that is busy
+keeps its editor and the pool comes back for it.
+
+**Caret, scroll and undo** survive: the position is read from the page as it parks (the position it
+volunteers with its text is where the caret was when the text last *changed*, which is not the same
+thing), and put back when it wakes.
+
+**Measured, twenty open notes: 695 MB → 288 MB**, three pages instead of twenty; fifty notes
+1585 MB → 447 MB. `scripts/bench-memory.sh`, medians of five.
+
 ### 5.5 Placement
 
 New notes are placed by the configured rule (cursor, centred, cascade) and clamped on screen.

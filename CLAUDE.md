@@ -488,6 +488,23 @@ Owner decisions added after the rebuild (2026-09-19):
   `reload()` is a no-op and the note stays blank — measured, with the handler firing and nothing
   happening. The text comes back from the app, which is what holds it; the caret and scroll come from
   the last position the page reported with its text.
+- **Only a few notes keep a live editor** (`EditorPool`, SPEC §5.11). Everything else is parked: the
+  web view released, a picture of its page shown instead. Do not "simplify" it away — it is the
+  difference between 695 MB and 288 MB on twenty notes.
+  - `NoteCardView.editor` WAKES a parked note. Anything that must not wake one — a settings change,
+    a tag rename, a memory measurement — uses `editorIfLive`. `MemoryProbe` did not, and woke all
+    twenty notes to ask which process each was in, reporting that nothing was parked.
+  - The card holds the keyboard while a page starts and replays what was typed, in order. A page
+    that has not loaded silently swallows keystrokes (measured: five of five), so a click on a
+    waking note must not hand it first responder either.
+  - A parked note's picture comes from `takeSnapshot(with: nil)`. With a `WKSnapshotConfiguration`
+    WebKit composites half-transparent things against white and a code panel comes out lighter.
+  - The self-test compares a parked note with its live self as a GRID OF CELLS, not pixel by pixel:
+    the two are composited by different machinery and half-transparent areas differ by a shade that
+    is in the capture, not on the screen. Three different ways of taking the picture all measured
+    exactly 7.7% before this was understood.
+  - The warm spare is one page (~34 MB) and turns a 101 ms wake into 21 ms. Two live notes plus a
+    spare cost what three live notes cost, and are quicker — which is why the default pool is 2.
 - **WebKit runs ONE WebContent process per note, by design.** Each open note costs about 31 MB, 27 of
   it that process; twenty notes are ~695 MB and fifty ~1.6 GB (measured, `scripts/bench-memory.sh`,
   medians of five). The content barely matters: a code block with its parser adds 2–3 MB, an image
