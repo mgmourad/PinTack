@@ -19,7 +19,7 @@ BACKGROUND=docs/assets/dmg-background.png
 BACKGROUND2X=docs/assets/dmg-background@2x.png
 VOLUME="PinTack"
 WINDOW_W=660
-WINDOW_H=420
+WINDOW_H=596
 ICON_SIZE=104
 
 echo "── building universal Release ──"
@@ -104,8 +104,17 @@ tell application "Finder"
     set background picture of opts to (POSIX file "$MOUNT/.background/background.png" as alias)
     set position of item "PinTack.app" of container window to {165, 215}
     set position of item "Applications" of container window to {495, 215}
-    set position of item "READ ME FIRST.txt" of container window to {80, 385}
-    if exists item "build-changelog.md" of container window then set position of item "build-changelog.md" of container window to {580, 385}
+    -- The documents in a row of their own under the app, in the strip added to the background for
+    -- them. Anything left unplaced is dropped in the middle of the window by Finder, over the title:
+    -- that is what an unpositioned BETA-TERMS.md did (2026-09-27).
+    --
+    -- The heights are measured, not guessed: WINDOW_H covers the title bar (29pt) and the Finder
+    -- status bar (27pt, a per-user setting this script cannot turn off), leaving 540pt of content —
+    -- exactly the background's height. The picture is drawn 40pt taller than that so it still fills
+    -- the window on a Mac whose status bar is hidden; the surplus is plain gradient and is cropped.
+    set position of item "READ ME FIRST.txt" of container window to {110, 452}
+    if exists item "BETA-TERMS.md" of container window then set position of item "BETA-TERMS.md" of container window to {330, 452}
+    if exists item "build-changelog.md" of container window then set position of item "build-changelog.md" of container window to {550, 452}
     update without registering applications
     delay 2
     close
