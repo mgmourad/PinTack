@@ -107,13 +107,30 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
         }
     }
 
+    /// One website data store for every note, rather than one each (SPEC.md §17, the memory work).
+    ///
+    /// Two web views may only share a WebContent process if they share a data store: a store is a
+    /// browsing session, and WebKit will not put two sessions in one process. With one store each —
+    /// which is what this has always done, from the first build, with no reason recorded — twenty
+    /// open notes mean twenty WebContent processes and about 27 MB apiece.
+    ///
+    /// Still non-persistent: nothing a note's page holds belongs on disk.
+    private static let sharedStore: WKWebsiteDataStore = .nonPersistent()
+
+    /// A development switch, off by default, so the old behaviour is one flag away:
+    /// `PINTACK_SHARED_WEBSTORE=1`. Honoured in Release too, so the shipped build can be measured
+    /// and tested in both positions.
+    static var usesSharedStore: Bool {
+        ProcessInfo.processInfo.environment["PINTACK_SHARED_WEBSTORE"] == "1"
+    }
+
     init(note: Note) {
         self.note = note
         self.mode = AppSettings.shared.defaultMode
 
         let config = WKWebViewConfiguration()
         config.setURLSchemeHandler(EditorSchemeHandler(), forURLScheme: EditorSchemeHandler.scheme)
-        config.websiteDataStore = .nonPersistent()
+        config.websiteDataStore = NoteEditorView.usesSharedStore ? NoteEditorView.sharedStore : .nonPersistent()
         let proxy = Proxy()
         config.userContentController.add(proxy, name: "pintack")
         super.init(frame: .zero, configuration: config)
