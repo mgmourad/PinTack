@@ -13,6 +13,17 @@ it stands.
 
 ---
 
+## Unreleased
+
+### Measured
+- **Where the memory goes, and one thing that does not fix it.** Each open note costs about 31 MB,
+  27 of it in the WebContent process WebKit gives every note; twenty notes are ~695 MB. Giving every
+  note ONE shared website data store — the only public lever that could let two pages share a
+  process — changed nothing on macOS 27.2: eleven notes, one store, still eleven processes, memory
+  identical within noise. The experiment is kept unmerged on `perf/shared-webkit-store` so nobody
+  repeats it, and `WKProcessPool` is not worth trying: deprecated since macOS 12, separate pools have
+  no effect. A shared store also merges `localStorage` across notes.
+
 ## Build 21 — 2026-09-26
 
 ### Fixed

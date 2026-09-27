@@ -483,6 +483,21 @@ Owner decisions added after the rebuild (2026-09-19):
   Desktop, so a reset can be undone. Two things it cannot reset, because macOS keeps them by bundle
   identifier: notification permission and the login item. Keep it current when the app starts
   writing somewhere new.
+- **WebKit runs ONE WebContent process per note, by design.** Each open note costs about 31 MB, 27 of
+  it that process; twenty notes are ~695 MB and fifty ~1.6 GB (measured, `scripts/bench-memory.sh`,
+  medians of five). The content barely matters: a code block with its parser adds 2–3 MB, an image
+  none worth measuring, and a vault of a thousand notes costs 3 MB next to the open windows.
+  - A **shared website data store** was tried on macOS 27.2 (branch `perf/shared-webkit-store`, left
+    unmerged as the record): eleven notes then hold ONE store object and still start **eleven**
+    WebContent processes, with memory identical within noise at 1, 5, 10, 20 and 50 notes (839 → 832
+    MB at twenty). Two pages share a process only if WebKit decides to, and a shared store is not
+    enough to make it.
+  - Sharing a store also **shares `localStorage` between notes** (proven: a key written in one note
+    reads back in another). Nothing in the app uses it today, so nothing broke — but any design that
+    shares a store or a web view must key web storage by note id.
+  - Do not retry the shared store, and do not try `WKProcessPool`: it has been deprecated since
+    macOS 12 and separate pools no longer have an effect. The only lever that reduces processes is
+    having fewer live web views.
 - A stack holds up to TEN notes (owner, 2026-09-26), because ten is as many places as the number row
   has keys: ⌘1–⌘9 and ⌘0 (`ShortcutAction.stackPlaceActions`). A place with no key is a place nobody
   can reach. The All Notes colour fan closes up as the pile grows, so ten swatches still fit a row.
