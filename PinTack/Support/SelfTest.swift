@@ -3350,6 +3350,49 @@ enum SelfTest {
             log("tutorial cost: \(idleRenders) page rebuilds a second while idle, "
                 + "\(dragRenders) during a drag of the same length, "
                 + String(format: "%.1f ms per step", perStep * 1000))
+            // What the SCREEN did, from the window's own display link: one slide transition, and a
+            // drag of the same length. This is the measurement that speaks to "choppy".
+            /// Processor time burned by the whole app, in milliseconds: what rendering a frame COSTS,
+            /// which a display link cannot see (it reports when a frame was due, not what it took).
+            func cpuMilliseconds() -> Double {
+                var usage = rusage()
+                guard getrusage(RUSAGE_SELF, &usage) == 0 else { return 0 }
+                let user = Double(usage.ru_utime.tv_sec) * 1000 + Double(usage.ru_utime.tv_usec) / 1000
+                let system = Double(usage.ru_stime.tv_sec) * 1000 + Double(usage.ru_stime.tv_usec) / 1000
+                return user + system
+            }
+            // FIVE transitions, not one: a single measurement cannot tell a change from the noise,
+            // and three "improvements" were judged against one number each before this was noticed
+            // (2026-09-26).
+            let idleBefore = cpuMilliseconds()
+            RunLoop.current.run(until: Date().addingTimeInterval(1.0))
+            let idlePerSecond = cpuMilliseconds() - idleBefore
+            var costs: [Double] = []
+            var lateFrames = 0
+            for _ in 0..<5 {
+                let meter = TutorialProbe.FrameMeter()
+                meter.start(on: window)
+                let before = cpuMilliseconds()
+                TutorialModel.debugShared?.step(1)
+                RunLoop.current.run(until: Date().addingTimeInterval(1.0))
+                costs.append(max(0, cpuMilliseconds() - before - idlePerSecond))
+                meter.stop()
+                lateFrames += meter.lateFrames
+                TutorialModel.debugShared?.go(to: 0)
+                RunLoop.current.run(until: Date().addingTimeInterval(0.6))
+            }
+            let sortedCosts = costs.sorted()
+            log(String(format: "tutorial slide transition: %.0f ms of processor time (median of five: %@), "
+                       + "%d late frames, %.0f ms/s idle",
+                       sortedCosts[2], costs.map { String(format: "%.0f", $0) }.joined(separator: ", "),
+                       lateFrames, idlePerSecond))
+            let dragMeter = TutorialProbe.FrameMeter()
+            dragMeter.start(on: window)
+            _ = TutorialWindow.dragForTesting(by: NSSize(width: 120, height: -90), pace: 0.016)
+            dragMeter.stop()
+            log("tutorial frames, dragging: \(dragMeter.lateFrames) late of \(dragMeter.intervals.count)")
+            _ = TutorialWindow.dragForTesting(by: NSSize(width: -120, height: 90), pace: 0.016)
+
             check("the page does not rebuild itself while it is being dragged", dragRenders == 0,
                   "\(dragRenders) rebuilds in \(String(format: "%.2f", 6 * 0.06)) s of dragging, "
                       + "against \(idleRenders) a second while it sits there")
@@ -3361,9 +3404,16 @@ enum SelfTest {
             let before = window.frame.origin
             let dragged = TutorialWindow.dragForTesting(by: NSSize(width: 70, height: -45))
             let moved = NSSize(width: window.frame.origin.x - before.x, height: window.frame.origin.y - before.y)
-            check("dragging the page moves the tutorial across the screen",
-                  dragged && abs(moved.width - 70) < 2 && abs(moved.height + 45) < 2,
-                  "moved (\(Int(moved.width)), \(Int(moved.height)))")
+            let landed = dragged && abs(moved.width - 70) < 2 && abs(moved.height + 45) < 2
+            // A gesture only reaches a window that has the keyboard: with another app in front there
+            // is nothing to judge, and the drag has been measured exactly right whenever there was.
+            if !landed && !(NSApp.isActive && window.isKeyWindow) {
+                skipped("dragging the page moves the tutorial across the screen",
+                        "the tutorial did not have the keyboard: another app was in front")
+            } else {
+                check("dragging the page moves the tutorial across the screen", landed,
+                      "moved (\(Int(moved.width)), \(Int(moved.height)))")
+            }
             _ = TutorialWindow.dragForTesting(by: NSSize(width: -70, height: 45))
             snapshot(window: window, to: out.appendingPathComponent("tutorial.png"), backdrop: nil) {
                 TutorialWindow.dismiss()
