@@ -3292,6 +3292,22 @@ enum SelfTest {
     /// A note's page process is killed on purpose. Until build 22 the note was simply left blank
     /// until the app was relaunched (SPEC.md §4.7) — WebKit kills a page that runs out of memory, so
     /// this is not hypothetical.
+    /// The shipped app says what it is licensed under, and carries the notices it is obliged to
+    /// carry (SPEC.md §15). `NSHumanReadableCopyright` is what the Finder's Get Info panel shows, so
+    /// a wrong value there is a false statement about what somebody may do with the app; the
+    /// acknowledgements are other people's copyright notices, which their licences require to travel
+    /// with the binary rather than live on a website.
+    private static func licenceStringsTest() {
+        let stated = Bundle.main.infoDictionary?["NSHumanReadableCopyright"] as? String ?? ""
+        check("the app states its licence where the Finder shows it", stated.contains("GPL-3.0"),
+              stated.isEmpty ? "nothing set" : stated)
+        let acknowledgements = Bundle.main.url(forResource: "ACKNOWLEDGEMENTS", withExtension: "md")
+        let text = acknowledgements.flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
+        check("the third-party licences ship inside the app",
+              text.contains("MIT License") && text.contains("CodeMirror") || text.contains("@codemirror/state"),
+              "\(text.count) characters")
+    }
+
     private static func crashRecoveryTest(then next: @escaping () -> Void) {
         let wm = WindowManager.shared
         let note = VaultStore.shared.createNote(body: "Crash me\n\nsecond line",
@@ -3517,7 +3533,7 @@ enum SelfTest {
     }
 
     private static func renderWindows(out: URL) {
-        runnerTest(out: out) { linkPreviewTest(out: out) { imageEditTest(out: out) { freezeTest { reminderTest(out: out) { findTest(out: out) { quickCaptureTest { templateTest { actionBarTest { testerBugsTest { todoBarTest(out: out) { onboardingTest(out: out) { strandedNotesTest { collapsedTodoTest(out: out) { blankCloseTest { undoDeleteTest { tagColourTest(out: out) { glowStrengthTest { vimTest(out: out) { codeLineNumbersTest(out: out) { vimBannerTest(out: out) { stackTest(out: out) { rowActionsTest(out: out) { crashRecoveryTest { tutorialTest(out: out) { renderWindowsNow(out: out) } } } } } } } } } } } } } } } } } } } } } } } } }
+        runnerTest(out: out) { linkPreviewTest(out: out) { imageEditTest(out: out) { freezeTest { reminderTest(out: out) { findTest(out: out) { quickCaptureTest { templateTest { actionBarTest { testerBugsTest { todoBarTest(out: out) { onboardingTest(out: out) { strandedNotesTest { collapsedTodoTest(out: out) { blankCloseTest { undoDeleteTest { tagColourTest(out: out) { glowStrengthTest { vimTest(out: out) { codeLineNumbersTest(out: out) { vimBannerTest(out: out) { stackTest(out: out) { rowActionsTest(out: out) { licenceStringsTest(); crashRecoveryTest { tutorialTest(out: out) { renderWindowsNow(out: out) } } } } } } } } } } } } } } } } } } } } } } } } }
     }
 
     private static func renderWindowsNow(out: URL) {
