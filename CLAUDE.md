@@ -483,6 +483,11 @@ Owner decisions added after the rebuild (2026-09-19):
   Desktop, so a reset can be undone. Two things it cannot reset, because macOS keeps them by bundle
   identifier: notification permission and the login item. Keep it current when the app starts
   writing somewhere new.
+- A note whose page process dies reloads ITSELF (`webViewWebContentProcessDidTerminate`, SPEC §4.7).
+  Use `load(URLRequest:)`, never `reload()`: a web view whose process has died has no current URL, so
+  `reload()` is a no-op and the note stays blank — measured, with the handler firing and nothing
+  happening. The text comes back from the app, which is what holds it; the caret and scroll come from
+  the last position the page reported with its text.
 - **WebKit runs ONE WebContent process per note, by design.** Each open note costs about 31 MB, 27 of
   it that process; twenty notes are ~695 MB and fifty ~1.6 GB (measured, `scripts/bench-memory.sh`,
   medians of five). The content barely matters: a code block with its parser adds 2–3 MB, an image
