@@ -119,6 +119,11 @@ struct TutorialView: View {
 
     @StateObject private var model = TutorialModel()
     @State private var appeared = false
+    @State private var window: NSWindow?
+    /// Where the pointer took hold, in the page's own coordinates. The window is moved by the
+    /// difference on every step, which is self-correcting: as the window follows the pointer, the
+    /// pointer's place in the page comes back to the grab point and the next difference is zero.
+    @State private var grab: CGPoint?
 
     private let tick = Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()
     private var index: Int { model.index }
@@ -140,7 +145,11 @@ struct TutorialView: View {
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(.white.opacity(0.09)))
         .foregroundStyle(.white.opacity(0.92))
-        .background(WindowDragArea())          // the whole page drags the window (owner, 2026-09-26)
+        .background(WindowReader { window = $0 })
+        // The whole page drags the window (owner, 2026-09-26). A SwiftUI gesture, because SwiftUI
+        // takes the mouse before any AppKit view behind it does; SIMULTANEOUS, so the buttons and
+        // dots still get their clicks, and 4pt of slack so a click is never a drag.
+        .simultaneousGesture(windowDrag)
         .onReceive(tick) { _ in advanceClock() }
         .onAppear { withAnimation(.easeOut(duration: 0.5)) { appeared = true } }
         .background(KeyCatcher(onLeft: { step(-1) }, onRight: { step(1) }, onClose: onDismiss))
@@ -333,6 +342,21 @@ struct TutorialView: View {
                                   : "The feature before this one; this also stops the slides advancing by themselves")
     }
 
+    /// Moving the window itself. SwiftUI's y grows downward and AppKit's upward, hence the sign.
+    private var windowDrag: some Gesture {
+        DragGesture(minimumDistance: 4)
+            .onChanged { value in
+                guard let window else { return }
+                let start = grab ?? value.startLocation
+                if grab == nil { grab = value.startLocation }
+                let delta = CGSize(width: value.location.x - start.x, height: value.location.y - start.y)
+                guard delta != .zero else { return }
+                window.setFrameOrigin(NSPoint(x: window.frame.origin.x + delta.width,
+                                              y: window.frame.origin.y - delta.height))
+            }
+            .onEnded { _ in grab = nil }
+    }
+
     // MARK: Moving between slides
 
     private func advanceClock() {
@@ -344,25 +368,27 @@ struct TutorialView: View {
     private func go(to target: Int) { withAnimation { model.go(to: target) } }
 }
 
-/// Drags the window by its background. `isMovableByWindowBackground` alone does nothing here: the
-/// page is SwiftUI, and its own views take the mouse before AppKit ever sees a background drag.
-private struct WindowDragArea: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView { Dragger() }
+/// Hands the view's window back to SwiftUI. The drag itself is a SwiftUI gesture (see
+/// `TutorialView.windowDrag`): an `NSView` sitting in the BACKGROUND never sees the mouse, because
+/// every SwiftUI view drawn over it takes the event first — which is why the first attempt at a
+/// drag layer did nothing by hand while passing a test that called it directly.
+private struct WindowReader: NSViewRepresentable {
+    let onWindow: (NSWindow?) -> Void
+
+    func makeNSView(context: Context) -> NSView { Reader(onWindow: onWindow) }
     func updateNSView(_ nsView: NSView, context: Context) {}
 
-    final class Dragger: NSView {
-        private var origin: NSPoint?
-
-        override func mouseDown(with event: NSEvent) { origin = event.locationInWindow }
-
-        override func mouseDragged(with event: NSEvent) {
-            guard let origin, let window else { return super.mouseDragged(with: event) }
-            // From the event, not NSEvent.mouseLocation: the same rule the note windows follow.
-            let onScreen = window.convertPoint(toScreen: event.locationInWindow)
-            window.setFrameOrigin(NSPoint(x: onScreen.x - origin.x, y: onScreen.y - origin.y))
+    final class Reader: NSView {
+        private let onWindow: (NSWindow?) -> Void
+        init(onWindow: @escaping (NSWindow?) -> Void) {
+            self.onWindow = onWindow
+            super.init(frame: .zero)
         }
-
-        override func mouseUp(with event: NSEvent) { origin = nil }
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            onWindow(window)
+        }
     }
 }
 
@@ -460,30 +486,42 @@ enum TutorialWindow {
     #if DEBUG
     static var panelForTesting: NSWindow? { panel }
 
-    /// Drags the page the way the pointer does — down on the drag layer behind the content, then a
-    /// move — so the self-test exercises the same code a hand does, not `setFrameOrigin`.
+    /// Drags the page the way a hand does: real events, through `NSApp.sendEvent`, so hit testing
+    /// and the responder chain decide who gets them. The first version called the drag view's own
+    /// methods and passed while the window would not move by hand at all (owner, 2026-09-26) — a
+    /// test that cannot fail.
     static func dragForTesting(by delta: NSSize) -> Bool {
-        guard let panel, let dragger = firstDragger(in: panel.contentView) else { return false }
+        guard let panel else { return false }
         let start = NSPoint(x: panel.frame.width / 2, y: panel.frame.height / 2)
         func event(_ type: NSEvent.EventType, _ at: NSPoint) -> NSEvent? {
-            NSEvent.mouseEvent(with: type, location: at, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-                               windowNumber: panel.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
+            NSEvent.mouseEvent(with: type, location: at, modifierFlags: [],
+                               timestamp: ProcessInfo.processInfo.systemUptime,
+                               windowNumber: panel.windowNumber, context: nil,
+                               eventNumber: 0, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1)
         }
-        guard let down = event(.leftMouseDown, start),
-              let moved = event(.leftMouseDragged, NSPoint(x: start.x + delta.width, y: start.y + delta.height)),
-              let up = event(.leftMouseUp, NSPoint(x: start.x + delta.width, y: start.y + delta.height))
-        else { return false }
-        dragger.mouseDown(with: down)
-        dragger.mouseDragged(with: moved)
-        dragger.mouseUp(with: up)
+        // The pointer travels a fixed path ON SCREEN and the window follows it, so each event's
+        // position IN THE WINDOW is measured against where the window has got to by then — which is
+        // what the window server does. Scripting window-relative positions instead made the page
+        // move 3.5x too far: every step re-counted the distance already travelled.
+        let originAtStart = panel.frame.origin
+        let screenStart = NSPoint(x: originAtStart.x + start.x, y: originAtStart.y + start.y)
+        guard let down = event(.leftMouseDown, start) else { return false }
+        NSApp.sendEvent(down)
+        let steps = 6
+        for i in 1...steps {
+            let onScreen = NSPoint(x: screenStart.x + delta.width * CGFloat(i) / CGFloat(steps),
+                                   y: screenStart.y + delta.height * CGFloat(i) / CGFloat(steps))
+            let inWindow = NSPoint(x: onScreen.x - panel.frame.origin.x, y: onScreen.y - panel.frame.origin.y)
+            guard let moved = event(.leftMouseDragged, inWindow) else { return false }
+            NSApp.sendEvent(moved)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+        }
+        let last = NSPoint(x: screenStart.x + delta.width - panel.frame.origin.x,
+                           y: screenStart.y + delta.height - panel.frame.origin.y)
+        guard let up = event(.leftMouseUp, last) else { return false }
+        NSApp.sendEvent(up)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         return true
-    }
-
-    private static func firstDragger(in view: NSView?) -> WindowDragArea.Dragger? {
-        guard let view else { return nil }
-        if let dragger = view as? WindowDragArea.Dragger { return dragger }
-        for sub in view.subviews { if let found = firstDragger(in: sub) { return found } }
-        return nil
     }
     #endif
 }
