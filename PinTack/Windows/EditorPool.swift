@@ -192,18 +192,44 @@ final class EditorPool {
     func prepareSpare() {
         guard isEnabled, spare == nil, keepsSpare else { return }
         DispatchQueue.main.async { [weak self] in
-            guard let self, self.isEnabled, self.spare == nil else { return }
-            guard let host = NSApp.windows.first(where: { $0 is NotePanel }) ?? NSApp.windows.first else { return }
+            guard let self, self.isEnabled, self.spare == nil, self.keepsSpare else { return }
             guard let note = VaultStore.shared.notes.first else { return }
             let view = NoteEditorView(note: note)
             view.frame = NSRect(x: 0, y: 0, width: 360, height: 280)
             view.prepareAsSpare()
-            // A web view outside a window does not load, so the spare lives behind the card of an
-            // existing window until somebody needs it. It is never visible: zero alpha, no clicks.
-            view.alphaValue = 0
-            host.contentView?.addSubview(view, positioned: .below, relativeTo: nil)
+            self.spareWindow().contentView?.addSubview(view)
             self.spare = view
         }
+    }
+
+    private var host: NSPanel?
+
+    /// A window of the spare's own.
+    ///
+    /// A web view outside a window does not load, so the spare has to live somewhere. It lived
+    /// inside an existing note's card to begin with, and that broke clicking through a stack: an
+    /// invisible page sitting in another note's card takes part in that card's business. Measured —
+    /// with the spare off, the stack checks passed; with it on, clicking a pile put the wrong note
+    /// in front (2026-09-27).
+    ///
+    /// So: a window nobody can see or touch. It takes no mouse events, joins no window cycling, and
+    /// sits at the very corner of the screen behind everything, visible enough that WebKit keeps
+    /// loading its page and invisible enough that nobody will ever meet it.
+    private func spareWindow() -> NSPanel {
+        if let host { return host }
+        let corner = (NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)).origin
+        let panel = NSPanel(contentRect: NSRect(x: corner.x, y: corner.y, width: 360, height: 280),
+                            styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.alphaValue = 0.01
+        panel.ignoresMouseEvents = true
+        panel.hasShadow = false
+        panel.isExcludedFromWindowsMenu = true
+        panel.collectionBehavior = [.transient, .ignoresCycle, .canJoinAllSpaces]
+        panel.orderBack(nil)
+        host = panel
+        return panel
     }
 
     #if DEBUG
