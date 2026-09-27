@@ -70,11 +70,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // a modal panel taking key status at launch would break every check that types into a note.
         #if DEBUG
         if !SelfTest.isRequested && MemoryProbe.requested == nil && TutorialShots.requestedDirectory == nil
-            && StackStress.requested == nil { OnboardingWindow.showIfFirstRun() }
+            && StackStress.requested == nil && FocusProbe.requested == nil { OnboardingWindow.showIfFirstRun() }
         SelfTest.runIfRequested(appDelegate: self, statusItem: statusItemController)
         MemoryProbe.runIfRequested()
         TutorialShots.runIfRequested()
         StackStress.runIfRequested()
+        FocusProbe.runIfRequested()
         #else
         OnboardingWindow.showIfFirstRun()
         #endif
