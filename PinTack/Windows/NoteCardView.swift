@@ -34,6 +34,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     /// The orange pill behind the stack's name (owner, 2026-09-22), as wide as the name needs.
     private let stackPill = NSView()
     private let unstackButton = ToolButton()
+    private let stackEditButton = ToolButton()
     private let stackPinButton = ToolButton()
     private let stackCollapseButton = ToolButton()
     private let stackCloseButton = ToolButton()
@@ -524,10 +525,12 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         addSubview(stackNameField)
         configure(unstackButton, symbol: "paperclip", tip: "Unstack: every note goes back where it was", action: #selector(unstackTapped))
         unstackButton.image = NoteCardView.struckPaperclip()
+        configure(stackEditButton, symbol: "plus", tip: "Add or remove notes, and rename the stack",
+                  action: #selector(stackEditTapped))
         configure(stackPinButton, symbol: "pin", tip: "Keep the stack on top", action: #selector(stackPinTapped))
         configure(stackCollapseButton, symbol: "chevron.down", tip: "Collapse the stack", action: #selector(stackCollapseTapped))
         configure(stackCloseButton, symbol: "xmark", tip: "Close the stack (it stays in All Notes)", action: #selector(stackCloseTapped))
-        [unstackButton, stackPinButton, stackCollapseButton, stackCloseButton].forEach { addSubview($0) }
+        [unstackButton, stackEditButton, stackPinButton, stackCollapseButton, stackCloseButton].forEach { addSubview($0) }
     }
 
     /// SF Symbols has no paperclip with a slash, so it is drawn: the paperclip with a stroke across.
@@ -570,7 +573,9 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         unstackButton.frame = NSRect(x: stackPinButton.frame.minX - btn, y: y, width: btn, height: btn)
         stackIcon.frame = NSRect(x: c.minX + 11, y: barY + (NoteCardView.stackBarHeight - 15) / 2, width: 15, height: 15)
         let pillX = stackIcon.frame.maxX + 6
-        let room = max(28, unstackButton.frame.minX - 6 - pillX)
+        // The + belongs to the NAME (owner, 2026-09-26), so it travels with the pill rather than
+        // joining the tools at the right end. The pill's room stops short of where it will sit.
+        let room = max(28, unstackButton.frame.minX - 6 - btn - pillX)
         let textWidth = ceil((stackNameField.stringValue as NSString)
             .size(withAttributes: [.font: stackNameField.font ?? .systemFont(ofSize: 11.5, weight: .semibold)]).width) + 6
         // While renaming, the pill takes all the room there is, so the typing never runs off its end.
@@ -578,6 +583,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         stackPill.frame = NSRect(x: pillX, y: barY + (NoteCardView.stackBarHeight - 18) / 2, width: pillWidth, height: 18)
         stackNameField.frame = NSRect(x: pillX + 8, y: barY + (NoteCardView.stackBarHeight - 16) / 2,
                                       width: max(12, pillWidth - 16), height: 16)
+        stackEditButton.frame = NSRect(x: stackPill.frame.maxX + 2, y: y, width: btn, height: btn)
     }
 
     private var stackBarRect: NSRect {
@@ -596,7 +602,8 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         let s = stack
         let inStack = s != nil
         let front = s?.front == note.id
-        for v in [stackIcon, stackPill, stackNameField, unstackButton, stackPinButton, stackCollapseButton, stackCloseButton] as [NSView] {
+        for v in [stackIcon, stackPill, stackNameField, unstackButton, stackEditButton, stackPinButton,
+                  stackCollapseButton, stackCloseButton] as [NSView] {
             v.isHidden = !inStack
         }
         clipButton.isHidden = inStack
@@ -645,6 +652,15 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     }
 
     @objc private func unstackTapped() { if let s = stack { StackManager.shared.unstack(s.id) } }
+
+    /// The + beside the stack's name: who is in it, and what it is called.
+    @objc private func stackEditTapped() {
+        guard let s = stack else { return }
+        let view = StackEditorView(stack: s, rows: StackEditorView.rows(for: s)) { [weak self] in
+            self?.popover?.close()
+        }
+        present(view, from: stackEditButton)
+    }
     @objc private func stackPinTapped() { if let s = stack { StackManager.shared.togglePin(s.id) } }
     @objc private func stackCollapseTapped() { if let s = stack { StackManager.shared.toggleCollapse(s.id) } }
     @objc private func stackCloseTapped() { if let s = stack { StackManager.shared.hide(s.id) } }
@@ -1756,6 +1772,8 @@ extension NoteCardView {
         (!stackNameField.isHidden, !clipButton.isHidden, !modeButton.isHidden, stackNameField.stringValue)
     }
     func debugShowStackCreator() { showStackCreator() }
+    func debugShowStackEditor() { stackEditTapped() }
+    var debugStackEditButtonShown: Bool { !stackEditButton.isHidden }
     /// Which stacked note this window hands a click at `screen` to, or nil if it would not take it.
     func debugClickTarget(atScreen screen: NSPoint) -> String? {
         guard let window, let parent = superview else { return nil }

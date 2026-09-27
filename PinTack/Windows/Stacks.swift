@@ -157,22 +157,80 @@ final class StackManager {
         guard let i = index(of: id) else { return }
         let s = stacks.remove(at: i)
         changed()
-        for noteID in s.members {
-            guard let note = VaultStore.shared.note(id: noteID) else { continue }
-            if let b = s.before[noteID] {
-                note.collapsed = b.collapsed
-                if let panel = WindowManager.shared.panel(for: noteID) {
-                    panel.placeCard(b.rect, animated: true)
-                    panel.applyCollapsed(animated: true)
-                } else {
-                    note.cardFrame = b.rect
-                }
-            }
-            VaultStore.shared.save(note)
-            WindowManager.shared.panel(for: noteID)?.applyPinned()
-        }
+        for noteID in s.members { putBack(noteID, s.before[noteID]) }
         refreshCards(of: s)
         Toast.show("Unstacked “\(s.name)”")
+    }
+
+    /// One note out of the pile and back to the size and place it had before it joined.
+    private func putBack(_ noteID: String, _ before: NoteStack.Before?) {
+        guard let note = VaultStore.shared.note(id: noteID) else { return }
+        if let b = before {
+            note.collapsed = b.collapsed
+            if let panel = WindowManager.shared.panel(for: noteID) {
+                panel.placeCard(b.rect, animated: true)
+                panel.applyCollapsed(animated: true)
+            } else {
+                note.cardFrame = b.rect
+            }
+        }
+        VaultStore.shared.save(note)
+        WindowManager.shared.panel(for: noteID)?.applyPinned()
+    }
+
+    // MARK: - Changing who is in a stack (the + in the stack bar, SPEC.md §5.10)
+
+    /// Notes joining a stack that already exists. They go to the BACK of the pile: the note in front
+    /// is where the reader is looking, and joining must not take that away.
+    @discardableResult
+    func add(_ noteIDs: [String], to id: String) -> Int {
+        guard let i = index(of: id) else { return 0 }
+        var added = 0
+        for noteID in noteIDs {
+            guard stacks[i].members.count < NoteStack.maxMembers,
+                  !stacks[i].members.contains(noteID),
+                  stack(containing: noteID) == nil,
+                  let note = VaultStore.shared.note(id: noteID) else { continue }
+            let f = note.cardFrame
+            stacks[i].before[noteID] = .init(x: f.minX, y: f.minY, width: f.width, height: f.height,
+                                             collapsed: note.collapsed)
+            if note.collapsed { note.collapsed = false }
+            if !note.visible { note.visible = true }
+            VaultStore.shared.save(note)
+            WindowManager.shared.open(note)
+            stacks[i].members.append(noteID)
+            stacks[i].order.append(noteID)
+            added += 1
+        }
+        guard added > 0 else { return 0 }
+        let s = stacks[i]
+        changed()
+        refreshCards(of: s)
+        layout(s, animated: true)
+        return added
+    }
+
+    /// One note leaves the stack and goes back where it was. A stack of one is no stack, so the last
+    /// two leaving dissolves it — and every note is kept, exactly as Unstack does.
+    func remove(_ noteID: String, from id: String) {
+        guard let i = index(of: id), stacks[i].members.contains(noteID) else { return }
+        let before = stacks[i].before[noteID]
+        stacks[i].members.removeAll { $0 == noteID }
+        stacks[i].order.removeAll { $0 == noteID }
+        stacks[i].before.removeValue(forKey: noteID)
+        if stacks[i].members.count < NoteStack.minMembers {
+            putBack(noteID, before)
+            unstack(id)
+            return
+        }
+        let s = stacks[i]
+        changed()
+        putBack(noteID, before)
+        // The note that left needs its card rebuilt too: it is no longer in `s.members`, so
+        // `refreshCards` would never reach it and it would keep drawing a stack bar.
+        WindowManager.shared.panel(for: noteID)?.card.refreshStackState()
+        refreshCards(of: s)
+        layout(s, animated: true)
     }
 
     /// A member was deleted outside the app (the file watcher saw it go).

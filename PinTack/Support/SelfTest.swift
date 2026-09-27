@@ -2672,15 +2672,109 @@ enum SelfTest {
                               sm.stack(id: doomed.id)?.members == [notes[0].id, notes[1].id]
                                   && VaultStore.shared.note(id: notes[0].id) != nil)
                         if let s = sm.stack(id: doomed.id) { sm.unstack(s.id) }
+                        stackEditorTest(out: out) {
                         stackLateRaiseTest {
                         stackClickByPlaceTest {
                         stackRapidClickTest {
                         stackDeleteAlertTest(notes: notes) {
                             for n in notes + [loner] { wm.close(noteID: n.id) }
                             next()
-                        } } } }
+                        } } } } }
                     }
                 }
+            }
+        }
+    }
+
+    /// The + beside the stack's name (owner, 2026-09-26): notes join the back of the pile, leave it
+    /// and go back where they were, and the stack dissolves rather than being left with one note.
+    /// Ten is the cap, because ten is as many places as the number row has keys.
+    private static func stackEditorTest(out: URL, then next: @escaping () -> Void) {
+        let wm = WindowManager.shared, sm = StackManager.shared
+        let made = (1...12).map { i in
+            VaultStore.shared.createNote(body: "Member \(i)",
+                                         frame: NSRect(x: 200 + CGFloat(i) * 12, y: 200, width: 300, height: 250))
+        }
+        made.forEach { wm.open($0) }
+        guard let stack = sm.create(name: "Crew", noteIDs: [made[0].id, made[1].id]) else {
+            check("a stack to edit", false); return next()
+        }
+        let rows = StackEditorView.rows(for: stack)
+        check("the + lists the stack's own notes first, then the open notes that could join",
+              Array(rows.prefix(2).map(\.id)) == [made[0].id, made[1].id]
+                  && rows.contains { $0.id == made[5].id },
+              "\(rows.count) rows")
+
+        let joinedFrame = made[2].cardFrame
+        sm.add([made[2].id], to: stack.id)
+        check("a note ticked in the + joins the BACK of the pile, leaving the front where it was",
+              sm.stack(id: stack.id)?.order == [made[0].id, made[1].id, made[2].id])
+
+        // Ten and no more: the two left over are refused, not silently dropped in.
+        sm.add(made[3...11].map(\.id), to: stack.id)
+        check("a stack takes ten notes and refuses the eleventh",
+              sm.stack(id: stack.id)?.members.count == NoteStack.maxMembers,
+              "\(sm.stack(id: stack.id)?.members.count ?? 0) members")
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            let piled = (sm.stack(id: stack.id)?.order ?? []).compactMap { wm.panel(for: $0)?.note.cardFrame }
+            // A picture of the pile of ten and of the + popover, to be looked at rather than trusted.
+            let members = (sm.stack(id: stack.id)?.order ?? []).compactMap { wm.panel(for: $0) }
+            // The pile, as the app has it AND as the window server has it: a picture of ten fanned
+            // notes is too easy to misread.
+            let serverOrder = (NSWindow.windowNumbers(options: []) ?? []).map(\.intValue)
+            for p in members {
+                let n = sm.stack(id: stack.id)?.number(of: p.note.id) ?? -1
+                log("pile: #\(n) \(p.note.title) card \(Int(p.note.cardFrame.minY)) window \(Int(p.frame.minY))"
+                    + " h \(Int(p.frame.height)) z \(serverOrder.firstIndex(of: p.windowNumber).map(String.init) ?? "-")"
+                    + " bar \(Int(p.card.stackBarHeight))")
+            }
+            let fanned = zip(piled, piled.dropFirst()).allSatisfy {
+                abs($1.minY - $0.minY - NotePanel.headerHeight) < 0.5 && $1.size == $0.size
+            }
+            check("a pile of ten still fans, one title bar apart, every card the same size",
+                  piled.count == NoteStack.maxMembers && fanned,
+                  piled.map { "\(Int($0.minY))" }.joined(separator: ","))
+
+            // The pictures come FIRST and the rest of the test waits for them. Photographing ten
+            // windows takes longer than the delay the next step used to run on, and the pile was
+            // being taken apart while it was still being photographed: the picture showed stale
+            // numbers and a note already gone (2026-09-26).
+            sm.togglePin(stack.id)                       // one shot shows the pile of ten AND its glow
+            snapshotPile(members, to: out.appendingPathComponent("stack-of-ten.png")) {
+                if sm.stack(id: stack.id)?.pinned == true { sm.togglePin(stack.id) }
+                guard let front = members.first else { return finish() }
+                front.card.debugShowStackEditor()
+                check("the stack bar carries a + for changing who is in the stack",
+                      front.card.debugStackEditButtonShown && front.card.debugPopoverShown)
+                guard let w = front.card.debugPopoverWindow else { return finish() }
+                // On a dark backdrop, because a popover's own material is not in what `cacheDisplay`
+                // hands back: against white, its light lettering photographs as nothing at all.
+                snapshot(window: w, to: out.appendingPathComponent("stack-editor.png"),
+                         backdrop: NSColor(srgbRed: 0.13, green: 0.13, blue: 0.16, alpha: 1)) {
+                    front.card.debugPopoverWindow?.close()
+                    finish()
+                }
+            }
+        }
+
+        /// Taking notes back out, once the pile has been photographed.
+        func finish() {
+            sm.remove(made[2].id, from: stack.id)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                check("a note unticked in the + leaves the stack and goes back where it was",
+                      sm.stack(id: stack.id)?.members.contains(made[2].id) == false
+                          && made[2].cardFrame == joinedFrame,
+                      "\(made[2].cardFrame) was \(joinedFrame)")
+                check("…and its card stops drawing a stack bar",
+                      wm.panel(for: made[2].id)?.card.stackBarHeight == 0)
+
+                // Down to one member: no stack left, and no note lost.
+                for id in (sm.stack(id: stack.id)?.members ?? []).dropFirst() { sm.remove(id, from: stack.id) }
+                check("taking notes out until one is left dissolves the stack and keeps every note",
+                      sm.stack(id: stack.id) == nil && made.allSatisfy { VaultStore.shared.note(id: $0.id) != nil })
+                for n in made { wm.close(noteID: n.id) }
+                next()
             }
         }
     }
