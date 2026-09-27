@@ -11,7 +11,7 @@
 Plain Markdown files. Live Preview rendering. Todos with reminders. A plugin system.
 Open source, GPL-3.0.
 
-`Status: built and running, in internal beta (0.1.0, build 21). Phases 1–4 complete.`
+`Status: built and running; build 22 is the first for outside testers (0.1.0). Phases 1–4 complete.`
 `Not yet signed or notarized — see Distribution.`
 `Seeking a macOS developer to own the codebase.`
 

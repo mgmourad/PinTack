@@ -1,6 +1,6 @@
 # PinTack — Technical Specification
 
-**Version:** 0.1.0 (build 21) — last brought up to date 2026-09-26
+**Version:** 0.1.0 (build 22) — last brought up to date 2026-09-27
 **Status:** Built and running; in internal beta (builds 1–21 were the owner's own; build 22 is the
 first for outside testers). Phases 1–4 complete; Phase 5 (signing,
 notarization, Sparkle) and the WidgetKit widget are not built — see §11 and §15. `CHANGELOG.md`

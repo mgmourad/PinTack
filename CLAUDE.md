@@ -231,7 +231,7 @@ preservation, atomic writes, import safety and search.
 **Phase 4, plugins and Runner: built.** The WidgetKit widget is **shelved by the owner**: it needs a real
 Apple signing team (app group must carry the Team ID, trap 2), so it waits on that decision.
 
-**As of 2026-09-26: 0.1.0, build 21. Builds 1–21 were INTERNAL**, used by the owner alone: none
+**As of 2026-09-27: 0.1.0, build 22. Builds 1–21 were INTERNAL**, used by the owner alone: none
 has been given to anyone, and the repository has never been pushed anywhere. Build 22 is the first
 build meant for outside testers, so it is the first whose rough edges are somebody else's problem. `verify.sh` covers a Release build, 241
 unit tests and over 270 self-test checks. `CHANGELOG.md` records every change, day by day, with the reason

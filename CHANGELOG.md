@@ -13,16 +13,41 @@ it stands.
 
 ---
 
-## Unreleased
+## Build 22 — 2026-09-27
+
+The first build meant for anyone outside. Two things: a bug that could leave a note blank, and the
+memory.
+
+### Fixed
+- **A note whose page process dies brings itself back.** WebKit kills a page that runs out of memory,
+  and a page can crash on its own; until now nothing handled it and the note was left blank until the
+  app was relaunched. It reloads itself with the text the app holds — the app, not the page, is what
+  holds a note's text — and with the caret and scroll where they were. Nothing typed is lost beyond
+  the last 120 ms, and the file is written exactly as any other save writes it.
+
+### Changed
+- **Every third-party component is now acknowledged in full.** All 52 npm packages (CodeMirror 6,
+  Lezer, the vim keymap, the search extension) and the Devicon logos are **MIT**, so all of them are
+  GPL-compatible. Their notices ship inside the app and in `ACKNOWLEDGEMENTS.md`, as those licences
+  require; About shows them behind a button, beside a copy of PinTack's own licence.
+- **Only the notes you are using keep an editor.** Twenty open notes cost about 695 MB, and 27 of
+  every 31 MB was the WebContent process WebKit gives each note. The note you are in and the one
+  before it stay loaded; every other note is parked — its page released, the process with it — and
+  shows the picture that page last drew, with its text behind it for VoiceOver. A warm spare page
+  waits beside them so waking costs 21 ms rather than 100.
+
+  **Measured: 20 notes 838 MB → 283 MB, 50 notes 1913 MB → 442 MB**, three pages instead of twenty or
+  fifty. Clicking a parked note and typing straight away puts the character in after 112 ms (median
+  of five, nothing lost or reordered); a note you are already in is unchanged at about 16 ms. A
+  parked note is drawn as its live self was — table, picture, code panel with its badge, coloured
+  text, checklist — in light and in dark, and follows its file if it changes underneath it.
+  Settings → Notes → Memory switches it off or changes how many notes stay loaded.
 
 ### Measured
-- **Where the memory goes, and one thing that does not fix it.** Each open note costs about 31 MB,
-  27 of it in the WebContent process WebKit gives every note; twenty notes are ~695 MB. Giving every
-  note ONE shared website data store — the only public lever that could let two pages share a
-  process — changed nothing on macOS 27.2: eleven notes, one store, still eleven processes, memory
-  identical within noise. The experiment is kept unmerged on `perf/shared-webkit-store` so nobody
-  repeats it, and `WKProcessPool` is not worth trying: deprecated since macOS 12, separate pools have
-  no effect. A shared store also merges `localStorage` across notes.
+- **A shared WebKit data store changes nothing** (macOS 27.2): eleven notes, one store, still eleven
+  processes, memory identical within noise. Kept unmerged on `perf/shared-webkit-store` so nobody
+  repeats it; `WKProcessPool` is deprecated since macOS 12 and not worth trying. A shared store also
+  merges `localStorage` across notes.
 
 ## Build 21 — 2026-09-26
 
