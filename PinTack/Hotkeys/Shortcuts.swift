@@ -93,6 +93,7 @@ enum ShortcutAction: String, CaseIterable, Codable {
     case toggleCorners, lessOpaque, moreOpaque
     case exportAll, importArchive, showShortcuts
     case stackCycle, stackNote1, stackNote2, stackNote3, stackNote4, stackNote5
+    case stackNote6, stackNote7, stackNote8, stackNote9, stackNote10
 
     var title: String {
         switch self {
@@ -130,6 +131,11 @@ enum ShortcutAction: String, CaseIterable, Codable {
         case .stackNote3: return "Stack note #3 to the front"
         case .stackNote4: return "Stack note #4 to the front"
         case .stackNote5: return "Stack note #5 to the front"
+        case .stackNote6: return "Stack note #6 to the front"
+        case .stackNote7: return "Stack note #7 to the front"
+        case .stackNote8: return "Stack note #8 to the front"
+        case .stackNote9: return "Stack note #9 to the front"
+        case .stackNote10: return "Stack note #10 to the front"
         }
     }
 
@@ -142,7 +148,8 @@ enum ShortcutAction: String, CaseIterable, Codable {
         case .deleteNote: return "Notes" 
         case .quickCapture: return "Notes"
         case .exportAll, .importArchive: return "Data"
-        case .stackCycle, .stackNote1, .stackNote2, .stackNote3, .stackNote4, .stackNote5: return "Stacks"
+        case .stackCycle, .stackNote1, .stackNote2, .stackNote3, .stackNote4, .stackNote5,
+             .stackNote6, .stackNote7, .stackNote8, .stackNote9, .stackNote10: return "Stacks"
         }
     }
 
@@ -196,6 +203,13 @@ enum ShortcutAction: String, CaseIterable, Codable {
         case .stackNote3: return KeyCombo(keyCode: UInt32(kVK_ANSI_3), modifiers: UInt32(cmdKey))
         case .stackNote4: return KeyCombo(keyCode: UInt32(kVK_ANSI_4), modifiers: UInt32(cmdKey))
         case .stackNote5: return KeyCombo(keyCode: UInt32(kVK_ANSI_5), modifiers: UInt32(cmdKey))
+        case .stackNote6: return KeyCombo(keyCode: UInt32(kVK_ANSI_6), modifiers: UInt32(cmdKey))
+        case .stackNote7: return KeyCombo(keyCode: UInt32(kVK_ANSI_7), modifiers: UInt32(cmdKey))
+        case .stackNote8: return KeyCombo(keyCode: UInt32(kVK_ANSI_8), modifiers: UInt32(cmdKey))
+        case .stackNote9: return KeyCombo(keyCode: UInt32(kVK_ANSI_9), modifiers: UInt32(cmdKey))
+        // #10 is ⌘0, the last key of the row: ten places is as many as the row has keys, which is
+        // what caps a stack at ten notes (owner, 2026-09-26).
+        case .stackNote10: return KeyCombo(keyCode: UInt32(kVK_ANSI_0), modifiers: UInt32(cmdKey))
         }
     }
 }
@@ -205,13 +219,17 @@ extension ShortcutAction {
     /// is the key window. Anywhere else (Settings, a lone note) the key is left alone.
     var isStackAction: Bool {
         switch self {
-        case .stackCycle, .stackNote1, .stackNote2, .stackNote3, .stackNote4, .stackNote5: return true
-        default: return false
+        case .stackCycle: return true
+        default: return stackNumber != nil
         }
     }
 
+    /// The place this key brings forward, 1…10. The order here IS the order of the number row.
+    static let stackPlaceActions: [ShortcutAction] = [.stackNote1, .stackNote2, .stackNote3, .stackNote4, .stackNote5,
+                                                      .stackNote6, .stackNote7, .stackNote8, .stackNote9, .stackNote10]
+
     var stackNumber: Int? {
-        [ShortcutAction.stackNote1, .stackNote2, .stackNote3, .stackNote4, .stackNote5].firstIndex(of: self).map { $0 + 1 }
+        ShortcutAction.stackPlaceActions.firstIndex(of: self).map { $0 + 1 }
     }
 }
 

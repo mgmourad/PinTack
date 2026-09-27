@@ -2,14 +2,14 @@ import AppKit
 
 /// Note Stacks (owner decision, 2026-09-22). SPEC.md §5.10.
 ///
-/// Two to five open notes drawn as one fanned pile: every note's title bar shows, one above the
+/// Two to ten open notes drawn as one fanned pile: every note's title bar shows, one above the
 /// other, and only the front note's body. The point is a tidier desk, not a new kind of note, so a
 /// stack is a relationship BETWEEN notes: it lives in `.pintack/stacks.json` and the notes
 /// themselves stay ordinary Markdown files with nothing added to them.
 struct NoteStack: Codable, Equatable, Identifiable {
 
     static let minMembers = 2
-    static let maxMembers = 5
+    static let maxMembers = 10
 
     var id: String
     var name: String
@@ -301,7 +301,7 @@ final class StackManager {
         NotificationCenter.default.post(name: .stacksDidChange, object: nil)
     }
 
-    /// ⌘1–⌘5: the note at that place trades places with the front one, and becomes #1.
+    /// ⌘1–⌘9 and ⌘0 (#10): the note at that place trades places with the front one, and becomes #1.
     func bringToFront(number: Int, from noteID: String) {
         guard let s = stack(containing: noteID), s.order.indices.contains(number - 1) else { return }
         bringToFront(s.order[number - 1], reason: "⌘\(number)")

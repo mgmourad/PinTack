@@ -2421,9 +2421,17 @@ enum SelfTest {
         let candidates = StackCreatorView.candidates(for: notes[0].id).map(\.id)
         check("the paperclip lists the open notes, the clicked one first",
               candidates.first == notes[0].id && notes.allSatisfy { candidates.contains($0.id) })
-        check("a stack needs two notes and takes no more than five",
-              sm.create(name: "x", noteIDs: [notes[0].id]) == nil
-                  && sm.create(name: "x", noteIDs: (0..<6).map { _ in VaultStore.shared.createNote(body: "extra").id }) == nil)
+        check("a stack needs two notes and takes no more than ten",
+              NoteStack.maxMembers == 10
+                  && sm.create(name: "x", noteIDs: [notes[0].id]) == nil
+                  && sm.create(name: "x", noteIDs: (0..<(NoteStack.maxMembers + 1)).map { _ in VaultStore.shared.createNote(body: "extra").id }) == nil)
+        // Ten places, ten keys: ⌘1…⌘9 and ⌘0. A place with no key would be a place nobody can reach.
+        let placeKeys = ShortcutAction.stackPlaceActions.map { ShortcutStore.shared.combo(for: $0).display }
+        check("every place in a stack has a key of its own, ⌘1 to ⌘9 and ⌘0",
+              ShortcutAction.stackPlaceActions.count == NoteStack.maxMembers
+                  && Set(placeKeys).count == NoteStack.maxMembers
+                  && placeKeys.last == "⌘0",
+              placeKeys.joined(separator: " "))
 
         guard let made = sm.create(name: "Release", noteIDs: notes.map(\.id)) else {
             check("a stack of three is made", false); next(); return

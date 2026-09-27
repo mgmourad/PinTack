@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 
-/// The paperclip's popover: pick two to five of the notes on the desk and name the stack.
+/// The paperclip's popover: pick two to ten of the notes on the desk and name the stack.
 /// SPEC.md §5.10. The note whose paperclip was clicked is checked already and becomes #1, in front.
 struct StackCreatorView: View {
 
@@ -52,13 +52,18 @@ struct StackCreatorView: View {
                 Text("\(chosen.count) of \(NoteStack.maxMembers)")
                     .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
             }
-            Text("Pick 2 to 5 open notes. This one stays in front as #1.")
+            Text("Pick 2 to \(NoteStack.maxMembers) open notes. This one stays in front as #1.")
                 .font(.caption).foregroundStyle(.secondary)
 
-            VStack(alignment: .leading, spacing: 2) {
-                ForEach(candidates) { c in row(c) }
+            // Ten members are allowed, and a busy desk has more notes than that open: the list
+            // scrolls rather than growing the popover past the screen.
+            ScrollView {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(candidates) { c in row(c) }
+                }
+                .padding(.vertical, 2)
             }
-            .padding(.vertical, 2)
+            .frame(maxHeight: 260)
 
             TextField("Stack name", text: $name)
                 .textFieldStyle(.roundedBorder)

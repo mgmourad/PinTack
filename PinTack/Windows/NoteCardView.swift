@@ -802,7 +802,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         let colour = foreground.withAlphaComponent(0.86)
         let font = titleField.font ?? .systemFont(ofSize: 12.5, weight: .semibold)
         let title = NSMutableAttributedString()
-        // In a stack the note's number leads its title: it is what ⌘1–⌘5 go by, and it only shows
+        // In a stack the note's number leads its title: it is what ⌘1–⌘9 and ⌘0 go by, and it only shows
         // while the note is in a stack (owner decision, 2026-09-22).
         if let number = stack?.number(of: note.id) {
             title.append(NSAttributedString(string: "#\(number)  ", attributes: [

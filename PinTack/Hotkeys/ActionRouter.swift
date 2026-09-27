@@ -56,7 +56,8 @@ enum ActionRouter {
              .color1, .color2, .color3, .color4, .color5, .color6:
             if let focused { focused.perform(action) } else { Toast.show("Click a note first") }
 
-        case .stackCycle, .stackNote1, .stackNote2, .stackNote3, .stackNote4, .stackNote5:
+        case .stackCycle, .stackNote1, .stackNote2, .stackNote3, .stackNote4, .stackNote5,
+             .stackNote6, .stackNote7, .stackNote8, .stackNote9, .stackNote10:
             if let focused { focused.perform(action) }
         }
     }

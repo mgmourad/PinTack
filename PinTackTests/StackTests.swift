@@ -51,11 +51,12 @@ final class StackTests: VaultTestCase {
         XCTAssertEqual(result.map(\.members), [["n1", "n2"], ["n3", "n4"]])
     }
 
-    func testNoMoreThanFiveAndAnOrderThatNamesEveryMemberOnce() {
-        let ids = (1...7).map { "n\($0)" }
-        let result = StackManager.pruned([stack("a", ids, order: ["n3", "n3", "n9"])], alive: Set(ids))
-        XCTAssertEqual(result.first?.members, Array(ids.prefix(5)))
-        XCTAssertEqual(result.first?.order, ["n3", "n1", "n2", "n4", "n5"])
+    func testNoMoreThanTenAndAnOrderThatNamesEveryMemberOnce() {
+        let ids = (1...12).map { "n\($0)" }
+        let result = StackManager.pruned([stack("a", ids, order: ["n3", "n3", "n99"])], alive: Set(ids))
+        XCTAssertEqual(NoteStack.maxMembers, 10)
+        XCTAssertEqual(result.first?.members, Array(ids.prefix(10)))
+        XCTAssertEqual(result.first?.order, ["n3", "n1", "n2", "n4", "n5", "n6", "n7", "n8", "n9", "n10"])
     }
 
     // MARK: The file is disposable, like the search index: nothing it says can stop a launch or touch a note.

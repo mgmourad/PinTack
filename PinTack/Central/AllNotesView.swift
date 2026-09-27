@@ -270,7 +270,7 @@ struct AllNotesView: View {
     /// The Stacks tab's sidebar: what a stack is and how to make one.
     private var stackControls: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("A stack piles 2 to 5 open notes into one, title bars showing. Click the paperclip on a note to make one.")
+            Text("A stack piles 2 to \(NoteStack.maxMembers) open notes into one, title bars showing. Click the paperclip on a note to make one.")
                 .font(.caption).foregroundStyle(.secondary)
             Text("\(model.stacks.count) stack\(model.stacks.count == 1 ? "" : "s")")
                 .font(.caption).foregroundStyle(.secondary)
@@ -701,11 +701,15 @@ private struct StackRow: View {
 
             // The notes' own colours, fanned the way the stack sits on the desk.
             ZStack(alignment: .topLeading) {
-                ForEach(Array(notes.prefix(NoteStack.maxMembers).enumerated()), id: \.offset) { i, note in
+                // The fan closes up as the stack grows, so ten notes take the same 26pt as three
+                // (owner raised the cap to ten, 2026-09-26): past that it ran off the row.
+                let shown = Array(notes.prefix(NoteStack.maxMembers))
+                let step = shown.count > 1 ? min(3.5, 15 / CGFloat(shown.count - 1)) : 0
+                ForEach(Array(shown.enumerated()), id: \.offset) { i, note in
                     RoundedRectangle(cornerRadius: 2.5).fill(Color(nsColor: note.color))
                         .overlay(RoundedRectangle(cornerRadius: 2.5).strokeBorder(.black.opacity(0.25), lineWidth: 0.5))
                         .frame(width: 16, height: 11)
-                        .offset(y: CGFloat(i) * 3.5)
+                        .offset(y: CGFloat(i) * step)
                 }
             }
             .frame(width: 16, height: 26, alignment: .top)
