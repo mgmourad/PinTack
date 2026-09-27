@@ -83,6 +83,14 @@ enum TutorialContent {
     ]
 }
 
+#if DEBUG
+/// What the self-test measures about the tutorial's cost: how often the page rebuilds, and how long
+/// a step of a drag takes. A choppy drag is a number, not an impression (owner, 2026-09-26).
+enum TutorialProbe {
+    static var bodyEvaluations = 0
+}
+#endif
+
 /// Which slide is showing, and whether the slides are still advancing by themselves. Apart from the
 /// view so the self-test can run the clock without watching pixels.
 final class TutorialModel: ObservableObject {
@@ -125,7 +133,13 @@ struct TutorialView: View {
     /// pointer's place in the page comes back to the grab point and the next difference is zero.
     @State private var grab: CGPoint?
 
-    private let tick = Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()
+    /// Five times a second, not twenty (owner reported the drag moving "like 30fps", 2026-09-26).
+    /// Every tick republishes `progress`, and every republish rebuilds this whole 980×700 page — and
+    /// a rebuild of a window that is not opaque and carries a system shadow makes the window server
+    /// work out the shadow again. The bar fills just as smoothly on a linear animation between
+    /// tickswide apart, for a quarter of the work.
+    private static let tickInterval: TimeInterval = 0.2
+    private let tick = Timer.publish(every: TutorialView.tickInterval, on: .main, in: .common).autoconnect()
     private var index: Int { model.index }
     private var auto: Bool { model.auto }
     private var progress: Double { model.progress }
@@ -134,7 +148,10 @@ struct TutorialView: View {
     private var accent: Color { Color(nsColor: Brand.accentNS) }
 
     var body: some View {
-        VStack(spacing: 0) {
+        #if DEBUG
+        TutorialProbe.bodyEvaluations += 1
+        #endif
+        return VStack(spacing: 0) {
             header
             stage
             words
@@ -360,7 +377,10 @@ struct TutorialView: View {
     // MARK: Moving between slides
 
     private func advanceClock() {
-        withAnimation { _ = model.tick(0.05) }
+        // Never while the page is being dragged: the drag itself costs 0.2 ms a step (measured), so
+        // what made it choppy was the page rebuilding underneath it.
+        guard grab == nil else { return }
+        withAnimation(.linear(duration: TutorialView.tickInterval)) { _ = model.tick(TutorialView.tickInterval) }
     }
 
     private func step(_ delta: Int) { withAnimation { model.step(delta) } }
@@ -490,7 +510,7 @@ enum TutorialWindow {
     /// and the responder chain decide who gets them. The first version called the drag view's own
     /// methods and passed while the window would not move by hand at all (owner, 2026-09-26) — a
     /// test that cannot fail.
-    static func dragForTesting(by delta: NSSize) -> Bool {
+    static func dragForTesting(by delta: NSSize, pace: TimeInterval = 0.02) -> Bool {
         guard let panel else { return false }
         let start = NSPoint(x: panel.frame.width / 2, y: panel.frame.height / 2)
         func event(_ type: NSEvent.EventType, _ at: NSPoint) -> NSEvent? {
@@ -514,13 +534,14 @@ enum TutorialWindow {
             let inWindow = NSPoint(x: onScreen.x - panel.frame.origin.x, y: onScreen.y - panel.frame.origin.y)
             guard let moved = event(.leftMouseDragged, inWindow) else { return false }
             NSApp.sendEvent(moved)
-            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+            // `pace` is the harness pretending to be a hand. Pass 0 to time the app's own work.
+            if pace > 0 { RunLoop.current.run(until: Date().addingTimeInterval(pace)) }
         }
         let last = NSPoint(x: screenStart.x + delta.width - panel.frame.origin.x,
                            y: screenStart.y + delta.height - panel.frame.origin.y)
         guard let up = event(.leftMouseUp, last) else { return false }
         NSApp.sendEvent(up)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        if pace > 0 { RunLoop.current.run(until: Date().addingTimeInterval(0.05)) }
         return true
     }
     #endif
