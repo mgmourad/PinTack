@@ -98,9 +98,13 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
     private var stack: NoteStack? { StackManager.shared.stack(containing: note.id) }
     static let stackBarHeight: CGFloat = 26
     var stackBarHeight: CGFloat { stack == nil ? 0 : NoteCardView.stackBarHeight }
-    /// The note's own pushpin and glow. In a stack the STACK is pinned, from its bar, and a pin on
-    /// every title bar of the pile would be clutter.
+    /// The note's own pushpin art. In a stack the STACK is pinned, from its bar, and a pin on every
+    /// title bar of the pile would be clutter.
     private var showsOwnPin: Bool { note.pinned && stack == nil }
+    /// Whether this card draws the pinned halo. A pinned STACK glows (owner, 2026-09-26), and every
+    /// member draws its own, in its own colour: the pile is fanned, so each note's exposed edge
+    /// carries the halo and the stack reads as one glowing thing. The pushpin stays on the bar.
+    private var isGlowing: Bool { stack.map { $0.pinned } ?? note.pinned }
 
     init(note: Note, panel: NotePanel) {
         self.note = note
@@ -261,7 +265,7 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         // Pinned glow, in the NOTE's own color (owner's call; SPEC.md §5.4 said outline color at 22%,
         // which was too faint to see). Two passes, a wide soft halo and a tight bright one, both
         // inside the 24pt margin so the window never clips them.
-        let glowing = showsOwnPin && settings.pinnedGlow
+        let glowing = isGlowing && settings.pinnedGlow
         if glowing {
             // Settings → Notes → Glow strength. Mostly brightness; the halo also widens a little, but
             // never past the 24pt margin, or the window edge would slice it off flat (SPEC.md §5.2).

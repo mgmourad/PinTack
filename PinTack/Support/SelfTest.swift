@@ -2569,7 +2569,25 @@ enum SelfTest {
                     sm.togglePin(made.id)
                     check("pinning the stack keeps every note of it on top, without pinning the notes themselves",
                           panels.allSatisfy { $0.level == .floating } && notes.allSatisfy { !$0.pinned })
+                    // …and it GLOWS (owner, 2026-09-26): every member draws its own halo, in its own
+                    // colour, while the pushpin art stays on the bar. Measured off the drawn pixels
+                    // 10pt outside each card, where only the halo can be.
+                    func halo(_ panel: NotePanel) -> CGFloat {
+                        guard let view = panel.contentView else { return -1 }
+                        view.needsDisplay = true
+                        view.displayIfNeeded()
+                        guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return -1 }
+                        view.cacheDisplay(in: view.bounds, to: rep)
+                        let scale = CGFloat(rep.pixelsWide) / view.bounds.width
+                        let x = Int((NotePanel.margin - 10) * scale), y = Int(view.bounds.midY * scale)
+                        return rep.colorAt(x: x, y: y)?.alphaComponent ?? -1
+                    }
+                    let glowOn = panels.map(halo)
                     sm.togglePin(made.id)
+                    let glowOff = panels.map(halo)
+                    check("a pinned stack glows, every note of it, and stops glowing when unpinned",
+                          glowOn.allSatisfy { $0 > 0.05 } && glowOff.allSatisfy { $0 < 0.02 },
+                          "pinned \(glowOn.map { String(format: "%.2f", $0) }) | unpinned \(glowOff.map { String(format: "%.2f", $0) })")
                     sm.toggleCollapse(made.id)
 
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
