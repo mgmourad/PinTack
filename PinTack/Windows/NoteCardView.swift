@@ -330,12 +330,23 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         }
     }
 
-    /// The pinned glow's colour: the note's own on light paper, but a LIGHT glow on dark paper (a
-    /// dark note colour, or a note in Dark mode). A glow in a dark note's own colour is a dark haze
-    /// that simply does not show (owner, 2026-09-22). Still tinted by the note, so it reads as its glow.
+    /// The pinned glow's colour: the note's own on light paper, but a LIGHT one on dark paper (a dark
+    /// note colour, or a note in Dark mode). A glow in a dark note's own colour is a dark haze that
+    /// simply does not show (owner, 2026-09-22).
+    ///
+    /// The light version keeps the note's own HUE (owner, 2026-09-26): a dark blue note glows light
+    /// blue, a burgundy one glows red-pink. Blending towards white washed the hue out instead, and
+    /// every dark note glowed the same near-white. A grey or black note has no hue to keep, so it
+    /// still glows white.
     static func glowColor(for note: Note) -> NSColor {
         guard !note.isDarkText else { return note.color }
-        return note.color.usingColorSpace(.sRGB)?.blended(withFraction: 0.78, of: .white) ?? .white
+        guard let c = note.color.usingColorSpace(.sRGB) else { return .white }
+        var h: CGFloat = 0, sat: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        c.getHue(&h, saturation: &sat, brightness: &b, alpha: &a)
+        guard sat > 0.06 else { return NSColor(white: 0.97, alpha: 1) }
+        // Bright enough to show against dark paper, and still coloured enough to be recognisably
+        // the note's: a deep colour is mostly brightness it is missing, not saturation.
+        return NSColor(hue: h, saturation: min(max(sat * 0.62, 0.30), 0.62), brightness: max(b, 0.92), alpha: 1)
     }
 
     /// Fallback vector pushpin, used only if the Pushpin asset is missing.

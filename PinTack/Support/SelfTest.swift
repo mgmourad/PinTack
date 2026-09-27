@@ -1935,6 +1935,37 @@ enum SelfTest {
         panel.card.refreshFromNote()
         check("a pinned note with dark paper glows light, not in its own dark colour",
               darkNote > 0.6, String(format: "halo brightness %.2f", darkNote))
+        // …and the light it glows is its OWN hue (owner, 2026-09-26): dark blue glows light blue,
+        // burgundy glows red-pink. Measured as a hue, not a look: blending towards white kept the
+        // brightness check happy while every dark note glowed the same near-white.
+        func hue(_ colour: NSColor) -> CGFloat {
+            var h: CGFloat = 0, sat: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            colour.usingColorSpace(.sRGB)?.getHue(&h, saturation: &sat, brightness: &b, alpha: &a)
+            return h
+        }
+        func hueGap(_ a: CGFloat, _ b: CGFloat) -> CGFloat { min(abs(a - b), 1 - abs(a - b)) }
+        var hueKept = true, lightEnough = true, stillColoured = true, report: [String] = []
+        for hex in ["#1B2A6B", "#5B1030", "#0F3D2E"] {          // dark blue, burgundy, deep green
+            note.colorHex = hex
+            let glow = NoteCardView.glowColor(for: note).usingColorSpace(.sRGB) ?? .white
+            var h: CGFloat = 0, sat: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            glow.getHue(&h, saturation: &sat, brightness: &b, alpha: &a)
+            hueKept = hueKept && hueGap(h, hue(note.color)) < 0.06
+            lightEnough = lightEnough && b > 0.85
+            stillColoured = stillColoured && sat > 0.25
+            report.append(String(format: "%@ → hue %.2f, sat %.2f, bri %.2f", hex, h, sat, b))
+        }
+        check("a dark note's glow is a LIGHT version of its own colour, not a wash of white",
+              hueKept && lightEnough && stillColoured, report.joined(separator: " | "))
+        // Grey has no hue to keep, so it still glows white rather than picking one up.
+        note.colorHex = "#2B2B2D"
+        var greySat: CGFloat = 0, greyH: CGFloat = 0, greyB: CGFloat = 0, greyA: CGFloat = 0
+        NoteCardView.glowColor(for: note).usingColorSpace(.sRGB)?
+            .getHue(&greyH, saturation: &greySat, brightness: &greyB, alpha: &greyA)
+        check("a grey note glows white, having no colour of its own to lighten",
+              greySat < 0.06 && greyB > 0.9, String(format: "sat %.2f, bri %.2f", greySat, greyB))
+        note.colorHex = original
+        panel.card.refreshFromNote()
         AppSettings.shared.pinnedGlowStrength = was
         view.needsDisplay = true
         next()
