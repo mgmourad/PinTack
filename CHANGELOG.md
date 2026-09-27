@@ -4,7 +4,8 @@ Everything that has happened to PinTack, newest first, from the day it was a spe
 compiled code to the beta it is now.
 
 **How to read this.** The version has been **0.1.0** throughout; the **build number** is what changes,
-and each build below is a disk image that went to testers. Every entry names what changed and, where
+and each build below is a disk image. **Builds 1–21 were internal**, used by the owner alone and
+given to nobody; build 22 is the first meant for outside testers. Every entry names what changed and, where
 the history records it, *why* — the reason is the part that stops someone "fixing" it later. Commit
 hashes are given so any entry can be traced, and undone, with `git revert`. Decisions the project
 owner made are marked **(owner)**; `CLAUDE.md` records them in full and `SPEC.md` describes the app as

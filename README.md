@@ -11,7 +11,7 @@
 Plain Markdown files. Live Preview rendering. Todos with reminders. A plugin system.
 Open source, GPL-3.0.
 
-`Status: built, running, in beta with testers (0.1.0, build 21). Phases 1–4 complete.`
+`Status: built and running, in internal beta (0.1.0, build 21). Phases 1–4 complete.`
 `Not yet signed or notarized — see Distribution.`
 `Seeking a macOS developer to own the codebase.`
 
@@ -130,7 +130,7 @@ scripts/verify.sh
 
 Honest framing, because vague calls for help waste everyone's time.
 
-**What exists:** a working app in beta — vault, note windows, Live Preview editor, todos and reminders, All Notes and Settings, hotkeys, plugins and Runner — with a specification kept in step with it, a changelog of every change and why ([CHANGELOG.md](CHANGELOG.md)), a test suite, and a self-test that can fail a build.
+**What exists:** a working app in internal beta — vault, note windows, Live Preview editor, todos and reminders, All Notes and Settings, hotkeys, plugins and Runner — with a specification kept in step with it, a changelog of every change and why ([CHANGELOG.md](CHANGELOG.md)), a test suite, and a self-test that can fail a build.
 
 **What does not exist:** the widget, code signing, notarization, Sparkle updates, and the App Sandbox. Those are Phase 5 and the open decisions in SPEC.md §17.
 
