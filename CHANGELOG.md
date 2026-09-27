@@ -12,6 +12,20 @@ it stands.
 
 ---
 
+## Build 21 — 2026-09-26
+
+### Fixed
+- **The tutorial is smooth: dragging it, and the slides changing (owner).** It was burning a quarter
+  of a processor core doing nothing at all. The little bar that fills under the slide showing was
+  animated, which made the whole 980×700 page redraw 120 times a second for as long as the tutorial
+  was open — so there was nothing left to draw a drag or a slide change with. The bar now moves in
+  steps of about a point without an animation, it is its own small view so a tick no longer rebuilds
+  the page, and the clock stops entirely while the page is being dragged.
+
+  Measured, not guessed: **250 ms of processor time a second → 14 ms**, page rebuilds while idle
+  **6 a second → 0**, no late frames through a slide change. Two changes that looked like obvious
+  wins measured worse and were dropped.
+
 ## Build 20 — 2026-09-26
 
 ### Added

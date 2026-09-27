@@ -499,13 +499,24 @@ Owner decisions added after the rebuild (2026-09-19):
   the event first — and `isMovableByWindowBackground` does nothing for the same reason. The gesture
   applies the difference to the window's CURRENT origin on each step, which is self-correcting: the
   pointer's place in the page returns to the grab point as the window follows it.
-- The tutorial's clock ticks 5 times a second, NOT 20, and not at all while the page is being
-  dragged (owner: "choppy, like 30fps", 2026-09-26). Every tick republishes `progress`, every
-  republish rebuilds the whole 980×700 page, and a rebuild of a window that is not opaque and
-  carries a system shadow makes the window server redo the shadow. Measured: the drag itself costs
-  0.2 ms a step; the page was rebuilding 8 times a second underneath it. `TutorialProbe` counts the
-  rebuilds and a check holds the number at zero during a drag. If a drag ever feels choppy again,
-  the next lever is `hasShadow = false` plus a hand-drawn shadow, which is why the NOTES are smooth.
+- The tutorial cost **250 ms of processor time a second doing NOTHING** (owner: dragging and the
+  slide changes are "choppy, like 30fps", 2026-09-26). The filling progress bar was animated, so the
+  whole 980×700 page redrew at 120 Hz for ever, and there was nothing left to draw a drag or a
+  transition with. Three rules came out of it, all measured:
+  - The bar is **not animated**. It moves about a point per tick; an animation on it is an animation
+    on the whole window, for ever.
+  - The bar lives in its OWN `TutorialBar` object, watched by `TutorialDots` alone. Anything
+    published by `TutorialModel` rebuilds the entire page, so a tick used to cost a full rebuild.
+  - The clock ticks 5 times a second, not 20, and not at all while the page is being dragged.
+
+  Together: idle 250 → 14 ms/s, page rebuilds while idle 6/s → 0, and the drag's own cost is 0.2 ms
+  a step. `TutorialProbe` (rebuild counter, `FrameMeter`) and the self-test's processor-time
+  measurement keep those numbers honest — a **median of five** transitions, because single
+  measurements sent me after two "improvements" that were noise.
+- Two things that looked like obvious wins and were measured WORSE, so do not try them again
+  without numbers: `.drawingGroup()` on the slide picture (241 ms against 131 ms — it rasterises a
+  page-sized texture), and resampling the screenshots to their drawn size on the way in (172 ms; the
+  resample lands inside the transition it was meant to speed up).
 - The self-test OWNS the screen while it runs: it activates itself and clicks its own windows, so
   anything the person at the keyboard types goes into ITS notes. That happened (owner, 2026-09-26):
   terminal keystrokes landed in a stacked note and four checks on the stack-click bug failed for a
