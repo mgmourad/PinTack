@@ -499,6 +499,20 @@ Owner decisions added after the rebuild (2026-09-19):
   the event first — and `isMovableByWindowBackground` does nothing for the same reason. The gesture
   applies the difference to the window's CURRENT origin on each step, which is self-correcting: the
   pointer's place in the page returns to the grab point as the window follows it.
+- The tutorial's clock ticks 5 times a second, NOT 20, and not at all while the page is being
+  dragged (owner: "choppy, like 30fps", 2026-09-26). Every tick republishes `progress`, every
+  republish rebuilds the whole 980×700 page, and a rebuild of a window that is not opaque and
+  carries a system shadow makes the window server redo the shadow. Measured: the drag itself costs
+  0.2 ms a step; the page was rebuilding 8 times a second underneath it. `TutorialProbe` counts the
+  rebuilds and a check holds the number at zero during a drag. If a drag ever feels choppy again,
+  the next lever is `hasShadow = false` plus a hand-drawn shadow, which is why the NOTES are smooth.
+- The self-test OWNS the screen while it runs: it activates itself and clicks its own windows, so
+  anything the person at the keyboard types goes into ITS notes. That happened (owner, 2026-09-26):
+  terminal keystrokes landed in a stacked note and four checks on the stack-click bug failed for a
+  reason that had nothing to do with the app. Checks a person can break go through
+  `checkUndisturbed`, which asks `CGEventSource` whether a REAL key or click arrived during the test
+  and says `skipped` instead of failing. Hardware events only — nothing the harness posts counts,
+  and reading that timer costs no permission.
 - Drive input in tests through `NSApp.sendEvent`, never by calling a view's `mouseDown`. The first
   tutorial drag passed a test that called the drag view directly and did not work by hand at all
   (owner-reported). A harness that scripts positions must also move the pointer the way the window
