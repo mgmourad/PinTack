@@ -12,6 +12,34 @@ it stands.
 
 ---
 
+## Build 20 — 2026-09-26
+
+### Added
+- **A stack holds ten notes (owner)**, up from five, with a key for every place: ⌘1–⌘9 and ⌘0. Ten is
+  the cap because ten is as many places as the number row has keys.
+- **A + beside the stack's name (owner)** opens a panel that changes who is in the stack and what it
+  is called: tick a note to add it to the back of the pile, untick one to take it out and put it back
+  where it was, edit the name at the top. Below two members the stack dissolves and every note is
+  kept, exactly as Unstack does.
+- **A pinned stack glows (owner).** Every note of the pile draws its own halo, in its own colour and
+  under the same glow settings a single note follows. The pushpin stays on the stack bar.
+
+### Changed
+- **A dark note's glow is now a light version of its OWN colour (owner):** a dark blue note glows
+  light blue, a burgundy one red-pink. It used to blend towards white, so every dark note glowed the
+  same near-white. A grey or black note still glows white, having no hue to keep.
+
+### Fixed
+- **The tutorial can actually be dragged now (owner: "still cannot be dragged").** The drag layer was
+  an AppKit view in the background, and a view behind SwiftUI never sees the mouse. It is a SwiftUI
+  gesture now, simultaneous with the buttons so they still work.
+- **The test that let that through.** It called the drag view's own method, which no hand can do; it
+  now sends real events through `NSApp.sendEvent`, moving the pointer the way the window server does.
+  That first showed the page moving 3.5x too far — the kind of failure the old test could not have.
+- **A self-test picture that looked like a bug.** Photographing ten windows outlasted the delay the
+  next step ran on, so the pile was being taken apart while it was still being photographed. Pictures
+  now hold the next step up until they are finished.
+
 ## Build 19 — 2026-09-26
 
 ### Added

@@ -377,7 +377,10 @@ is rather than always being black.
 ⌥⌘P. A pinned note floats above other windows and draws the owner's pushpin PNG, anchored by the
 crack in the paper (drawn 40% smaller than the first version, owner 2026-09-22), with a glow in the
 note's own colour on light paper and a **light** glow on dark paper (a dark note colour or Dark mode),
-where a glow in the note's own colour cannot be seen. **Settings → Notes → Glow strength** runs
+where a glow in the note's own colour cannot be seen. That light glow keeps the note's own **hue**
+(owner, 2026-09-26): a dark blue note glows light blue, a burgundy one red-pink. Blending towards
+white instead washed the hue out and every dark note glowed the same near-white; a grey or black
+note has no hue to keep, so it still glows white. **Settings → Notes → Glow strength** runs
 from 25% to 200% (a third, tight pass carries it past 100%); it is mostly brightness, and the halo never widens past the 24 pt margin, where
 the window edge would slice it flat.
 
@@ -447,27 +450,33 @@ once replaced the one carrying Undo.
 
 ### 5.10 Note Stacks
 
-Owner decision, 2026-09-22: **2 to 5 open notes piled into one**, to clear a crowded desk. Five is
-the cap so a stack never grows tall.
+Owner decision, 2026-09-22: **2 to 10 open notes piled into one**, to clear a crowded desk (raised
+from five by the owner, 2026-09-26). Ten is the cap because ten is as many places as the number row
+has keys: ⌘1…⌘9 and ⌘0. A place with no key of its own would be a place nobody can reach.
 
 - **Making one:** the **paperclip**, just left of the pushpin in every note's title bar (or `/stack`
   in the note, which opens the same popover from the paperclip), opens a
   popover listing the open notes with a checkbox each (the clicked note is checked and becomes #1),
   a name field and OK. A note already in a stack is listed, greyed, with its stack's name: a note is
-  in one stack at a time. Past five, the rest cannot be checked.
+  in one stack at a time. Past ten, the rest cannot be checked.
 - **The pile:** every note takes the front note's size, and each sits one title bar higher than the
   one in front of it, so only title bars show above the front note. A pile that would leave the top
   of the screen is moved down as a whole.
 - **The stack bar**, under the front note's title bar: the stack's name on an orange pill with black
   lettering, as wide as the name (double-click to rename)
-  and, on the right, Unstack (a struck-through paperclip), pin the stack on top, collapse the stack,
-  close the stack. In a stack a note's own pin, collapse, close and paperclip give way to these; the
+  and, beside the name, a **+** (owner, 2026-09-26) opening a popover that changes who is in the
+  stack and what it is called: every member ticked, every other open note offered, the name in a
+  field at the top, Done. A note ticked joins the **back** of the pile — the front note is where the
+  reader is looking — and a note unticked leaves and goes back to the size and place it had before it
+  joined, exactly as Unstack does for all of them. Below two members there is no stack left, so the
+  stack dissolves and every note is kept. On the right of the bar: Unstack (a struck-through
+  paperclip), pin the stack on top, collapse the stack, close the stack. In a stack a note's own pin, collapse, close and paperclip give way to these; the
   front note keeps its Live Preview / Source switch. ⌥⌘P, ⌥⌘K and ⌥⌘W act on the whole stack.
-- **Numbers:** each title bar leads with `#1`…`#5`, shown only while the note is in a stack. A number
+- **Numbers:** each title bar leads with `#1`…`#10`, shown only while the note is in a stack. A number
   is a note's **place in the pile**: the front note is always #1, the back one #N (owner decision,
   2026-09-22, replacing numbers that stayed with their notes), so the key can be read straight off the
-  title bar without matching titles to positions. **⌘1–⌘5** bring the note in that place to the front,
-  where it becomes #1 (not ⌥⇧1–5, which collided with the global ⌥⇧2 and type characters). Bringing a
+  title bar without matching titles to positions. **⌘1–⌘9 and ⌘0 (#10)** bring the note in that place
+  to the front, where it becomes #1 (not ⌥⇧1–5, which collided with the global ⌥⇧2 and type characters). Bringing a
   note forward is a **swap**: it trades places with the note that was in front and nothing else moves
   (owner decision, 2026-09-22), so clicking the same place twice leaves the pile exactly as it was.
   Pushing the note onto the front instead rotated everything between the two, and the pile reshuffled
@@ -490,8 +499,10 @@ the cap so a stack never grows tall.
   behind it, and where its shadow darkens that margin macOS gives the click to the front window —
   which takes it and hands it to the note whose title bar is there. Resizing the front note resizes the
   pile. The front note, whichever it is, keeps the Live Preview / Source pencil.
-- **Pinned** is the stack's, not the notes': every window of it floats, and no note's own pin or
-  glow is drawn while it is stacked. **Collapsed** folds every note to its title bar, with the front
+- **Pinned** is the stack's, not the notes': every window of it floats, and no note's own pushpin is
+  drawn while it is stacked — the pin lives on the stack bar. A pinned stack **glows** (owner,
+  2026-09-26): every member draws its own halo, in its own colour and under every glow rule (§9's
+  strength, off when the glow is off), so the fanned pile reads as one glowing thing. **Collapsed** folds every note to its title bar, with the front
   note's stack bar still under it.
 - **Unstack** puts every note back exactly where it was, at its own size and collapse state.
 - **Stored in `.pintack/stacks.json`** (atomic, like every vault write): name, the notes in number
@@ -770,7 +781,8 @@ App-scoped (a PinTack window must be key): Pin ⌥⌘P, Collapse ⌥⌘K, Close 
 Delete ⌥⌘D, Emoji ⌥⌘E, colours ⌥⌘1–6, corners ⌥⌘R, opacity ⌥⌘, / ⌥⌘., export ⌥⌘X, import ⌥⌘I,
 shortcut list ⌥⌘/.
 
-Stacks (§5.10; only while a note in a stack is key): next note ⌥Tab, note #1–#5 to the front ⌘1–⌘5.
+Stacks (§5.10; only while a note in a stack is key): next note ⌥Tab, note #1–#10 to the front ⌘1–⌘9
+and ⌘0.
 
 In the editor: **⌘↩** ticks the checkbox on the current line (§6.3). It is a keystroke of the editor,
 not a rebindable action.

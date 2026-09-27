@@ -475,6 +475,33 @@ Owner decisions added after the rebuild (2026-09-19):
 - The tutorial window is `.modalPanel` with `hidesOnDeactivate = false` and a `WindowDragArea` behind
   the page: it can be moved and it stays above everything (owner, 2026-09-26).
   `isMovableByWindowBackground` alone does nothing — SwiftUI's own views take the mouse first.
+- A stack holds up to TEN notes (owner, 2026-09-26), because ten is as many places as the number row
+  has keys: ⌘1–⌘9 and ⌘0 (`ShortcutAction.stackPlaceActions`). A place with no key is a place nobody
+  can reach. The All Notes colour fan closes up as the pile grows, so ten swatches still fit a row.
+- The `+` beside the stack's name (owner, 2026-09-26) is `StackEditorView`: tick to join the BACK of
+  the pile, untick to leave and go back to the frame the note had before it joined, and the name
+  field renames. Below two members the stack DISSOLVES and every note is kept, exactly as Unstack
+  does. It travels with the name pill, not with the tools at the right end of the bar.
+- A pinned STACK glows (owner, 2026-09-26): `NoteCardView.isGlowing` follows the stack's `pinned`, so
+  every member draws its own halo in its own colour, while `showsOwnPin` (the pushpin ART) stays off
+  for a stacked note — the pin lives on the stack bar.
+- A dark note's glow keeps the note's HUE and only lifts the brightness (owner, 2026-09-26). Do not
+  go back to blending towards white: that washed the hue out and every dark note glowed the same
+  near-white. A note with no saturation still glows white; `glowColor` handles that case by itself.
+- The tutorial is dragged by a SwiftUI `.simultaneousGesture`, NOT by an AppKit view in the
+  background. A `.background` NSView never sees the mouse — every SwiftUI view drawn over it takes
+  the event first — and `isMovableByWindowBackground` does nothing for the same reason. The gesture
+  applies the difference to the window's CURRENT origin on each step, which is self-correcting: the
+  pointer's place in the page returns to the grab point as the window follows it.
+- Drive input in tests through `NSApp.sendEvent`, never by calling a view's `mouseDown`. The first
+  tutorial drag passed a test that called the drag view directly and did not work by hand at all
+  (owner-reported). A harness that scripts positions must also move the pointer the way the window
+  server does — relative to where the window has GOT to, not where it started — or a drag counts the
+  same distance again on every step (measured: 3.5x too far).
+- `SelfTest.snapshot` / `snapshotPile` are ASYNC. Sequence whatever comes next in the completion:
+  photographing ten windows outlasts a fixed delay, and a pile was taken apart while it was still
+  being photographed — the picture showed stale numbers and a note already gone, which looks exactly
+  like an app bug.
 - A self-test hook that only a static holds does NOT make SwiftUI redraw: `GlyphTabsTesting` is an
   `ObservableObject` for that reason. Five identical pictures of the "different" tooltips is what a
   plain static produced, and it hid the bug the owner had already reported.

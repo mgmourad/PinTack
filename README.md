@@ -92,7 +92,7 @@ Runner is built strictly against the public plugin API with no private hooks int
 | ⌨️ Keyboard | System-wide hotkeys with no Accessibility permission required, fully rebindable with a recorder UI |
 | 🧩 Extension | JavaScript plugin API with a capability/permission/approval model, Runner bundled. WidgetKit widget designed but not built |
 | ⌨️ Vim | Optional vim keys (off by default): NORMAL/INSERT/VISUAL shown in the action bar, `:` and `/` open in the action bar, `:w` `:q` `:wq` `ZZ`, a line-number gutter where a table is a fold (`[+3]`, `zo`/`zc`); line numbers in code blocks as their own setting |
-| 🗃️ Stacks | Pile 2 to 5 notes into one with the paperclip: title bars fanned, a stack bar to rename, pin, collapse, close or unstack, #1–#5 on ⌘1–⌘5, ⌥Tab to cycle, and a Stacks tab in All Notes |
+| 🗃️ Stacks | Pile 2 to 10 notes into one with the paperclip: title bars fanned, a stack bar to rename, add or remove notes, pin (the whole pile glows), collapse, close or unstack, #1–#10 on ⌘1–⌘9 and ⌘0, ⌥Tab to cycle, and a Stacks tab in All Notes |
 | 🧊 Extras | Templates recalled with `@name`, quick capture from any app, `/find` fuzzy open, link previews (off by default), Undo for five seconds after a delete, empty notes that clean up after themselves, a one-screen welcome on first launch |
 
 ## Architecture in one paragraph
