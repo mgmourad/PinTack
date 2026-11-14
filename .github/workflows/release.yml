@@ -64,13 +64,24 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # The image's window has a place for a changelog, and a release that ships without one leaves
+      # a gap in it. The newest entry is the top section of CHANGELOG.md, up to the next rule.
+      - name: This build's changelog, for the disk image
+        if: steps.existing.outputs.exists == 'false'
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          awk '/^## /{f=1} f&&/^---$/{exit} f' CHANGELOG.md > dist/build-changelog.md
+          test -s dist/build-changelog.md
+          head -3 dist/build-changelog.md
+
       - name: Build the disk image
         if: steps.existing.outputs.exists == 'false'
         env:
           # No Finder session on a runner to ask for Automation permission, and a refusal there can
           # hang waiting for a dialog nobody will answer.
           PINTACK_DMG_NO_STYLE: "1"
-        run: scripts/make-dmg.sh
+        run: scripts/make-dmg.sh dist/build-changelog.md
 
       - name: Name the image after the build
         id: image
