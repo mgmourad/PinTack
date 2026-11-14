@@ -64,6 +64,15 @@ EOF
 # What a tester should know: it is a beta, it carries no warranty, keep a backup.
 cp BETA-TERMS.md "$STAGE/BETA-TERMS.md"
 
+# A runner has no Finder to script, so the window it would have styled is carried in instead: a
+# .DS_Store captured once from a styled image (packaging/dmg/DS_Store). The background path, the icon
+# size and every icon position are stored by name, and those names do not change between builds, so
+# the same file lays out every image. Without this an automated release ships a plain folder.
+if [ -n "${PINTACK_DMG_NO_STYLE:-}" ] && [ -f packaging/dmg/DS_Store ]; then
+  cp packaging/dmg/DS_Store "$STAGE/.DS_Store"
+  echo "   carrying the saved window layout (no Finder on this machine)"
+fi
+
 # A read/WRITE image first: Finder cannot lay out a window on a compressed read-only one.
 rm -f "$DMG" dist/.pintack-rw.dmg
 hdiutil create -volname "$VOLUME" -srcfolder "$STAGE" -ov -format UDRW -fs HFS+ dist/.pintack-rw.dmg >/dev/null

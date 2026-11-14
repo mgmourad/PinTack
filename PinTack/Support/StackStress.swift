@@ -44,11 +44,20 @@ enum StackStress {
         if ProcessInfo.processInfo.environment["PINTACK_STACK_STRESS_EXISTING"] != nil,
            let existing = StackManager.shared.stacks.first {
             let members = StackManager.shared.notes(of: existing)
+            // Built a piece at a time, not as one `+` chain: Xcode 16.4 gave up type-checking the
+            // chained version ("unable to type-check this expression in reasonable time") while a
+            // newer compiler swallowed it, so CI failed on a file that built here (2026-11-14).
+            let described: [String] = members.map { note in
+                let title = note.title.isEmpty ? "Untitled" : note.title
+                var line = title
+                line += " \(Int(note.cardFrame.width))×\(Int(note.cardFrame.height))"
+                if note.pinned { line += " PINNED" }
+                if note.collapsed { line += " COLLAPSED" }
+                if note.isTodo { line += " todo" }
+                return line
+            }
             print("STACK STRESS using the vault's own stack “\(existing.name)”: "
-                  + members.map { "\($0.title.isEmpty ? "Untitled" : $0.title)"
-                                  + " \(Int($0.cardFrame.width))×\(Int($0.cardFrame.height))"
-                                  + ($0.pinned ? " PINNED" : "") + ($0.collapsed ? " COLLAPSED" : "")
-                                  + ($0.isTodo ? " todo" : "") }.joined(separator: " | "))
+                  + described.joined(separator: " | "))
             for note in members {
                 note.visible = true
                 VaultStore.shared.save(note)
