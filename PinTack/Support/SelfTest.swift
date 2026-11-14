@@ -2440,11 +2440,23 @@ enum SelfTest {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
             let cards = panels.map(\.note.cardFrame)
             let base = frames[0]
-            let fanned = cards.enumerated().allSatisfy { i, c in
-                c.size == base.size && c.minX == base.minX && abs(c.minY - (cards[0].minY + CGFloat(i) * NotePanel.headerHeight)) < 0.5
+            // Spelled out one condition at a time rather than as a single boolean: Xcode 16.4 gave
+            // up type-checking the chained version while a newer compiler swallowed it, and CI
+            // failed on a file that built here (2026-11-14).
+            let fanned: Bool = cards.enumerated().allSatisfy { pair in
+                let (i, c): (Int, NSRect) = pair
+                guard c.size == base.size, c.minX == base.minX else { return false }
+                let step: CGFloat = CGFloat(i) * NotePanel.headerHeight
+                let expected: CGFloat = cards[0].minY + step
+                return abs(c.minY - expected) < 0.5
+            }
+            let described: [String] = cards.map { c in
+                let origin = "\(Int(c.minX)),\(Int(c.minY))"
+                let size = "\(Int(c.width))×\(Int(c.height))"
+                return origin + " " + size
             }
             check("a stack fans its notes out: one size, each a title bar above the one in front", fanned,
-                  cards.map { "\(Int($0.minX)),\(Int($0.minY)) \(Int($0.width))×\(Int($0.height))" }.joined(separator: " | "))
+                  described.joined(separator: " | "))
             // The window server's own front-to-back order. NSApp.orderedWindows leaves these panels out.
             let numbers = (NSWindow.windowNumbers(options: []) ?? []).map(\.intValue)
             let z = numbers.compactMap { n in panels.first { $0.windowNumber == n } }.map(\.note.id)
@@ -2648,7 +2660,7 @@ enum SelfTest {
 
                 sm.hide(stackID)
                 check("closing a stack takes every note of it off the desk, still in All Notes",
-                      notes.allSatisfy { wm.panel(for: $0.id) == nil && !$0.visible } && sm.stack(id: stackID) != nil)
+                      hiddenAndStillStacked(notes, stackID: stackID))
                 sm.show(stackID)
                 check("showing it puts the whole stack back", notes.allSatisfy { wm.panel(for: $0.id) != nil })
 
@@ -3292,6 +3304,15 @@ enum SelfTest {
     /// A note's page process is killed on purpose. Until build 22 the note was simply left blank
     /// until the app was relaunched (SPEC.md §4.7) — WebKit kills a page that runs out of memory, so
     /// this is not hypothetical.
+    /// Split out of the check it serves: a chained boolean of this shape is what Xcode 16.4 gives up
+    /// type-checking while a newer compiler swallows it (2026-11-14).
+    private static func hiddenAndStillStacked(_ notes: [Note], stackID: String) -> Bool {
+        let allHidden = notes.allSatisfy { note in
+            WindowManager.shared.panel(for: note.id) == nil && !note.visible
+        }
+        return allHidden && StackManager.shared.stack(id: stackID) != nil
+    }
+
     /// Every slash command that reaches Swift, driven the way the PAGE drives it (SPEC.md §10.1).
     ///
     /// The two halves are written in different languages and joined by a string: `editor.js` posts
