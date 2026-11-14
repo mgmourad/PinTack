@@ -18,7 +18,7 @@ Three sections in particular will save you time, because each documents a proble
 
 ## Current state
 
-**Built and running** (0.1.0, build 21), used so far only by its owner; build 22 is the first meant
+**Built and running** (0.1.0, build 24), used so far only by its owner; build 23 was the first meant
 for outside testers. Phases 1–4 are complete: the vault,
 note windows, Live Preview editor, todos and reminders, Note Stacks, vim mode, All Notes and Settings in
 one window, hotkeys, and the plugin system with Runner. **Phase 5 has not started**: Developer ID
@@ -42,8 +42,8 @@ If you are interested in that role, open a discussion rather than a pull request
 ### Build
 
 ```bash
-git clone https://github.com/<org>/pintack.git
-cd pintack
+git clone https://github.com/mgmourad/PinTack.git
+cd PinTack
 xcodebuild -scheme PinTack -configuration Debug SYMROOT="$PWD/build" build
 open build/Debug/PinTack.app        # or open PinTack.xcodeproj
 ```

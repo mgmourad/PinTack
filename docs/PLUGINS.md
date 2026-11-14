@@ -124,3 +124,9 @@ asks; **it cannot approve anything**.
 another plugin's objects. What it still cannot do is act as another plugin to Swift (capability tokens are
 per page, per plugin), exceed its declared permissions, or run a command nobody approved. **Only enable
 plugins you trust.**
+
+## Licensing
+
+PinTack itself is GPL-3.0-or-later (see `LICENSE`). Your plugin need not be: a plugin that uses only
+the documented public API above is **not** a derivative work of PinTack, and you may license and sell
+it however you choose.

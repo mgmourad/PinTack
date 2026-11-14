@@ -31,3 +31,9 @@ out=ACKNOWLEDGEMENTS.md
 mkdir -p PinTack/Resources
 cp "$out" PinTack/Resources/ACKNOWLEDGEMENTS.md
 echo "wrote $out and PinTack/Resources/ACKNOWLEDGEMENTS.md ($(wc -l < "$out") lines)"
+
+# GPL-3.0 §4: a copy of the licence has to go to everyone who receives the program, so it ships
+# inside the bundle rather than only sitting in the repository. Kept in step here so the two cannot
+# drift apart.
+cp LICENSE PinTack/Resources/LICENSE.txt
+echo "wrote PinTack/Resources/LICENSE.txt"

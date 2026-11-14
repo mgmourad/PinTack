@@ -6,7 +6,8 @@ first for outside testers). Phases 1–4 complete; Phase 5 (signing,
 notarization, Sparkle) and the WidgetKit widget are not built — see §11 and §15. `CHANGELOG.md`
 records how it got here.
 **Target platform:** macOS 14 (Sonoma) and later
-**License:** GPL-3.0-or-later
+**License:** GPL-3.0-or-later. Third-party components, all permissively licensed and so
+GPL-compatible, are listed in `ACKNOWLEDGEMENTS.md`, which ships inside the app.
 **Bundle identifier:** `io.cymentix.pintack`
 
 > **Product thesis (owner).** PinTack is for short notes on the fly: condensed data, important data,
@@ -65,7 +66,10 @@ Do not propose these again without new reasoning.
 5. **Vault writes must be atomic**, and a failed write must be visible (§4.5).
 6. **No autorun in Runner** (§13.4). No flag changes this.
 7. **Target macOS 14.0.** Newer APIs need a runtime availability check.
-8. **GPL-3.0.** Do not vendor incompatible code.
+8. **GPL-3.0-or-later.** Do not vendor incompatible code. Dependencies may be added only with
+   approval and must be GPL-compatible — in practice MIT, BSD, Apache 2.0 or ISC — and each must be
+   recorded in `ACKNOWLEDGEMENTS.md`, whose notices ship inside the app. A plugin using only the
+   public API is not a derivative work and its author licenses it as they choose.
 
 ---
 
@@ -595,6 +599,22 @@ has keys: ⌘1…⌘9 and ⌘0. A place with no key of its own would be a place 
 `/` opens a menu: headings, emphasis, quote, lists, `/checklist`, divider, highlight, link, table,
 code (plain and per-language), date, time, tag, colours, `/freeze`, `/find`, `/template`, image,
 emoji.
+
+**Commands that act on the note or the app, not on its text** (owner, 2026-11-14 — each one was
+already reachable by a key, a menu or a button, and each was wanted from the keyboard without
+leaving the note):
+
+| Command | What it does |
+|---|---|
+| `/stack` | Makes a new stack out of this note and others on the desk — the paperclip's popover. |
+| `/addToStack` | Joins a stack that already exists, at the back of the pile. |
+| `/removeFromStack` | Takes this note out of its stack, back to where it was (§5.10). |
+| `/settings` | Opens Settings. |
+| `/allnotes` | Opens All Notes. Always opens it; it is never a toggle. |
+| `/destroy` | Deletes this note, with the same five-second Undo ⌥⌘D offers. |
+
+Each posts `note.action` to Swift, and a note that cannot do what was asked says so in a toast
+rather than doing nothing: already in a stack, in no stack, no stack to join, every stack full.
 
 ### 6.2 Templates
 

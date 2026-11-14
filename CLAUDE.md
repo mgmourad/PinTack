@@ -62,7 +62,12 @@ This changes how you must work:
    There is no flag that changes this.
 7. **Target macOS 14.0.** Do not use APIs newer than that without a runtime
    availability check.
-8. **GPL-3.0.** Do not vendor incompatible code.
+8. **GPL-3.0-or-later.** Do not vendor incompatible code. Added dependencies need approval and must
+   be GPL-compatible — in practice MIT, BSD, Apache 2.0 or ISC — and each must be recorded in
+   `ACKNOWLEDGEMENTS.md` (regenerate with `scripts/make-acknowledgements.sh`, which also refreshes
+   `PinTack/Resources/LICENSE.txt`, the copy of the licence that ships inside the app because
+   GPL-3.0 §4 requires it to travel with the binary). The plugin API stays public: a plugin using
+   only it is not a derivative work.
 
 ---
 
@@ -231,9 +236,10 @@ preservation, atomic writes, import safety and search.
 **Phase 4, plugins and Runner: built.** The WidgetKit widget is **shelved by the owner**: it needs a real
 Apple signing team (app group must carry the Team ID, trap 2), so it waits on that decision.
 
-**As of 2026-09-27: 0.1.0, build 22. Builds 1–21 were INTERNAL**, used by the owner alone: none
-has been given to anyone, and the repository has never been pushed anywhere. Build 22 is the first
-build meant for outside testers, so it is the first whose rough edges are somebody else's problem. `verify.sh` covers a Release build, 241
+**As of 2026-11-14: 0.1.0, build 24. Builds 1–22 were INTERNAL**, used by the owner alone: none
+has been given to anyone. Build 23 was the first build meant for outside testers, so it is the first
+whose rough edges are somebody else's problem. The public repository is
+`https://github.com/mgmourad/PinTack`. `verify.sh` covers a Release build, 241
 unit tests and over 270 self-test checks. `CHANGELOG.md` records every change, day by day, with the reason
 — read it before assuming something is an accident. Honest view of what separates this from a 1.0:
 signing and notarization, a stretch of daily use with no new bugs (bugs were still being found by
@@ -536,6 +542,14 @@ Owner decisions added after the rebuild (2026-09-19):
   - Do not retry the shared store, and do not try `WKProcessPool`: it has been deprecated since
     macOS 12 and separate pools no longer have an effect. The only lever that reduces processes is
     having fewer live web views.
+- Six slash commands act on the NOTE or the APP rather than its text (owner, 2026-11-14, SPEC §6.1):
+  `/stack`, `/addToStack`, `/removeFromStack`, `/settings`, `/allnotes`, `/destroy`. All of them post
+  `note.action` and are matched by name in `NoteEditorView` — two halves in two languages joined by a
+  string, so the self-test posts every one from the real page and judges it by what changed, never by
+  what was intended. `/allnotes` SHOWS the window and never toggles it. `/destroy` goes through
+  `ShortcutAction.deleteNote`, so it keeps the five-second Undo; do not give it a delete of its own.
+  `joinStack` is deliberately split from the popover that picks the stack, so the join can be tested
+  without driving SwiftUI.
 - A stack holds up to TEN notes (owner, 2026-09-26), because ten is as many places as the number row
   has keys: ⌘1–⌘9 and ⌘0 (`ShortcutAction.stackPlaceActions`). A place with no key is a place nobody
   can reach. The All Notes colour fan closes up as the pile grows, so ten swatches still fit a row.

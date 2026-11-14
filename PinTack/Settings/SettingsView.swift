@@ -711,8 +711,8 @@ private struct AboutPane: View {
             }
             .foregroundStyle(.secondary)
 
-            // The permissive licences PinTack builds on require their notices to travel with it,
-            // so the text ships inside the app rather than living on a website.
+            // The permissive licences PinTack builds on require their notices to travel with it, so
+            // the text ships inside the app rather than living on a website.
             Button("Acknowledgements") { showingAcknowledgements = true }
                 .buttonStyle(ChromeProminentButtonStyle())
                 .tip("Acknowledgements", "The third-party components PinTack uses, and their licences")
