@@ -543,6 +543,19 @@ Owner decisions added after the rebuild (2026-09-19):
   - Do not retry the shared store, and do not try `WKProcessPool`: it has been deprecated since
     macOS 12 and separate pools no longer have an effect. The only lever that reduces processes is
     having fewer live web views.
+- **`OTHER_SWIFT_FLAGS` carries `-solver-expression-time-threshold=120`, and it is load-bearing.**
+  Xcode 16.4 (what the CI runner has) type-checks a TRAILING CLOSURE as part of the expression that
+  carries it, so a 60-line closure is a 60-line expression and the solver gives up: "unable to
+  type-check this expression in reasonable time". A newer Xcode swallows the same code, so this
+  cannot be reproduced on a modern machine — `-warn-long-expression-type-checking=150` reports
+  nothing, and forcing `-solver-expression-time-threshold=1` locally still compiles the whole
+  project. It is compiler-version behaviour, not speed.
+  `SelfTest.swift` has 28 trailing closures over 25 lines and the limit is not length alone (16.4
+  failed a 59-line closure and passed 54- and 55-line ones), so rewriting them all would be a large
+  mechanical change to the harness chasing a number nobody can measure. The three worst are now
+  functions anyway (`stackGeometryAndKeys`, `stackClicksAndOrder`, `tutorialWindowChecks`), which is
+  the pattern to follow for new ones: when a trailing closure grows past about fifty lines, give it a
+  name. Do not remove the flag.
 - Six slash commands act on the NOTE or the APP rather than its text (owner, 2026-11-14, SPEC §6.1):
   `/stack`, `/addToStack`, `/removeFromStack`, `/settings`, `/allnotes`, `/destroy`. All of them post
   `note.action` and are matched by name in `NoteEditorView` — two halves in two languages joined by a
