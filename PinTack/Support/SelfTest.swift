@@ -1346,7 +1346,9 @@ enum SelfTest {
         note.body = "@Todo Rollout\n\n" + boxes + "\n"
         NotificationCenter.default.post(name: .noteBodyDidChange, object: note)
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+        // A nested func, not a trailing closure: a closure this long is part of the
+        // expression that carries it, and Xcode 16.4 will not type-check that (CLAUDE.md).
+        func afterWaiting1() {
             card.layoutSubtreeIfNeeded()
             check("the tracker wraps at six squares a row", card.debugProgressPerRow == 6,
                   "\(card.debugProgressPerRow) per row")
@@ -1402,6 +1404,7 @@ enum SelfTest {
                 }
             }
         }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { afterWaiting1() }
     }
 
     /// A narrow note is where the old bar gave up first. Six squares a row plus the count plus the
@@ -1441,7 +1444,9 @@ enum SelfTest {
         try? FileManager.default.removeItem(at: marker)
 
         OnboardingWindow.showIfFirstRun()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
+        // A nested func, not a trailing closure: a closure this long is part of the
+        // expression that carries it, and Xcode 16.4 will not type-check that (CLAUDE.md).
+        func afterWaiting2() {
             check("the first run is greeted", OnboardingWindow.isShowing)
             check("being greeted is remembered in the vault, not in defaults",
                   FileManager.default.fileExists(atPath: marker.path))
@@ -1494,6 +1499,7 @@ enum SelfTest {
                 }
             }
         }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { afterWaiting2() }
     }
 
     /// How much of a window's content is actually painted. A view that laid out but never drew
@@ -1522,7 +1528,9 @@ enum SelfTest {
         ReminderPopoverDebug.forceCalendar = true
         card.debugShowReminderPopover()
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+        // A nested func, not a trailing closure: a closure this long is part of the
+        // expression that carries it, and Xcode 16.4 will not type-check that (CLAUDE.md).
+        func afterWaiting3() {
             guard card.debugPopoverShown, let picker = ReminderPopoverDebug.datePicker else {
                 check("the reminder popover opens with a date field", false, "no NSDatePicker found")
                 return next()
@@ -1577,6 +1585,7 @@ enum SelfTest {
                 next()
             }
         }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { afterWaiting3() }
     }
 
     /// Real key presses through the app's own event dispatch, so the control's multi-digit entry
@@ -2032,7 +2041,9 @@ enum SelfTest {
                                                 frame: WindowManager.shared.nextCardFrame(size: NSSize(width: 360, height: 320)))
         let panel = WindowManager.shared.open(note, focus: true)
         AppSettings.shared.vimMode = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+        // A nested func, not a trailing closure: a closure this long is part of the
+        // expression that carries it, and Xcode 16.4 will not type-check that (CLAUDE.md).
+        func afterWaiting4() {
             let js = vimKeysJS + """
             view.focus();
             const out = {};
@@ -2084,6 +2095,7 @@ enum SelfTest {
                 }
             }
         }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { afterWaiting4() }
     }
 
     /// ":" and "/" turn the action bar into the command bar; Return runs, Escape cancels.
@@ -2604,7 +2616,9 @@ enum SelfTest {
             }
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+        // A nested func, not a trailing closure: a closure this long is part of the
+        // expression that carries it, and Xcode 16.4 will not type-check that (CLAUDE.md).
+        func afterWaiting5() {
             let before = panels.map(\.frame.origin)
             let lead = wm.panel(for: sm.stack(id: made.id)?.front ?? "")!
             sm.drag(lead, to: NSPoint(x: lead.frame.minX + 40, y: lead.frame.minY - 25))
@@ -2664,6 +2678,7 @@ enum SelfTest {
                 }
             }
         }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { afterWaiting5() }
     }
 
     /// The Stacks tab, then hide / show / unstack / delete.
@@ -2672,7 +2687,9 @@ enum SelfTest {
         let wm = WindowManager.shared, sm = StackManager.shared
         AllNotesModel.shared.mode = .stacks
         AllNotesWindowController.shared.show()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+        // A nested func, not a trailing closure: a closure this long is part of the
+        // expression that carries it, and Xcode 16.4 will not type-check that (CLAUDE.md).
+        func afterWaiting6() {
             check("All Notes has a Stacks tab listing the stack", AllNotesModel.shared.stacks.contains { $0.id == stackID })
             AllNotesModel.shared.query = "rollback"
             check("searching the Stacks tab finds a stack by a note inside it", AllNotesModel.shared.stacks.contains { $0.id == stackID })
@@ -2722,6 +2739,7 @@ enum SelfTest {
                 }
             }
         }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { afterWaiting6() }
     }
 
     /// The + beside the stack's name (owner, 2026-09-26): notes join the back of the pile, leave it
@@ -2754,7 +2772,9 @@ enum SelfTest {
               sm.stack(id: stack.id)?.members.count == NoteStack.maxMembers,
               "\(sm.stack(id: stack.id)?.members.count ?? 0) members")
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+        // A nested func, not a trailing closure: a closure this long is part of the
+        // expression that carries it, and Xcode 16.4 will not type-check that (CLAUDE.md).
+        func afterWaiting7() {
             let piled = (sm.stack(id: stack.id)?.order ?? []).compactMap { wm.panel(for: $0)?.note.cardFrame }
             // A picture of the pile of ten and of the + popover, to be looked at rather than trusted.
             let members = (sm.stack(id: stack.id)?.order ?? []).compactMap { wm.panel(for: $0) }
@@ -2795,6 +2815,7 @@ enum SelfTest {
                 }
             }
         }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { afterWaiting7() }
 
         /// Taking notes back out, once the pile has been photographed.
         func finish() {
@@ -2980,7 +3001,9 @@ enum SelfTest {
             return (name(target.note.id), name(hit.note.id))
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+        // A nested func, not a trailing closure: a closure this long is part of the
+        // expression that carries it, and Xcode 16.4 will not type-check that (CLAUDE.md).
+        func afterWaiting8() {
             let began = Date()
             log("PILE at rest: \(pile().joined(separator: " → "))")
             var wrong: [String] = []
@@ -3042,6 +3065,7 @@ enum SelfTest {
             }
             run(steps)
         }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { afterWaiting8() }
     }
 
     /// Five notes of different sizes, clicked one after another FASTER than the pile's animation —
@@ -3108,7 +3132,9 @@ enum SelfTest {
             }
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+        // A nested func, not a trailing closure: a closure this long is part of the
+        // expression that carries it, and Xcode 16.4 will not type-check that (CLAUDE.md).
+        func afterWaiting9() {
             let began = Date()
             check("a pile of five different-sized notes lines up", faults("settled").isEmpty, faults("settled").joined(separator: "; "))
             // A todo behind the front used to hang its own action bar out below the pile — a strip of
@@ -3152,6 +3178,7 @@ enum SelfTest {
             }
             clickStep(order)
         }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { afterWaiting9() }
     }
 
     /// All Notes' delete question for stacks, answered with the real keys: Return must UNSTACK (the
@@ -3560,7 +3587,9 @@ enum SelfTest {
             otherPanel.makeKeyAndOrderFront(nil)
             panel.card.park(force: true) { parked in
                 guard parked else { return round(left - 1) }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                // A nested func, not a trailing closure: a closure this long is part of the
+                // expression that carries it, and Xcode 16.4 will not type-check that (CLAUDE.md).
+                func afterWaiting10() {
                     let started = Date()
                     // The window server's part of a click, then the click, then typing at once.
                     panel.makeKeyAndOrderFront(nil)
@@ -3610,6 +3639,7 @@ enum SelfTest {
                     }
                     poll()
                 }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { afterWaiting10() }
             }
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { round(5) }
@@ -3772,7 +3802,9 @@ enum SelfTest {
                                          frame: NSRect(x: 40 + CGFloat(i % 10) * 60, y: 90 + CGFloat(i / 10) * 70,
                                                        width: 300, height: 240))
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+        // A nested func, not a trailing closure: a closure this long is part of the
+        // expression that carries it, and Xcode 16.4 will not type-check that (CLAUDE.md).
+        func afterWaiting11() {
             notes.forEach { wm.open($0) }
             // Waits for the pages to have STARTED rather than guessing a delay: twenty at once on a
             // busy machine outlast any fixed wait, and the budget was then measured on a desk that
@@ -3824,6 +3856,7 @@ enum SelfTest {
                 }
             }
         }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { afterWaiting11() }
     }
 
     /// One value out of a small flat JSON object, without decoding it properly.
@@ -4134,7 +4167,9 @@ enum SelfTest {
             AllNotesWindowController.shared.show()
         }
         // One window now, so the two pictures are the same window on each of its tabs.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
+        // A nested func, not a trailing closure: a closure this long is part of the
+        // expression that carries it, and Xcode 16.4 will not type-check that (CLAUDE.md).
+        func afterWaiting12() {
             mainWindowChecks()
             guard let w = MainWindowController.shared.window else { return group.notify(queue: .main) { finish(out: out) } }
             group.enter()
@@ -4142,7 +4177,9 @@ enum SelfTest {
             // the window has to DRAW All Notes, not just record it. Each step gets time on screen,
             // the way a real key press finds Settings already drawn.
             SettingsWindowController.shared.show()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            // A nested func, not a trailing closure: a closure this long is part of the
+            // expression that carries it, and Xcode 16.4 will not type-check that (CLAUDE.md).
+            func afterWaiting13() {
             AllNotesWindowController.shared.toggle()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
             check("⌥⌘H while Settings is showing switches to All Notes instead of closing",
@@ -4184,8 +4221,10 @@ enum SelfTest {
             }
             }
             }
-            group.notify(queue: .main) { finish(out: out) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { afterWaiting13() }
         }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { afterWaiting12() }
+        group.notify(queue: .main) { finish(out: out) }
     }
 
     private static func finish(out: URL) {

@@ -543,19 +543,28 @@ Owner decisions added after the rebuild (2026-09-19):
   - Do not retry the shared store, and do not try `WKProcessPool`: it has been deprecated since
     macOS 12 and separate pools no longer have an effect. The only lever that reduces processes is
     having fewer live web views.
-- **`OTHER_SWIFT_FLAGS` carries `-solver-expression-time-threshold=120`, and it is load-bearing.**
-  Xcode 16.4 (what the CI runner has) type-checks a TRAILING CLOSURE as part of the expression that
-  carries it, so a 60-line closure is a 60-line expression and the solver gives up: "unable to
-  type-check this expression in reasonable time". A newer Xcode swallows the same code, so this
-  cannot be reproduced on a modern machine — `-warn-long-expression-type-checking=150` reports
-  nothing, and forcing `-solver-expression-time-threshold=1` locally still compiles the whole
-  project. It is compiler-version behaviour, not speed.
-  `SelfTest.swift` has 28 trailing closures over 25 lines and the limit is not length alone (16.4
-  failed a 59-line closure and passed 54- and 55-line ones), so rewriting them all would be a large
-  mechanical change to the harness chasing a number nobody can measure. The three worst are now
-  functions anyway (`stackGeometryAndKeys`, `stackClicksAndOrder`, `tutorialWindowChecks`), which is
-  the pattern to follow for new ones: when a trailing closure grows past about fifty lines, give it a
-  name. Do not remove the flag.
+- **A long TRAILING CLOSURE is part of the expression that carries it**, and Xcode 16.4 (the CI
+  runner's) gives up type-checking those: "unable to type-check this expression in reasonable time".
+  A newer Xcode swallows the same code, so it cannot be reproduced on a modern machine —
+  `-warn-long-expression-type-checking=150` reports nothing, and forcing
+  `-solver-expression-time-threshold=1` locally still compiles everything. It is compiler-version
+  behaviour, not speed, and raising that threshold does NOT fix it: the flag reaches the compiler and
+  the error is unchanged, so the limit being hit is the solver's scope, not its clock. Do not reach
+  for that flag again.
+  The fix is to stop the closure being part of the expression. A **nested `func` captures the
+  enclosing scope implicitly**, so the body moves as it stands — no parameters to thread, nothing to
+  get wrong:
+  ```swift
+  func afterTheClick() { …the old closure body… }
+  DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { afterTheClick() }
+  ```
+  `SelfTest.swift` is written this way wherever a closure runs long. Keep new ones under about fifty
+  lines, or give them a name.
+  Converting NESTED closures is where this goes wrong: the call that schedules an inner function
+  belongs INSIDE the outer one. A mechanical pass left `afterWaiting12`'s own dispatch inside its own
+  body, so nothing ever called it, `group.notify` was never registered, and the self-test HUNG for
+  three hours — no failure, no `report.txt`, and it compiled and read correctly. After extracting,
+  check every function is called from the scope that declared it, not from inside itself.
 - Six slash commands act on the NOTE or the APP rather than its text (owner, 2026-11-14, SPEC §6.1):
   `/stack`, `/addToStack`, `/removeFromStack`, `/settings`, `/allnotes`, `/destroy`. All of them post
   `note.action` and are matched by name in `NoteEditorView` — two halves in two languages joined by a
