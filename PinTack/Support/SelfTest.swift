@@ -2623,7 +2623,17 @@ enum SelfTest {
             let lead = wm.panel(for: sm.stack(id: made.id)?.front ?? "")!
             sm.drag(lead, to: NSPoint(x: lead.frame.minX + 40, y: lead.frame.minY - 25))
             sm.dragEnded(lead)
-            let moved = zip(before, panels.map(\.frame.origin)).allSatisfy { abs($1.x - $0.x - 40) < 0.5 && abs($1.y - $0.y + 25) < 0.5 }
+            // Split into steps with written-out types, not one zip/allSatisfy expression: Xcode 16.4
+            // (the CI runner's) cannot type-check that in reasonable time — a zip of tuples, a
+            // keypath map and destructured arithmetic in one go. This is not closure LENGTH; a
+            // nested func does not help (CLAUDE.md).
+            let after: [NSPoint] = panels.map(\.frame.origin)
+            var moved = before.count == after.count
+            for (was, now) in zip(before, after) {
+                let dx: CGFloat = now.x - was.x
+                let dy: CGFloat = now.y - was.y
+                if abs(dx - 40) >= 0.5 || abs(dy + 25) >= 0.5 { moved = false }
+            }
             check("dragging one note moves the whole pile", moved)
 
             sm.rename(made.id, to: "Release v2")
@@ -2787,8 +2797,13 @@ enum SelfTest {
                     + " h \(Int(p.frame.height)) z \(serverOrder.firstIndex(of: p.windowNumber).map(String.init) ?? "-")"
                     + " bar \(Int(p.card.stackBarHeight))")
             }
-            let fanned = zip(piled, piled.dropFirst()).allSatisfy {
-                abs($1.minY - $0.minY - NotePanel.headerHeight) < 0.5 && $1.size == $0.size
+            // Steps with written-out types, for the same reason as the drag check above: a zip of
+            // a sequence with its own dropFirst, destructured, is more than Xcode 16.4's solver
+            // will take.
+            var fanned = piled.count > 1
+            for (upper, lower) in zip(piled, piled.dropFirst()) {
+                let gap: CGFloat = lower.minY - upper.minY
+                if abs(gap - NotePanel.headerHeight) >= 0.5 || lower.size != upper.size { fanned = false }
             }
             check("a pile of ten still fans, one title bar apart, every card the same size",
                   piled.count == NoteStack.maxMembers && fanned,

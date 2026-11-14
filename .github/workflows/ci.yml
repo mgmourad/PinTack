@@ -15,7 +15,7 @@ concurrency:
 jobs:
   test:
     name: Build and unit tests
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 30
 
     env:
@@ -29,10 +29,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Printed, not pinned: the runner image moves, and a hardcoded Xcode path that disappears is a
-      # broken gate rather than a failed build. If a version ever breaks us, pin it here then.
+      # A version DID break us (2026-11-14). The macos-15 image's default is Xcode 16.4, which
+      # type-checks differently from any Xcode a maintainer is likely to have: it rejected five
+      # expressions that compile everywhere else ("ambiguous use of evaluateJavaScript", "unable to
+      # type-check this expression in reasonable time"). Gating on a toolchain nobody can reproduce
+      # locally means every fix is a guess costing a CI run, so the newest Xcode ON THE IMAGE is
+      # selected rather than whatever it happens to default to. Selected, not hardcoded: a pinned
+      # path that disappears when the image moves is a broken gate rather than a failed build.
       - name: Toolchain
         run: |
+          newest=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
+          if [ -n "$newest" ]; then
+            echo "Xcodes on this image:"; ls -d /Applications/Xcode*.app
+            sudo xcode-select -s "$newest/Contents/Developer"
+          fi
           xcodebuild -version
           swift --version
           sw_vers

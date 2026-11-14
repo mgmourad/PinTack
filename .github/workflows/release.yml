@@ -22,7 +22,7 @@ jobs:
     name: Build the disk image and publish it
     # workflow_run fires on failure too; this is the gate.
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 45
 
     steps:
@@ -33,8 +33,15 @@ jobs:
           ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.ref }}
           fetch-depth: 0
 
+      # The same toolchain the gate used: the newest Xcode on the image, not the image's default.
+      # Releasing with a different compiler from the one CI went green on defeats the point of the
+      # gate (see the comment in ci.yml).
       - name: Toolchain
-        run: xcodebuild -version && sw_vers
+        run: |
+          newest=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
+          [ -n "$newest" ] && sudo xcode-select -s "$newest/Contents/Developer"
+          xcodebuild -version
+          sw_vers
 
       - name: Read the version the project declares
         id: version

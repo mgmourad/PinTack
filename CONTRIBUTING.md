@@ -35,7 +35,11 @@ If you are interested in that role, open a discussion rather than a pull request
 
 ### Requirements
 
-- Xcode 16 or later
+- Xcode. Developed and verified on **Xcode 27**; CI builds with the newest Xcode on its runner
+  image. **Xcode 16.4 does not build this project** — its type-checker rejects five expressions that
+  later toolchains accept ("ambiguous use of `evaluateJavaScript`", "unable to type-check this
+  expression in reasonable time"). Where the real floor sits between 16.4 and 27 has not been
+  measured, so it is not claimed.
 - macOS 14 (Sonoma) or later
 - A free Apple ID is sufficient for local builds. The paid Developer Program membership is needed only for notarized releases.
 
