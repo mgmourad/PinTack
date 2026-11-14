@@ -169,11 +169,26 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
     /// A note that has just woken has a page that is loading, and WebKit answers a call into a page
     /// that is not ready with nothing at all. Every caller would then have to know whether the note
     /// it is touching happens to be awake, so the wait lives here instead.
-    override func evaluateJavaScript(_ js: String, completionHandler: ((Any?, Error?) -> Void)? = nil) {
+    ///
+    /// The handler is NOT defaulted, deliberately. `WKWebView`'s own declaration supplies a default,
+    /// so an override that also supplied one gave a caller outside this class two equally good
+    /// candidates: `evaluateJavaScript(js)` and `evaluateJavaScript(js, completionHandler: nil)` were
+    /// both "ambiguous use of evaluateJavaScript" on Xcode 16.4 AND 26.6, while compiling silently on
+    /// 27.2 — so it reached CI four times and never showed up on the machine it was written on.
+    /// Calls from INSIDE the class were always fine: the override shadows the superclass there, which
+    /// is why the same line compiles here and not in the self-test. Fire-and-forget goes through
+    /// `runJS` below.
+    override func evaluateJavaScript(_ js: String, completionHandler: ((Any?, Error?) -> Void)?) {
         lastUsed = Date()
         lastUsedBy = "js: " + js.prefix(28)
         guard !isReady else { return super.evaluateJavaScript(js, completionHandler: completionHandler) }
         pendingScripts.append((js, completionHandler))
+    }
+
+    /// Run JavaScript and ignore the result. Unqualified here, so it binds to the override above with
+    /// no ambiguity for callers.
+    func runJS(_ js: String) {
+        evaluateJavaScript(js, completionHandler: nil)
     }
 
     /// A question the APP asks the page for its own bookkeeping — where the caret is before parking,

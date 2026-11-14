@@ -786,7 +786,7 @@ enum SelfTest {
         return JSON.stringify(steps);
         """
         let seed = "window.__cropStartPath = \(jsString(currentImagePath(note) ?? ""));"
-        panel.card.editor.evaluateJavaScript(seed, completionHandler: nil)
+        panel.card.editor.runJS(seed)
         panel.card.editor.callAsyncJavaScript(js, arguments: [:], in: nil, in: .page) { result in
             let j = (try? result.get()) as? String
             check("the crop tool opens and its tick is clickable",
@@ -3309,7 +3309,7 @@ enum SelfTest {
         // /stack: the slash menu posts the same message the page would.
         let asker = VaultStore.shared.createNote(body: "Stack me", frame: NSRect(x: 300, y: 300, width: 300, height: 250))
         let askerPanel = WindowManager.shared.open(asker)
-        askerPanel.card.editor.evaluateJavaScript(
+        askerPanel.card.editor.runJS(
             "window.webkit.messageHandlers.pintack.postMessage({ type: 'note.action', noteId: '\(asker.id)', payload: { action: 'stack' } })")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             check("/stack opens the paperclip's stack popover", askerPanel.card.debugPopoverShown)

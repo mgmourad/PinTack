@@ -52,7 +52,7 @@ enum TutorialShots {
                 note("Sprint notes\n", size: NSSize(width: 380, height: 320), colour: "#D9F3C9", caret: .max) { panels in
                     // The menu opens on the slash being TYPED, so it is typed, as the editor's own
                     // tests do it — putting a "/" in the text would just show a slash.
-                    panels[0].card.editor.evaluateJavaScript("""
+                    panels[0].card.editor.runJS("""
                         (() => { const v = window.__pintack._view; v.focus();
                           v.dispatch({ selection: { anchor: v.state.doc.length } });
                           for (const ch of "\\n/") { const s = v.state.selection.main;
@@ -127,7 +127,7 @@ enum TutorialShots {
                      last line
                      """, size: NSSize(width: 400, height: 300), colour: "#E7DFFA", caret: 0) { panels in
                     after(1.6) {
-                        panels[0].card.editor.evaluateJavaScript(
+                        panels[0].card.editor.runJS(
                             "(() => { const v = window.__pintack._view; v.focus(); v.dispatchEvent; "
                             + "for (const k of ['j','j']) v.contentDOM.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true })); })()")
                         after(0.8) { done(panels) }
@@ -208,7 +208,7 @@ enum TutorialShots {
             // Live Preview shows the raw Markdown of the caret's own line, so where the caret sits
             // is part of the picture: line 0 keeps every line rendered.
             let line = caret == .max ? "view.state.doc.lines" : String(caret)
-            panel.card.editor.evaluateJavaScript("""
+            panel.card.editor.runJS("""
                 (() => { const v = window.__pintack._view; const n = Math.min(\(line), v.state.doc.lines);
                   v.dispatch({ selection: { anchor: n > 0 ? v.state.doc.line(n).to : 0 } }); v.focus(); })()
                 """)
