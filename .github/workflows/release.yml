@@ -1,0 +1,129 @@
+name: Release
+
+# Fires only when CI has gone green on main. A disk image is never built from a commit whose tests
+# have not passed, and the two workflows are kept separate so that is a structural guarantee rather
+# than a step somebody can reorder.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build the disk image and publish it
+    # workflow_run fires on failure too; this is the gate.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: macos-15
+    timeout-minutes: 45
+
+    steps:
+      # workflow_run checks out the DEFAULT branch unless told otherwise, which would silently build
+      # a different commit from the one CI passed.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.ref }}
+          fetch-depth: 0
+
+      - name: Toolchain
+        run: xcodebuild -version && sw_vers
+
+      - name: Read the version the project declares
+        id: version
+        run: |
+          set -euo pipefail
+          # From the build settings, not from a file we might forget to update: the number that ends
+          # up in the app is the number the release is named after.
+          settings=$(xcodebuild -scheme PinTack -configuration Release -showBuildSettings 2>/dev/null)
+          short=$(echo "$settings" | awk -F' = ' '/ MARKETING_VERSION =/{print $2; exit}')
+          build=$(echo "$settings" | awk -F' = ' '/ CURRENT_PROJECT_VERSION =/{print $2; exit}')
+          tag="v${short}-alpha-build-${build}"
+          echo "short=$short"  >> "$GITHUB_OUTPUT"
+          echo "build=$build"  >> "$GITHUB_OUTPUT"
+          echo "tag=$tag"      >> "$GITHUB_OUTPUT"
+          echo "name=v${short} alpha — build ${build}" >> "$GITHUB_OUTPUT"
+          echo "Building $tag"
+
+      - name: Has this build already been released?
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::${{ steps.version.outputs.tag }} is already published; nothing to do."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build the disk image
+        if: steps.existing.outputs.exists == 'false'
+        env:
+          # No Finder session on a runner to ask for Automation permission, and a refusal there can
+          # hang waiting for a dialog nobody will answer.
+          PINTACK_DMG_NO_STYLE: "1"
+        run: scripts/make-dmg.sh
+
+      - name: Name the image after the build
+        id: image
+        if: steps.existing.outputs.exists == 'false'
+        run: |
+          set -euo pipefail
+          src=$(ls dist/PinTack-*.dmg | head -1)
+          out="dist/PinTack-${{ steps.version.outputs.short }}-alpha-build-${{ steps.version.outputs.build }}.dmg"
+          mv "$src" "$out"
+          echo "path=$out" >> "$GITHUB_OUTPUT"
+          echo "sha256=$(shasum -a 256 "$out" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+          ls -lh "$out"
+
+      - name: Publish
+        if: steps.existing.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cat > /tmp/notes.md <<NOTES
+          **${{ steps.version.outputs.name }}** — an alpha build, built from \`${{ github.sha }}\` after CI passed.
+
+          ### Installing
+
+          Download the disk image, drag PinTack to Applications, then **right-click it → Open** the
+          first time. That step is needed because this build is **not notarized by Apple** — the
+          image carries a READ ME with all three ways past Gatekeeper.
+
+          Requires macOS 14 (Sonoma) or newer. Universal: Apple Silicon and Intel.
+
+          ### What this is
+
+          An alpha. Your notes are ordinary Markdown files in a folder you choose, so they outlive
+          the app — but point it at a vault you can afford to lose, and keep a backup.
+
+          \`\`\`
+          SHA-256  ${{ steps.image.outputs.sha256 }}
+          \`\`\`
+
+          Full history: [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md)
+          NOTES
+
+          gh release create "${{ steps.version.outputs.tag }}" \
+            "${{ steps.image.outputs.path }}" \
+            --title "${{ steps.version.outputs.name }}" \
+            --notes-file /tmp/notes.md \
+            --prerelease \
+            --target "${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}"
+
+      - name: Keep the image on the run as well
+        if: steps.existing.outputs.exists == 'false'
+        uses: actions/upload-artifact@v4
+        with:
+          name: PinTack-${{ steps.version.outputs.tag }}
+          path: ${{ steps.image.outputs.path }}
+          retention-days: 30

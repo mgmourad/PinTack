@@ -1,0 +1,69 @@
+name: CI
+
+# The gate. Nothing is released that has not come through here green.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Build and unit tests
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    env:
+      # The unit tests are HOSTED by the app (TEST_HOST), so running them launches PinTack. Point it
+      # at a throwaway vault inside the runner, and switch off the two things that reach outside the
+      # process: the system-wide hotkeys and the toast window.
+      PINTACK_VAULT: ${{ github.workspace }}/ci-vault
+      PINTACK_NO_HOTKEYS: "1"
+      PINTACK_NO_TOAST: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Printed, not pinned: the runner image moves, and a hardcoded Xcode path that disappears is a
+      # broken gate rather than a failed build. If a version ever breaks us, pin it here then.
+      - name: Toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+          sw_vers
+
+      - name: Build (Debug)
+        run: |
+          set -o pipefail
+          xcodebuild -scheme PinTack -configuration Debug \
+            SYMROOT="$PWD/build" CODE_SIGNING_ALLOWED=NO build
+
+      - name: Unit tests
+        run: |
+          set -o pipefail
+          mkdir -p "$PINTACK_VAULT"
+          xcodebuild -scheme PinTack SYMROOT="$PWD/build" \
+            CODE_SIGNING_ALLOWED=NO test
+
+      # The Release configuration compiles different code: the self-test and every debug hook are
+      # compiled out of it, so something that leans on one builds in Debug and nowhere else. That
+      # went unnoticed for six commits once, and was found only by building a disk image.
+      - name: Build (Release — what actually ships)
+        run: |
+          set -o pipefail
+          xcodebuild -scheme PinTack -configuration Release \
+            SYMROOT="$PWD/build" CODE_SIGNING_ALLOWED=NO build
+
+      - name: Test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: build/Logs/Test/*.xcresult
+          if-no-files-found: ignore
+          retention-days: 7

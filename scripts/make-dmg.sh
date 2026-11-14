@@ -88,7 +88,13 @@ MOUNTED_NAME=$(basename "$MOUNT")
 # Finder is scripted here because window backgrounds, icon size and icon positions live in the
 # volume's .DS_Store, which nothing else can write. If this is refused (Automation permission),
 # the image is still perfectly usable — just laid out by Finder's defaults.
-if osascript <<APPLESCRIPT
+#
+# PINTACK_DMG_NO_STYLE=1 skips the attempt entirely. A continuous-integration runner has no Finder
+# session to ask, and a refusal there can HANG waiting for a permission dialog nobody will ever
+# answer, rather than failing cleanly — so the build says up front that it is not going to try.
+if [ -n "${PINTACK_DMG_NO_STYLE:-}" ]; then
+  echo "   skipping the Finder layout (PINTACK_DMG_NO_STYLE)"
+elif osascript <<APPLESCRIPT
 tell application "Finder"
   tell disk "$MOUNTED_NAME"
     open

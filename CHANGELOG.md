@@ -13,6 +13,29 @@ it stands.
 
 ---
 
+## v0.9 alpha — build 112626 — 2026-11-14
+
+The first build published from a pipeline rather than from the owner's Mac, and the first with a
+version number meant for other people.
+
+### Added
+- **Continuous integration, and a release that waits on it.** `.github/workflows/ci.yml` builds
+  Debug, runs the 241 unit tests and then builds Release — the configuration that actually ships,
+  which compiles the self-test and every debug hook out, so code leaning on one of them builds in
+  Debug and nowhere else. `.github/workflows/release.yml` fires only on a successful CI run on
+  `main`, builds the universal disk image, and publishes it as a pre-release named after the version
+  the project declares. The two are separate workflows so "nothing ships that has not passed" is
+  structural rather than a step somebody can reorder.
+- **A banner on the README** (`scripts/make-banner.swift`). The note cards in it are the real
+  tutorial screenshots floated on a gradient — their corners are already transparent — so it is the
+  app, not an illustration of it.
+
+### Changed
+- **Version 0.9, build 112626.** Build numbers were sequential up to 24; from here they are the
+  date, so a build says when it was made.
+
+---
+
 ## Build 24 — 2026-11-14
 
 Six slash commands the owner found himself wanting, and the licence.

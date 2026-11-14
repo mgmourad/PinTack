@@ -236,8 +236,9 @@ preservation, atomic writes, import safety and search.
 **Phase 4, plugins and Runner: built.** The WidgetKit widget is **shelved by the owner**: it needs a real
 Apple signing team (app group must carry the Team ID, trap 2), so it waits on that decision.
 
-**As of 2026-11-14: 0.1.0, build 24. Builds 1–22 were INTERNAL**, used by the owner alone: none
-has been given to anyone. Build 23 was the first build meant for outside testers, so it is the first
+**As of 2026-11-14: v0.9 alpha, build 112626. Builds 1–22 were INTERNAL**, used by the owner alone: none
+has been given to anyone. Build 23 was the first build meant for outside testers; from build
+112626 the number is the date (MMDDYY) and releases are built by GitHub Actions, never by hand, so it is the first
 whose rough edges are somebody else's problem. The public repository is
 `https://github.com/mgmourad/PinTack`. `verify.sh` covers a Release build, 241
 unit tests and over 270 self-test checks. `CHANGELOG.md` records every change, day by day, with the reason

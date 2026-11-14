@@ -11,12 +11,11 @@
 Plain Markdown files. Live Preview rendering. Todos with reminders. A plugin system.
 Open source, GPL-3.0.
 
-`Status: built and running; build 23 was the first for outside testers (0.1.0). Phases 1–4 complete.`
+<img src="docs/assets/banner.png" width="100%" alt="PinTack — Stick it. Stack it. Ship it. Sticky notes for macOS, backed by plain Markdown files: Live Preview, stacks, todos and reminders, plugins">
+
+`Status: v0.9 alpha, build 112626. Phases 1–4 complete.`
 `Not yet signed or notarized — see Distribution.`
 `Seeking a macOS developer to own the codebase.`
-
-<img src="PinTack/Resources/Tutorial/live-preview.png" width="420" alt="A note with Live Preview markdown: bold, italics, a bullet list, inline code and a tag pill">
-<img src="PinTack/Resources/Tutorial/stack.png" width="330" alt="Three notes stacked into one pile, title bars fanned, with a stack bar">
 
 <sub>Every screenshot on this page is taken from the running app by <code>scripts/make-tutorial-shots.sh</code> — none is a mockup.</sub>
 
