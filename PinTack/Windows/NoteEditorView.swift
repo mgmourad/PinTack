@@ -601,6 +601,18 @@ final class NoteEditorView: WKWebView, WKScriptMessageHandler, WKNavigationDeleg
                 WindowManager.shared.panel(for: note.id)?.card.refreshFromNote()
             } else if payload["action"] as? String == "stack" {
                 WindowManager.shared.panel(for: note.id)?.card.showStackCreatorFromCommand()
+            } else if payload["action"] as? String == "addToStack" {
+                WindowManager.shared.panel(for: note.id)?.card.showStackJoinerFromCommand()
+            } else if payload["action"] as? String == "removeFromStack" {
+                WindowManager.shared.panel(for: note.id)?.card.leaveStackFromCommand()
+            } else if payload["action"] as? String == "settings" {
+                // App-wide, so it does not go through NoteCardView.perform: there is no note-scoped
+                // behaviour to disagree with, and neither has a shortcut action of its own.
+                SettingsWindowController.shared.show()
+            } else if payload["action"] as? String == "allNotes" {
+                // SHOW, never toggle: a slash command that sometimes closes the window it is named
+                // after would be a coin flip.
+                AllNotesWindowController.shared.show()
             } else if payload["action"] as? String == "save" {
                 // Vim's :w. Notes save themselves anyway; this just does it now and says so.
                 SaveCoordinator.shared.flush(noteID: note.id)

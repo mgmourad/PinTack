@@ -1079,7 +1079,13 @@ const commands = [
   // Native actions: the slash menu is just another way to reach what the note's own controls do.
   ["freeze", "Freeze / thaw (click-through)", (v, _c, f, to) => { edit(v, f, to, ""); post("note.action", { action: "freeze" }); }],
   ["find", "Find a note…", (v, _c, f, to) => { edit(v, f, to, ""); post("notes.list"); }],
-  ["stack", "Stack with other notes…", (v, _c, f, to) => { edit(v, f, to, ""); post("note.action", { action: "stack" }); }],
+  ["stack", "Create a stack from this note…", (v, _c, f, to) => { edit(v, f, to, ""); post("note.action", { action: "stack" }); }],
+  ["addToStack", "Add this note to a stack…", (v, _c, f, to) => { edit(v, f, to, ""); post("note.action", { action: "addToStack" }); }],
+  ["removeFromStack", "Take this note out of its stack", (v, _c, f, to) => { edit(v, f, to, ""); post("note.action", { action: "removeFromStack" }); }],
+  ["settings", "Open Settings", (v, _c, f, to) => { edit(v, f, to, ""); post("note.action", { action: "settings" }); }],
+  ["allnotes", "Open All Notes", (v, _c, f, to) => { edit(v, f, to, ""); post("note.action", { action: "allNotes" }); }],
+  // Goes through the same deleteNote the key and the menus use, so it offers the same five-second Undo.
+  ["destroy", "Delete this note", (v, _c, f, to) => { edit(v, f, to, ""); post("note.action", { action: "deleteNote" }); }],
   ["template", "Save as template…", (v, _c, f, to) => { edit(v, f, to, ""); post("template.save"); }],
   ["image", "Image from Finder…", (v, _c, f, to) => { edit(v, f, to, ""); post("image.pick"); }],
   ["emoji", "Emoji picker", (v, _c, f, to) => { edit(v, f, to, ""); openEmoji(v); }],

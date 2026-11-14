@@ -13,6 +13,33 @@ it stands.
 
 ---
 
+## Build 24 — 2026-11-14
+
+Six slash commands the owner found himself wanting, and the licence.
+
+### Added
+- **Six commands for things you could only reach with the mouse or a key** (owner, 2026-11-14).
+  `/stack` already made a stack; the rest are new. `/addToStack` joins a pile that already exists —
+  until now a note could only be added from the `+` beside that stack's own name, never from the note
+  itself. `/removeFromStack` takes a note out again. `/settings` and `/allnotes` open those windows,
+  and `/allnotes` always opens it rather than toggling, because a command that sometimes closes the
+  window it is named after is a coin flip. `/destroy` deletes the note through the same path ⌥⌘D
+  uses, so it offers the same five-second Undo.
+
+  A command that cannot do what was asked says so: already in a stack, in no stack, no stack to join,
+  every stack full. The self-test posts all six from the note's own page and judges each by what
+  actually changed — the two halves are written in different languages and joined by a string, so a
+  typo in either is a menu entry that silently does nothing.
+
+### Changed
+- **The licence is GPL-3.0-or-later**, and a copy now ships inside the app bundle as well as in the
+  repository, because GPL-3.0 §4 requires the licence to reach everyone who receives the program.
+  About states it, the Finder's Get Info panel states it, and the self-test fails the build if either
+  stops. The third-party notices are unchanged and still ship beside it: all 52 npm packages and the
+  Devicon logos are MIT, so all of them are GPL-compatible.
+
+---
+
 ## Build 23 — 2026-09-27
 
 One fix, reported by the owner: clicking a note in a stack flickered.

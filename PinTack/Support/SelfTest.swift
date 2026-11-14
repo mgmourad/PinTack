@@ -3292,6 +3292,74 @@ enum SelfTest {
     /// A note's page process is killed on purpose. Until build 22 the note was simply left blank
     /// until the app was relaunched (SPEC.md §4.7) — WebKit kills a page that runs out of memory, so
     /// this is not hypothetical.
+    /// Every slash command that reaches Swift, driven the way the PAGE drives it (SPEC.md §10.1).
+    ///
+    /// The two halves are written in different languages and joined by a string: `editor.js` posts
+    /// `note.action` with a name, and `NoteEditorView` matches it. A typo in either half is a menu
+    /// entry that silently does nothing, which is the one thing a menu entry must never be — so each
+    /// one is posted through the real page and judged by what actually changed.
+    private static func slashCommandsTest(out: URL, then next: @escaping () -> Void) {
+        let wm = WindowManager.shared, sm = StackManager.shared
+        for panel in wm.openPanels { wm.close(noteID: panel.note.id) }
+        MainWindowController.shared.close()
+
+        let loose = VaultStore.shared.createNote(body: "Loose note",
+                                                 frame: NSRect(x: 200, y: 260, width: 300, height: 240))
+        let piled = (1...2).map { i in
+            VaultStore.shared.createNote(body: "Pile \(i)", frame: NSRect(x: 620, y: 260, width: 300, height: 240))
+        }
+        ([loose] + piled).forEach { wm.open($0) }
+        guard let pile = sm.create(name: "Pile", noteIDs: piled.map(\.id)),
+              let panel = wm.panel(for: loose.id) else {
+            check("a stack and a loose note are ready for the slash commands", false)
+            return next()
+        }
+
+        /// Posts the message the slash menu posts, from the note's own page.
+        func command(_ action: String, _ then: @escaping () -> Void) {
+            panel.card.editor.evaluateJavaScript(
+                "window.webkit.messageHandlers.pintack.postMessage("
+                    + "{ type: 'note.action', noteId: '\(loose.id)', payload: { action: '\(action)' } })")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.7, execute: then)
+        }
+
+        command("addToStack") {
+            check("/addToStack offers the stacks already on the desk",
+                  panel.card.debugPopoverShown && StackJoinerView.choices().contains { $0.id == pile.id },
+                  "\(StackJoinerView.choices().count) stack(s) offered")
+            panel.card.debugPopoverWindow?.close()
+            // The picker only picks; this is the join it asks for.
+            panel.card.joinStack(pile.id)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                check("…and the note joins that stack, at the back",
+                      sm.stack(containing: loose.id)?.id == pile.id && sm.stack(id: pile.id)?.order.last == loose.id,
+                      sm.stack(containing: loose.id).map { "in “\($0.name)”, \($0.members.count) notes" } ?? "not stacked")
+                command("removeFromStack") {
+                    check("/removeFromStack takes the note out and leaves the stack standing",
+                          sm.stack(containing: loose.id) == nil && sm.stack(id: pile.id)?.members.count == 2,
+                          sm.stack(id: pile.id).map { "“\($0.name)” still has \($0.members.count)" } ?? "the stack went too")
+                    command("settings") {
+                        check("/settings opens Settings", MainWindowModel.shared.tab == .settings,
+                              MainWindowModel.shared.tab.rawValue)
+                        command("allNotes") {
+                            check("/allnotes opens All Notes", MainWindowModel.shared.tab == .allNotes,
+                                  MainWindowModel.shared.tab.rawValue)
+                            MainWindowController.shared.close()
+                            command("deleteNote") {
+                                check("/destroy deletes the note, with the same Undo the key offers",
+                                      wm.panel(for: loose.id) == nil && VaultStore.shared.note(id: loose.id) == nil,
+                                      wm.panel(for: loose.id) == nil ? "closed and gone from the vault" : "still on the desk")
+                                sm.unstack(pile.id)
+                                for panel in wm.openPanels { wm.close(noteID: panel.note.id) }
+                                next()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// The shipped app says what it is licensed under, and carries the notices it is obliged to
     /// carry (SPEC.md §15). `NSHumanReadableCopyright` is what the Finder's Get Info panel shows, so
     /// a wrong value there is a false statement about what somebody may do with the app; the
@@ -3301,6 +3369,12 @@ enum SelfTest {
         let stated = Bundle.main.infoDictionary?["NSHumanReadableCopyright"] as? String ?? ""
         check("the app states its licence where the Finder shows it", stated.contains("GPL-3.0"),
               stated.isEmpty ? "nothing set" : stated)
+        let licence = Bundle.main.url(forResource: "LICENSE", withExtension: "txt")
+            .flatMap { try? String(contentsOf: $0, encoding: .utf8) }
+        // GPL-3.0 §4: everyone who receives the program receives the licence with it.
+        check("the licence itself ships inside the app",
+              licence?.contains("GNU GENERAL PUBLIC LICENSE") == true,
+              licence == nil ? "no LICENSE.txt in the bundle" : "\(licence!.count) characters")
         let acknowledgements = Bundle.main.url(forResource: "ACKNOWLEDGEMENTS", withExtension: "md")
         let text = acknowledgements.flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
         check("the third-party licences ship inside the app",
@@ -3968,7 +4042,7 @@ enum SelfTest {
     }
 
     private static func renderWindows(out: URL) {
-        runnerTest(out: out) { linkPreviewTest(out: out) { imageEditTest(out: out) { freezeTest { reminderTest(out: out) { findTest(out: out) { quickCaptureTest { templateTest { actionBarTest { testerBugsTest { todoBarTest(out: out) { onboardingTest(out: out) { strandedNotesTest { collapsedTodoTest(out: out) { blankCloseTest { undoDeleteTest { tagColourTest(out: out) { glowStrengthTest { vimTest(out: out) { codeLineNumbersTest(out: out) { vimBannerTest(out: out) { stackTest(out: out) { rowActionsTest(out: out) { licenceStringsTest(); poolTest(out: out) { crashRecoveryTest { tutorialTest(out: out) { renderWindowsNow(out: out) } } } } } } } } } } } } } } } } } } } } } } } } } }
+        runnerTest(out: out) { linkPreviewTest(out: out) { imageEditTest(out: out) { freezeTest { reminderTest(out: out) { findTest(out: out) { quickCaptureTest { templateTest { actionBarTest { testerBugsTest { todoBarTest(out: out) { onboardingTest(out: out) { strandedNotesTest { collapsedTodoTest(out: out) { blankCloseTest { undoDeleteTest { tagColourTest(out: out) { glowStrengthTest { vimTest(out: out) { codeLineNumbersTest(out: out) { vimBannerTest(out: out) { stackTest(out: out) { rowActionsTest(out: out) { slashCommandsTest(out: out) { licenceStringsTest(); poolTest(out: out) { crashRecoveryTest { tutorialTest(out: out) { renderWindowsNow(out: out) } } } } } } } } } } } } } } } } } } } } } } } } } } }
     }
 
     private static func renderWindowsNow(out: URL) {

@@ -660,6 +660,48 @@ final class NoteCardView: NSView, NSTextFieldDelegate {
         present(view, from: clipButton)
     }
 
+    /// `/addToStack`: join one of the piles already on the desk. The paperclip only ever MADE a
+    /// stack; joining one could be done solely from that stack's own `+`, never from the note.
+    func showStackJoinerFromCommand() {
+        if let s = stack { Toast.show("Already in “\(s.name)” — /removeFromStack first"); return }
+        let choices = StackJoinerView.choices()
+        guard !choices.isEmpty else {
+            Toast.show("No stack to join — /stack makes one")
+            return
+        }
+        guard choices.contains(where: { !$0.full }) else {
+            Toast.show("Every stack is full (\(NoteStack.maxMembers) notes)")
+            return
+        }
+        let title = note.title.isEmpty ? "Untitled" : note.title
+        let view = StackJoinerView(noteTitle: title, choices: choices) { [weak self] stackID in
+            self?.popover?.close()
+            self?.joinStack(stackID)
+        }
+        present(view, from: clipButton)
+    }
+
+    /// The join itself, apart from the popover that picks the stack, so the whole of it can be
+    /// driven by a test rather than only the half that puts a picker on screen.
+    func joinStack(_ stackID: String) {
+        guard let name = StackManager.shared.stack(id: stackID)?.name else { return }
+        if StackManager.shared.add([note.id], to: stackID) > 0 {
+            Toast.show("Added to “\(name)”")
+        } else {
+            Toast.show("“\(name)” would not take it")
+        }
+    }
+
+    /// `/removeFromStack`: this note leaves its pile and goes back where it was. Below two members
+    /// the stack dissolves and every note is kept, exactly as Unstack does (SPEC.md §5.10).
+    func leaveStackFromCommand() {
+        guard let s = stack else { Toast.show("This note is not in a stack"); return }
+        let name = s.name
+        let last = s.members.count <= NoteStack.minMembers
+        StackManager.shared.remove(note.id, from: s.id)
+        Toast.show(last ? "“\(name)” unstacked" : "Taken out of “\(name)”")
+    }
+
     @objc private func unstackTapped() { if let s = stack { StackManager.shared.unstack(s.id) } }
 
     /// The + beside the stack's name: who is in it, and what it is called.

@@ -123,6 +123,74 @@ struct StackCreatorView: View {
     }
 }
 
+/// `/addToStack`: which of the stacks already on the desk this note should join.
+///
+/// The creator above makes a NEW stack out of loose notes; this one joins an EXISTING pile, which
+/// until now could only be done from the `+` beside that stack's own name — so a note could only be
+/// added by going to the stack, never from the note itself.
+struct StackJoinerView: View {
+
+    struct Choice: Identifiable, Equatable {
+        let id: String
+        let name: String
+        let members: Int
+        /// A stack already holding `NoteStack.maxMembers` cannot take another note.
+        var full: Bool { members >= NoteStack.maxMembers }
+    }
+
+    /// Every stack with a note on the desk, most recently touched first — the order they are stored
+    /// in, which is the order they were made.
+    static func choices() -> [Choice] {
+        StackManager.shared.stacks.map { Choice(id: $0.id, name: $0.name, members: $0.members.count) }
+    }
+
+    let noteTitle: String
+    let choices: [Choice]
+    let onJoin: (_ stackID: String) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 7) {
+                Image(systemName: "rectangle.stack.badge.plus").foregroundStyle(Color(nsColor: Brand.accentNS))
+                Text("Add to a stack").font(.system(size: 13, weight: .semibold))
+            }
+            Text("“\(noteTitle)” joins the back of the pile.")
+                .font(.caption).foregroundStyle(.secondary)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(choices) { row($0) }
+                }
+                .padding(.vertical, 2)
+            }
+            .frame(maxHeight: 220)
+        }
+        .padding(14)
+        .frame(width: 270)
+    }
+
+    private func row(_ c: Choice) -> some View {
+        Button { if !c.full { onJoin(c.id) } } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "square.stack.3d.up.fill")
+                    .font(.system(size: 13))
+                    .foregroundStyle(c.full ? Color.secondary : Color(nsColor: Brand.accentNS))
+                Text(c.name.isEmpty ? "Untitled stack" : c.name)
+                    .font(.system(size: 12.5)).lineLimit(1)
+                Spacer(minLength: 4)
+                Text(c.full ? "full" : "\(c.members) of \(NoteStack.maxMembers)")
+                    .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+            }
+            .padding(.vertical, 5).padding(.horizontal, 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .opacity(c.full ? 0.45 : 1)
+        .disabled(c.full)
+        .accessibilityLabel(c.name)
+    }
+}
+
 /// The `+` beside a stack's name (owner, 2026-09-26): who is in the stack, and what it is called.
 /// Ticking a note adds it to the back of the pile, unticking takes it out and puts it back where it
 /// was, and the name field renames the stack — the same rename the bar's double-click does.
