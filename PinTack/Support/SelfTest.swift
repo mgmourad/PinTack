@@ -2437,203 +2437,229 @@ enum SelfTest {
             check("a stack of three is made", false); next(); return
         }
         let panels = notes.compactMap { wm.panel(for: $0.id) }
+        // Extracted, not inlined: Xcode 16.4 type-checks a trailing closure as part of the
+        // expression that carries it, and gave up on this one at 200 lines ("unable to
+        // type-check this expression in reasonable time") while a newer compiler swallowed it.
+        // Breaking up the statements INSIDE a closure cannot help with that; the closure itself
+        // has to stop being part of the expression (2026-11-14).
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
-            let cards = panels.map(\.note.cardFrame)
-            let base = frames[0]
-            // Spelled out one condition at a time rather than as a single boolean: Xcode 16.4 gave
-            // up type-checking the chained version while a newer compiler swallowed it, and CI
-            // failed on a file that built here (2026-11-14).
-            let fanned: Bool = cards.enumerated().allSatisfy { pair in
-                let (i, c): (Int, NSRect) = pair
-                guard c.size == base.size, c.minX == base.minX else { return false }
-                let step: CGFloat = CGFloat(i) * NotePanel.headerHeight
-                let expected: CGFloat = cards[0].minY + step
-                return abs(c.minY - expected) < 0.5
-            }
-            let described: [String] = cards.map { c in
-                let origin = "\(Int(c.minX)),\(Int(c.minY))"
-                let size = "\(Int(c.width))×\(Int(c.height))"
-                return origin + " " + size
-            }
-            check("a stack fans its notes out: one size, each a title bar above the one in front", fanned,
-                  described.joined(separator: " | "))
-            // The window server's own front-to-back order. NSApp.orderedWindows leaves these panels out.
-            let numbers = (NSWindow.windowNumbers(options: []) ?? []).map(\.intValue)
-            let z = numbers.compactMap { n in panels.first { $0.windowNumber == n } }.map(\.note.id)
-            check("the front note is drawn on top of the others", z == notes.map(\.id), z.joined(separator: ","))
-            check("each title bar leads with its place in the pile, #1 in front",
-                  panels.enumerated().allSatisfy { i, p in p.card.debugTitleText.string.hasPrefix("#\(i + 1)") },
-                  panels.map { $0.card.debugTitleText.string }.joined(separator: " | "))
-            // Every part of every back title bar, routed the way macOS routes a click: to the window in
-            // FRONT at that spot. Either that is the note itself, or that window must take the click
-            // and hand it to the right note. The front window's transparent margin lies over the
-            // lower part of the title bar behind it, and used to drop those clicks.
-            let windowOrder = (NSWindow.windowNumbers(options: []) ?? []).map(\.intValue)
-            var misses: [String] = []
-            for (i, owner) in panels.enumerated().dropFirst() {
-                let card = NotePanel.cardRect(forWindow: owner.frame)
-                for fx in [0.1, 0.5, 0.9] { for fy in [0.12, 0.5, 0.88] {
-                    let point = NSPoint(x: card.minX + card.width * fx,
-                                        y: card.maxY - NotePanel.headerHeight + NotePanel.headerHeight * fy)
-                    guard let top = windowOrder.compactMap({ n in panels.first { $0.windowNumber == n } })
-                        .first(where: { $0.frame.contains(point) }) else { continue }
-                    let target = top.card.debugClickTarget(atScreen: point)
-                    if target != owner.note.id { misses.append("#\(i + 1) at \(Int(fx * 100))%,\(Int(fy * 100))% → \(target == nil ? "dropped" : "wrong note")") }
-                }}
-            }
-            check("a click anywhere on a stacked note's title bar reaches that note", misses.isEmpty, misses.joined(separator: "; "))
-            // And one real click through AppKit's own dispatch, low on the back-most title bar, where
-            // the front window's margin covers it.
-            let backCard = NotePanel.cardRect(forWindow: panels[2].frame)
-            let low = NSPoint(x: backCard.midX, y: backCard.maxY - NotePanel.headerHeight + 4)
-            if let top = windowOrder.compactMap({ n in panels.first { $0.windowNumber == n } }).first(where: { $0.frame.contains(low) }) {
-                let inWindow = top.convertPoint(fromScreen: low)
-                for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-                    if let e = NSEvent.mouseEvent(with: type, location: inWindow, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-                                                  windowNumber: top.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
-                        top.sendEvent(e)
-                    }
-                }
-                check("a real click low on the back note's title bar brings it to the front",
-                      sm.stack(id: made.id)?.front == notes[2].id, "front is #\(sm.stack(id: made.id).flatMap { s in notes.firstIndex { $0.id == s.front } }.map { $0 + 1 } ?? 0)")
-                // Back to the pile the rest of this test expects: #1, #2, #3 in making order.
-                sm.bringToFront(notes[1].id)
-                sm.bringToFront(notes[0].id)
-            }
-            let front = panels[0].card.debugStack, back = panels[1].card.debugStack
-            check("the stack bar carries the stack's name; the paperclip gives way to it",
-                  front.bar && front.name == "Release" && !front.clip)
-            check("only the front note keeps its Live Preview / Source switch", front.mode && !back.mode)
-            let fileText = notes.compactMap { try? String(contentsOf: $0.fileURL, encoding: .utf8) }.joined()
-            let stackFile = (try? String(contentsOf: VaultStore.shared.metaURL.appendingPathComponent("stacks.json"), encoding: .utf8)) ?? ""
-            check("the stack lives in .pintack/stacks.json and the notes stay plain Markdown",
-                  stackFile.contains("Release") && !fileText.lowercased().contains("stack") && !fileText.contains(made.id))
+            stackGeometryAndKeys(notes: notes, loner: loner, panels: panels, frames: frames,
+                                 made: made, out: out, then: next)
+        }
+    }
 
-            // Keys, through the same handler the key monitor uses.
-            panels[0].makeKeyAndOrderFront(nil)
-            let press = { (a: ShortcutAction) -> NSEvent? in
-                guard let target = WindowManager.shared.keyPanel, let e = key(ShortcutStore.shared.combo(for: a), in: target) else { return nil }
-                ActionRouter.resetDedupeMemory()
-                return app?.handleShortcut(e)
+    /// The body of the stack test, once its windows have settled. A function rather than the
+    /// trailing closure it used to be — see the note at the call site.
+    private static func stackGeometryAndKeys(notes: [Note], loner: Note, panels: [NotePanel],
+                                             frames: [NSRect], made: NoteStack, out: URL,
+                                             then next: @escaping () -> Void) {
+        let wm = WindowManager.shared, sm = StackManager.shared
+        let cards = panels.map(\.note.cardFrame)
+        let base = frames[0]
+        // Spelled out one condition at a time rather than as a single boolean: Xcode 16.4 gave
+        // up type-checking the chained version while a newer compiler swallowed it, and CI
+        // failed on a file that built here (2026-11-14).
+        let fanned: Bool = cards.enumerated().allSatisfy { pair in
+            let (i, c): (Int, NSRect) = pair
+            guard c.size == base.size, c.minX == base.minX else { return false }
+            let step: CGFloat = CGFloat(i) * NotePanel.headerHeight
+            let expected: CGFloat = cards[0].minY + step
+            return abs(c.minY - expected) < 0.5
+        }
+        let described: [String] = cards.map { c in
+            let origin = "\(Int(c.minX)),\(Int(c.minY))"
+            let size = "\(Int(c.width))×\(Int(c.height))"
+            return origin + " " + size
+        }
+        check("a stack fans its notes out: one size, each a title bar above the one in front", fanned,
+              described.joined(separator: " | "))
+        // The window server's own front-to-back order. NSApp.orderedWindows leaves these panels out.
+        let numbers = (NSWindow.windowNumbers(options: []) ?? []).map(\.intValue)
+        let z = numbers.compactMap { n in panels.first { $0.windowNumber == n } }.map(\.note.id)
+        check("the front note is drawn on top of the others", z == notes.map(\.id), z.joined(separator: ","))
+        check("each title bar leads with its place in the pile, #1 in front",
+              panels.enumerated().allSatisfy { i, p in p.card.debugTitleText.string.hasPrefix("#\(i + 1)") },
+              panels.map { $0.card.debugTitleText.string }.joined(separator: " | "))
+        // Every part of every back title bar, routed the way macOS routes a click: to the window in
+        // FRONT at that spot. Either that is the note itself, or that window must take the click
+        // and hand it to the right note. The front window's transparent margin lies over the
+        // lower part of the title bar behind it, and used to drop those clicks.
+        let windowOrder = (NSWindow.windowNumbers(options: []) ?? []).map(\.intValue)
+        var misses: [String] = []
+        for (i, owner) in panels.enumerated().dropFirst() {
+            let card = NotePanel.cardRect(forWindow: owner.frame)
+            for fx in [0.1, 0.5, 0.9] { for fy in [0.12, 0.5, 0.88] {
+                let point = NSPoint(x: card.minX + card.width * fx,
+                                    y: card.maxY - NotePanel.headerHeight + NotePanel.headerHeight * fy)
+                guard let top = windowOrder.compactMap({ n in panels.first { $0.windowNumber == n } })
+                    .first(where: { $0.frame.contains(point) }) else { continue }
+                let target = top.card.debugClickTarget(atScreen: point)
+                if target != owner.note.id { misses.append("#\(i + 1) at \(Int(fx * 100))%,\(Int(fy * 100))% → \(target == nil ? "dropped" : "wrong note")") }
+            }}
+        }
+        check("a click anywhere on a stacked note's title bar reaches that note", misses.isEmpty, misses.joined(separator: "; "))
+        // And one real click through AppKit's own dispatch, low on the back-most title bar, where
+        // the front window's margin covers it.
+        let backCard = NotePanel.cardRect(forWindow: panels[2].frame)
+        let low = NSPoint(x: backCard.midX, y: backCard.maxY - NotePanel.headerHeight + 4)
+        if let top = windowOrder.compactMap({ n in panels.first { $0.windowNumber == n } }).first(where: { $0.frame.contains(low) }) {
+            let inWindow = top.convertPoint(fromScreen: low)
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                if let e = NSEvent.mouseEvent(with: type, location: inWindow, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                              windowNumber: top.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
+                    top.sendEvent(e)
+                }
             }
-            // Measured against the pile as it stands now, not against the order the notes were made
-            // in: earlier checks in this test move notes about.
-            let beforeCycle = sm.stack(id: made.id)?.order ?? []
-            let haveKey = WindowManager.shared.keyPanel != nil
-            _ = press(.stackCycle)
-            let afterCycle = sm.stack(id: made.id)?.order ?? []
-            if haveKey {
-                check("⌥Tab brings the next note forward and sends the front one to the back",
-                      afterCycle == Array(beforeCycle.dropFirst()) + [beforeCycle.first ?? ""],
-                      "\(beforeCycle.count) → \(afterCycle.count)")
-            } else { skipped("⌥Tab", "no note had the keyboard") }
-            let beforeThree = sm.stack(id: made.id)?.order ?? []
-            _ = press(.stackNote3)
-            var wantThree = beforeThree
-            if wantThree.count == 3 { wantThree.swapAt(0, 2) }
-            let afterThree = sm.stack(id: made.id)?.order ?? []
-            // ⌘3 takes the third note from the front and SWAPS it with the front one (owner, 2026-09-22).
-            let titlesMatchPlaces = afterThree.enumerated().allSatisfy { place, id in
-                panels.first { $0.note.id == id }?.card.debugTitleText.string.hasPrefix("#\(place + 1)") == true
+            check("a real click low on the back note's title bar brings it to the front",
+                  sm.stack(id: made.id)?.front == notes[2].id, "front is #\(sm.stack(id: made.id).flatMap { s in notes.firstIndex { $0.id == s.front } }.map { $0 + 1 } ?? 0)")
+            // Back to the pile the rest of this test expects: #1, #2, #3 in making order.
+            sm.bringToFront(notes[1].id)
+            sm.bringToFront(notes[0].id)
+        }
+        let front = panels[0].card.debugStack, back = panels[1].card.debugStack
+        check("the stack bar carries the stack's name; the paperclip gives way to it",
+              front.bar && front.name == "Release" && !front.clip)
+        check("only the front note keeps its Live Preview / Source switch", front.mode && !back.mode)
+        let fileText = notes.compactMap { try? String(contentsOf: $0.fileURL, encoding: .utf8) }.joined()
+        let stackFile = (try? String(contentsOf: VaultStore.shared.metaURL.appendingPathComponent("stacks.json"), encoding: .utf8)) ?? ""
+        check("the stack lives in .pintack/stacks.json and the notes stay plain Markdown",
+              stackFile.contains("Release") && !fileText.lowercased().contains("stack") && !fileText.contains(made.id))
+
+        // Keys, through the same handler the key monitor uses.
+        panels[0].makeKeyAndOrderFront(nil)
+        let press = { (a: ShortcutAction) -> NSEvent? in
+            guard let target = WindowManager.shared.keyPanel, let e = key(ShortcutStore.shared.combo(for: a), in: target) else { return nil }
+            ActionRouter.resetDedupeMemory()
+            return app?.handleShortcut(e)
+        }
+        // Measured against the pile as it stands now, not against the order the notes were made
+        // in: earlier checks in this test move notes about.
+        let beforeCycle = sm.stack(id: made.id)?.order ?? []
+        let haveKey = WindowManager.shared.keyPanel != nil
+        _ = press(.stackCycle)
+        let afterCycle = sm.stack(id: made.id)?.order ?? []
+        if haveKey {
+            check("⌥Tab brings the next note forward and sends the front one to the back",
+                  afterCycle == Array(beforeCycle.dropFirst()) + [beforeCycle.first ?? ""],
+                  "\(beforeCycle.count) → \(afterCycle.count)")
+        } else { skipped("⌥Tab", "no note had the keyboard") }
+        let beforeThree = sm.stack(id: made.id)?.order ?? []
+        _ = press(.stackNote3)
+        var wantThree = beforeThree
+        if wantThree.count == 3 { wantThree.swapAt(0, 2) }
+        let afterThree = sm.stack(id: made.id)?.order ?? []
+        // ⌘3 takes the third note from the front and SWAPS it with the front one (owner, 2026-09-22).
+        let titlesMatchPlaces = afterThree.enumerated().allSatisfy { place, id in
+            panels.first { $0.note.id == id }?.card.debugTitleText.string.hasPrefix("#\(place + 1)") == true
+        }
+        if haveKey {
+            check("⌘3 brings the third note from the front forward, trading places with it",
+                  afterThree == wantThree && titlesMatchPlaces,
+                  panels.map { $0.card.debugTitleText.string }.joined(separator: " | "))
+        } else { skipped("⌘3", "no note had the keyboard") }
+        loner.visible = true
+        wm.panel(for: loner.id)?.makeKeyAndOrderFront(nil)
+        if WindowManager.shared.keyPanel != nil {
+            check("⌘1 in a note that is not in a stack is left for the note", press(.stackNote1) != nil)
+        } else { skipped("⌘1 outside a stack", "no note had the keyboard") }
+
+        // Extracted for the same reason as its parent: a trailing closure is part of the
+        // expression that carries it, and this one is long enough for Xcode 16.4 to give up.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            stackClicksAndOrder(notes: notes, loner: loner, panels: panels, frames: frames,
+                                made: made, cards: cards, out: out, then: next)
+        }
+    }
+
+    /// The second half of the stack test: clicks, order and taking the pile apart.
+    private static func stackClicksAndOrder(notes: [Note], loner: Note, panels: [NotePanel],
+                                            frames: [NSRect], made: NoteStack, cards: [NSRect],
+                                            out: URL, then next: @escaping () -> Void) {
+        let wm = WindowManager.shared, sm = StackManager.shared
+        let slot = sm.stack(id: made.id).flatMap { s in wm.panel(for: s.front ?? "")?.note.cardFrame }
+        check("the note brought forward takes the front place in the pile",
+              slot.map { abs($0.minY - cards[0].minY) < 0.5 } ?? false)
+        // A click on a back note's title bar brings that note forward, and the rest go behind it.
+        panels[1].card.debugClickHeader()
+        check("clicking a stacked note's title bar brings it to the front", sm.stack(id: made.id)?.front == notes[1].id)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            let numbers = (NSWindow.windowNumbers(options: []) ?? []).map(\.intValue)
+            let drawn = numbers.compactMap { n in panels.first { $0.windowNumber == n } }.map(\.note.id)
+            check("…and the rest of the pile is drawn behind it, in order", drawn == sm.stack(id: made.id)?.order,
+                  drawn.joined(separator: ","))
+            check("…it becomes #1, and the pencil moves to it from the old front",
+                  panels[1].card.debugTitleText.string.hasPrefix("#1") && panels[1].card.debugStack.mode
+                      && !panels[0].card.debugStack.mode)
+            let slot = panels[1].note.cardFrame.minY
+            check("…and it takes the front place in the pile", abs(slot - cards[0].minY) < 0.5)
+            // Any other way a back note becomes the active window brings it forward too.
+            panels[2].makeKeyAndOrderFront(nil)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                if panels[2].isKeyWindow {
+                    check("a back note that becomes the active window by any route comes to the front of its stack",
+                          sm.stack(id: made.id)?.front == notes[2].id)
+                } else { skipped("a back note becoming active", "the window could not take the keyboard") }
+                sm.bringToFront(notes[1].id)
             }
-            if haveKey {
-                check("⌘3 brings the third note from the front forward, trading places with it",
-                      afterThree == wantThree && titlesMatchPlaces,
-                      panels.map { $0.card.debugTitleText.string }.joined(separator: " | "))
-            } else { skipped("⌘3", "no note had the keyboard") }
-            loner.visible = true
-            wm.panel(for: loner.id)?.makeKeyAndOrderFront(nil)
-            if WindowManager.shared.keyPanel != nil {
-                check("⌘1 in a note that is not in a stack is left for the note", press(.stackNote1) != nil)
-            } else { skipped("⌘1 outside a stack", "no note had the keyboard") }
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            let before = panels.map(\.frame.origin)
+            let lead = wm.panel(for: sm.stack(id: made.id)?.front ?? "")!
+            sm.drag(lead, to: NSPoint(x: lead.frame.minX + 40, y: lead.frame.minY - 25))
+            sm.dragEnded(lead)
+            let moved = zip(before, panels.map(\.frame.origin)).allSatisfy { abs($1.x - $0.x - 40) < 0.5 && abs($1.y - $0.y + 25) < 0.5 }
+            check("dragging one note moves the whole pile", moved)
+
+            sm.rename(made.id, to: "Release v2")
+            check("renaming a stack renames its bar", lead.card.debugStack.name == "Release v2")
+            sm.togglePin(made.id)
+            check("pinning the stack keeps every note of it on top, without pinning the notes themselves",
+                  panels.allSatisfy { $0.level == .floating } && notes.allSatisfy { !$0.pinned })
+            // …and it GLOWS (owner, 2026-09-26): every member draws its own halo, in its own
+            // colour, while the pushpin art stays on the bar. Measured off the drawn pixels
+            // 10pt outside each card, where only the halo can be.
+            func halo(_ panel: NotePanel) -> CGFloat {
+                guard let view = panel.contentView else { return -1 }
+                view.needsDisplay = true
+                view.displayIfNeeded()
+                guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return -1 }
+                view.cacheDisplay(in: view.bounds, to: rep)
+                let scale = CGFloat(rep.pixelsWide) / view.bounds.width
+                let x = Int((NotePanel.margin - 10) * scale), y = Int(view.bounds.midY * scale)
+                return rep.colorAt(x: x, y: y)?.alphaComponent ?? -1
+            }
+            let glowOn = panels.map(halo)
+            sm.togglePin(made.id)
+            let glowOff = panels.map(halo)
+            check("a pinned stack glows, every note of it, and stops glowing when unpinned",
+                  glowOn.allSatisfy { $0 > 0.05 } && glowOff.allSatisfy { $0 < 0.02 },
+                  "pinned \(glowOn.map { String(format: "%.2f", $0) }) | unpinned \(glowOff.map { String(format: "%.2f", $0) })")
+            sm.toggleCollapse(made.id)
 
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                let slot = sm.stack(id: made.id).flatMap { s in wm.panel(for: s.front ?? "")?.note.cardFrame }
-                check("the note brought forward takes the front place in the pile",
-                      slot.map { abs($0.minY - cards[0].minY) < 0.5 } ?? false)
-                // A click on a back note's title bar brings that note forward, and the rest go behind it.
-                panels[1].card.debugClickHeader()
-                check("clicking a stacked note's title bar brings it to the front", sm.stack(id: made.id)?.front == notes[1].id)
+                let frontHeight = lead.frame.height - 2 * NotePanel.margin
+                check("collapsing the stack leaves its title bars and the front note's stack bar",
+                      notes.allSatisfy(\.collapsed) && abs(frontHeight - (NotePanel.headerHeight + NoteCardView.stackBarHeight)) < 0.5,
+                      "front height \(frontHeight); collapsed \(notes.map(\.collapsed)); heights \(panels.map { Int($0.frame.height - 2 * NotePanel.margin) }); lead is #\(sm.stack(id: made.id)?.number(of: lead.note.id) ?? 0)")
+                sm.toggleCollapse(made.id)
+                sm.bringToFront(notes[0].id)
 
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                    let numbers = (NSWindow.windowNumbers(options: []) ?? []).map(\.intValue)
-                    let drawn = numbers.compactMap { n in panels.first { $0.windowNumber == n } }.map(\.note.id)
-                    check("…and the rest of the pile is drawn behind it, in order", drawn == sm.stack(id: made.id)?.order,
-                          drawn.joined(separator: ","))
-                    check("…it becomes #1, and the pencil moves to it from the old front",
-                          panels[1].card.debugTitleText.string.hasPrefix("#1") && panels[1].card.debugStack.mode
-                              && !panels[0].card.debugStack.mode)
-                    let slot = panels[1].note.cardFrame.minY
-                    check("…and it takes the front place in the pile", abs(slot - cards[0].minY) < 0.5)
-                    // Any other way a back note becomes the active window brings it forward too.
-                    panels[2].makeKeyAndOrderFront(nil)
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                        if panels[2].isKeyWindow {
-                            check("a back note that becomes the active window by any route comes to the front of its stack",
-                                  sm.stack(id: made.id)?.front == notes[2].id)
-                        } else { skipped("a back note becoming active", "the window could not take the keyboard") }
-                        sm.bringToFront(notes[1].id)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
+                    // Auto-arrange treats the pile as one card: it moves, it does not come apart.
+                    wm.autoArrange()
+                    let piled = sm.stack(id: made.id).map { s in
+                        s.order.compactMap { wm.panel(for: $0)?.note.cardFrame }
+                    } ?? []
+                    let together = piled.count == 3 && piled.enumerated().allSatisfy { i, c in
+                        c.minX == piled[0].minX && c.size == piled[0].size
+                            && abs(c.minY - (piled[0].minY + CGFloat(i) * NotePanel.headerHeight)) < 0.5
                     }
-                }
-
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-                    let before = panels.map(\.frame.origin)
-                    let lead = wm.panel(for: sm.stack(id: made.id)?.front ?? "")!
-                    sm.drag(lead, to: NSPoint(x: lead.frame.minX + 40, y: lead.frame.minY - 25))
-                    sm.dragEnded(lead)
-                    let moved = zip(before, panels.map(\.frame.origin)).allSatisfy { abs($1.x - $0.x - 40) < 0.5 && abs($1.y - $0.y + 25) < 0.5 }
-                    check("dragging one note moves the whole pile", moved)
-
-                    sm.rename(made.id, to: "Release v2")
-                    check("renaming a stack renames its bar", lead.card.debugStack.name == "Release v2")
-                    sm.togglePin(made.id)
-                    check("pinning the stack keeps every note of it on top, without pinning the notes themselves",
-                          panels.allSatisfy { $0.level == .floating } && notes.allSatisfy { !$0.pinned })
-                    // …and it GLOWS (owner, 2026-09-26): every member draws its own halo, in its own
-                    // colour, while the pushpin art stays on the bar. Measured off the drawn pixels
-                    // 10pt outside each card, where only the halo can be.
-                    func halo(_ panel: NotePanel) -> CGFloat {
-                        guard let view = panel.contentView else { return -1 }
-                        view.needsDisplay = true
-                        view.displayIfNeeded()
-                        guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return -1 }
-                        view.cacheDisplay(in: view.bounds, to: rep)
-                        let scale = CGFloat(rep.pixelsWide) / view.bounds.width
-                        let x = Int((NotePanel.margin - 10) * scale), y = Int(view.bounds.midY * scale)
-                        return rep.colorAt(x: x, y: y)?.alphaComponent ?? -1
-                    }
-                    let glowOn = panels.map(halo)
-                    sm.togglePin(made.id)
-                    let glowOff = panels.map(halo)
-                    check("a pinned stack glows, every note of it, and stops glowing when unpinned",
-                          glowOn.allSatisfy { $0 > 0.05 } && glowOff.allSatisfy { $0 < 0.02 },
-                          "pinned \(glowOn.map { String(format: "%.2f", $0) }) | unpinned \(glowOff.map { String(format: "%.2f", $0) })")
-                    sm.toggleCollapse(made.id)
-
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                        let frontHeight = lead.frame.height - 2 * NotePanel.margin
-                        check("collapsing the stack leaves its title bars and the front note's stack bar",
-                              notes.allSatisfy(\.collapsed) && abs(frontHeight - (NotePanel.headerHeight + NoteCardView.stackBarHeight)) < 0.5,
-                              "front height \(frontHeight); collapsed \(notes.map(\.collapsed)); heights \(panels.map { Int($0.frame.height - 2 * NotePanel.margin) }); lead is #\(sm.stack(id: made.id)?.number(of: lead.note.id) ?? 0)")
-                        sm.toggleCollapse(made.id)
-                        sm.bringToFront(notes[0].id)
-
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
-                            // Auto-arrange treats the pile as one card: it moves, it does not come apart.
-                            wm.autoArrange()
-                            let piled = sm.stack(id: made.id).map { s in
-                                s.order.compactMap { wm.panel(for: $0)?.note.cardFrame }
-                            } ?? []
-                            let together = piled.count == 3 && piled.enumerated().allSatisfy { i, c in
-                                c.minX == piled[0].minX && c.size == piled[0].size
-                                    && abs(c.minY - (piled[0].minY + CGFloat(i) * NotePanel.headerHeight)) < 0.5
-                            }
-                            check("auto-arrange moves a stack as one pile instead of dealing its notes out", together,
-                                  piled.map { "\(Int($0.minX)),\(Int($0.minY))" }.joined(separator: " | "))
-                            snapshotPile(notes.compactMap { wm.panel(for: $0.id) }, to: out.appendingPathComponent("stack.png")) {
-                                stackTabTest(out: out, stackID: made.id, notes: notes, frames: frames, loner: loner, then: next)
-                            }
-                        }
+                    check("auto-arrange moves a stack as one pile instead of dealing its notes out", together,
+                          piled.map { "\(Int($0.minX)),\(Int($0.minY))" }.joined(separator: " | "))
+                    snapshotPile(notes.compactMap { wm.panel(for: $0.id) }, to: out.appendingPathComponent("stack.png")) {
+                        stackTabTest(out: out, stackID: made.id, notes: notes, frames: frames, loner: loner, then: next)
                     }
                 }
             }
@@ -3941,107 +3967,115 @@ enum SelfTest {
         check("it never steps off either end", model.index == 0)
 
         TutorialWindow.show()
+        // Extracted: a trailing closure this long is part of the expression that carries it,
+        // and Xcode 16.4 gives up type-checking those (2026-11-14).
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            guard let window = TutorialWindow.panelForTesting else {
-                check("the tutorial has a window to render", false); return next()
-            }
-            let size = window.frame.size
-            check("the tutorial window is a presentation, not a sliver", size.width > 800 && size.height > 500,
-                  "\(Int(size.width))×\(Int(size.height))")
-            check("the tutorial actually painted itself", paintedFraction(of: window) > 0.5)
-            // How much work a drag costs, measured: the owner reports it moving as if at 30fps.
-            func rendersPerSecond() -> Int {
-                TutorialProbe.bodyEvaluations = 0
-                RunLoop.current.run(until: Date().addingTimeInterval(1.0))
-                return TutorialProbe.bodyEvaluations
-            }
-            let idleRenders = rendersPerSecond()
-            // The app's own work per step, timed with nothing else in the way.
-            let dragStarted = Date()
-            for _ in 0..<10 { _ = TutorialWindow.dragForTesting(by: NSSize(width: 6, height: -4), pace: 0) }
-            let perStep = Date().timeIntervalSince(dragStarted) / 10 / 6      // six events per drag
-            // …and what else runs DURING a drag that takes as long as a hand's, which is what made it
-            // choppy: the page was rebuilding under the drag several times a second.
-            // ONE drag, held for about as long as a hand holds one (six steps, 60 ms apart). Five
-            // short drags would count the ticks in the GAPS between them, when the clock is meant to
-            // be running.
-            TutorialProbe.bodyEvaluations = 0
-            _ = TutorialWindow.dragForTesting(by: NSSize(width: 40, height: -30), pace: 0.06)
-            let dragRenders = TutorialProbe.bodyEvaluations
-            log("tutorial cost: \(idleRenders) page rebuilds a second while idle, "
-                + "\(dragRenders) during a drag of the same length, "
-                + String(format: "%.1f ms per step", perStep * 1000))
-            // What the SCREEN did, from the window's own display link: one slide transition, and a
-            // drag of the same length. This is the measurement that speaks to "choppy".
-            /// Processor time burned by the whole app, in milliseconds: what rendering a frame COSTS,
-            /// which a display link cannot see (it reports when a frame was due, not what it took).
-            func cpuMilliseconds() -> Double {
-                var usage = rusage()
-                guard getrusage(RUSAGE_SELF, &usage) == 0 else { return 0 }
-                let user = Double(usage.ru_utime.tv_sec) * 1000 + Double(usage.ru_utime.tv_usec) / 1000
-                let system = Double(usage.ru_stime.tv_sec) * 1000 + Double(usage.ru_stime.tv_usec) / 1000
-                return user + system
-            }
-            // FIVE transitions, not one: a single measurement cannot tell a change from the noise,
-            // and three "improvements" were judged against one number each before this was noticed
-            // (2026-09-26).
-            let idleBefore = cpuMilliseconds()
-            RunLoop.current.run(until: Date().addingTimeInterval(1.0))
-            let idlePerSecond = cpuMilliseconds() - idleBefore
-            var costs: [Double] = []
-            var lateFrames = 0
-            for _ in 0..<5 {
-                let meter = TutorialProbe.FrameMeter()
-                meter.start(on: window)
-                let before = cpuMilliseconds()
-                TutorialModel.debugShared?.step(1)
-                RunLoop.current.run(until: Date().addingTimeInterval(1.0))
-                costs.append(max(0, cpuMilliseconds() - before - idlePerSecond))
-                meter.stop()
-                lateFrames += meter.lateFrames
-                TutorialModel.debugShared?.go(to: 0)
-                RunLoop.current.run(until: Date().addingTimeInterval(0.6))
-            }
-            let sortedCosts = costs.sorted()
-            log(String(format: "tutorial slide transition: %.0f ms of processor time (median of five: %@), "
-                       + "%d late frames, %.0f ms/s idle",
-                       sortedCosts[2], costs.map { String(format: "%.0f", $0) }.joined(separator: ", "),
-                       lateFrames, idlePerSecond))
-            let dragMeter = TutorialProbe.FrameMeter()
-            dragMeter.start(on: window)
-            _ = TutorialWindow.dragForTesting(by: NSSize(width: 120, height: -90), pace: 0.016)
-            dragMeter.stop()
-            log("tutorial frames, dragging: \(dragMeter.lateFrames) late of \(dragMeter.intervals.count)")
-            _ = TutorialWindow.dragForTesting(by: NSSize(width: -120, height: 90), pace: 0.016)
+            tutorialWindowChecks(out: out, then: next)
+        }
+    }
 
-            check("the page does not rebuild itself while it is being dragged", dragRenders == 0,
-                  "\(dragRenders) rebuilds in \(String(format: "%.2f", 6 * 0.06)) s of dragging, "
-                      + "against \(idleRenders) a second while it sits there")
-            _ = TutorialWindow.dragForTesting(by: NSSize(width: -40, height: 30))
-            // Draggable, and still above everything while the reader clicks around (owner, 2026-09-26).
-            check("the tutorial floats above every other window, this app's and everyone else's",
-                  window.level == .modalPanel && !window.hidesOnDeactivate,
-                  "level \(window.level.rawValue), hidesOnDeactivate \(window.hidesOnDeactivate)")
-            let before = window.frame.origin
-            let dragged = TutorialWindow.dragForTesting(by: NSSize(width: 70, height: -45))
-            let moved = NSSize(width: window.frame.origin.x - before.x, height: window.frame.origin.y - before.y)
-            let landed = dragged && abs(moved.width - 70) < 2 && abs(moved.height + 45) < 2
-            // A gesture only reaches a window that has the keyboard: with another app in front there
-            // is nothing to judge, and the drag has been measured exactly right whenever there was.
-            if !landed && !(NSApp.isActive && window.isKeyWindow) {
-                skipped("dragging the page moves the tutorial across the screen",
-                        "the tutorial did not have the keyboard: another app was in front")
-            } else {
-                check("dragging the page moves the tutorial across the screen", landed,
-                      "moved (\(Int(moved.width)), \(Int(moved.height)))")
-            }
-            _ = TutorialWindow.dragForTesting(by: NSSize(width: -70, height: 45))
-            snapshot(window: window, to: out.appendingPathComponent("tutorial.png"), backdrop: nil) {
-                TutorialWindow.dismiss()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                    check("OK closes the tutorial", !TutorialWindow.isShowing)
-                    next()
-                }
+    /// The tutorial's window, once it has drawn. A function rather than a trailing closure,
+    /// for the reason given at the call site.
+    private static func tutorialWindowChecks(out: URL, then next: @escaping () -> Void) {
+        guard let window = TutorialWindow.panelForTesting else {
+            check("the tutorial has a window to render", false); return next()
+        }
+        let size = window.frame.size
+        check("the tutorial window is a presentation, not a sliver", size.width > 800 && size.height > 500,
+              "\(Int(size.width))×\(Int(size.height))")
+        check("the tutorial actually painted itself", paintedFraction(of: window) > 0.5)
+        // How much work a drag costs, measured: the owner reports it moving as if at 30fps.
+        func rendersPerSecond() -> Int {
+            TutorialProbe.bodyEvaluations = 0
+            RunLoop.current.run(until: Date().addingTimeInterval(1.0))
+            return TutorialProbe.bodyEvaluations
+        }
+        let idleRenders = rendersPerSecond()
+        // The app's own work per step, timed with nothing else in the way.
+        let dragStarted = Date()
+        for _ in 0..<10 { _ = TutorialWindow.dragForTesting(by: NSSize(width: 6, height: -4), pace: 0) }
+        let perStep = Date().timeIntervalSince(dragStarted) / 10 / 6      // six events per drag
+        // …and what else runs DURING a drag that takes as long as a hand's, which is what made it
+        // choppy: the page was rebuilding under the drag several times a second.
+        // ONE drag, held for about as long as a hand holds one (six steps, 60 ms apart). Five
+        // short drags would count the ticks in the GAPS between them, when the clock is meant to
+        // be running.
+        TutorialProbe.bodyEvaluations = 0
+        _ = TutorialWindow.dragForTesting(by: NSSize(width: 40, height: -30), pace: 0.06)
+        let dragRenders = TutorialProbe.bodyEvaluations
+        log("tutorial cost: \(idleRenders) page rebuilds a second while idle, "
+            + "\(dragRenders) during a drag of the same length, "
+            + String(format: "%.1f ms per step", perStep * 1000))
+        // What the SCREEN did, from the window's own display link: one slide transition, and a
+        // drag of the same length. This is the measurement that speaks to "choppy".
+        /// Processor time burned by the whole app, in milliseconds: what rendering a frame COSTS,
+        /// which a display link cannot see (it reports when a frame was due, not what it took).
+        func cpuMilliseconds() -> Double {
+            var usage = rusage()
+            guard getrusage(RUSAGE_SELF, &usage) == 0 else { return 0 }
+            let user = Double(usage.ru_utime.tv_sec) * 1000 + Double(usage.ru_utime.tv_usec) / 1000
+            let system = Double(usage.ru_stime.tv_sec) * 1000 + Double(usage.ru_stime.tv_usec) / 1000
+            return user + system
+        }
+        // FIVE transitions, not one: a single measurement cannot tell a change from the noise,
+        // and three "improvements" were judged against one number each before this was noticed
+        // (2026-09-26).
+        let idleBefore = cpuMilliseconds()
+        RunLoop.current.run(until: Date().addingTimeInterval(1.0))
+        let idlePerSecond = cpuMilliseconds() - idleBefore
+        var costs: [Double] = []
+        var lateFrames = 0
+        for _ in 0..<5 {
+            let meter = TutorialProbe.FrameMeter()
+            meter.start(on: window)
+            let before = cpuMilliseconds()
+            TutorialModel.debugShared?.step(1)
+            RunLoop.current.run(until: Date().addingTimeInterval(1.0))
+            costs.append(max(0, cpuMilliseconds() - before - idlePerSecond))
+            meter.stop()
+            lateFrames += meter.lateFrames
+            TutorialModel.debugShared?.go(to: 0)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.6))
+        }
+        let sortedCosts = costs.sorted()
+        log(String(format: "tutorial slide transition: %.0f ms of processor time (median of five: %@), "
+                   + "%d late frames, %.0f ms/s idle",
+                   sortedCosts[2], costs.map { String(format: "%.0f", $0) }.joined(separator: ", "),
+                   lateFrames, idlePerSecond))
+        let dragMeter = TutorialProbe.FrameMeter()
+        dragMeter.start(on: window)
+        _ = TutorialWindow.dragForTesting(by: NSSize(width: 120, height: -90), pace: 0.016)
+        dragMeter.stop()
+        log("tutorial frames, dragging: \(dragMeter.lateFrames) late of \(dragMeter.intervals.count)")
+        _ = TutorialWindow.dragForTesting(by: NSSize(width: -120, height: 90), pace: 0.016)
+
+        check("the page does not rebuild itself while it is being dragged", dragRenders == 0,
+              "\(dragRenders) rebuilds in \(String(format: "%.2f", 6 * 0.06)) s of dragging, "
+                  + "against \(idleRenders) a second while it sits there")
+        _ = TutorialWindow.dragForTesting(by: NSSize(width: -40, height: 30))
+        // Draggable, and still above everything while the reader clicks around (owner, 2026-09-26).
+        check("the tutorial floats above every other window, this app's and everyone else's",
+              window.level == .modalPanel && !window.hidesOnDeactivate,
+              "level \(window.level.rawValue), hidesOnDeactivate \(window.hidesOnDeactivate)")
+        let before = window.frame.origin
+        let dragged = TutorialWindow.dragForTesting(by: NSSize(width: 70, height: -45))
+        let moved = NSSize(width: window.frame.origin.x - before.x, height: window.frame.origin.y - before.y)
+        let landed = dragged && abs(moved.width - 70) < 2 && abs(moved.height + 45) < 2
+        // A gesture only reaches a window that has the keyboard: with another app in front there
+        // is nothing to judge, and the drag has been measured exactly right whenever there was.
+        if !landed && !(NSApp.isActive && window.isKeyWindow) {
+            skipped("dragging the page moves the tutorial across the screen",
+                    "the tutorial did not have the keyboard: another app was in front")
+        } else {
+            check("dragging the page moves the tutorial across the screen", landed,
+                  "moved (\(Int(moved.width)), \(Int(moved.height)))")
+        }
+        _ = TutorialWindow.dragForTesting(by: NSSize(width: -70, height: 45))
+        snapshot(window: window, to: out.appendingPathComponent("tutorial.png"), backdrop: nil) {
+            TutorialWindow.dismiss()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                check("OK closes the tutorial", !TutorialWindow.isShowing)
+                next()
             }
         }
     }
