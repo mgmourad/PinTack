@@ -1624,6 +1624,18 @@ function setMode(mode) {
 }
 
 window.__pintack = {
+  // Runs a slash command exactly as choosing it from the menu would, by calling the table's own
+  // entry. The self-test uses it so that a command is proved end to end — the name in the menu, the
+  // message it posts and the Swift that matches that message — rather than only the Swift half.
+  // It widens nothing: anything in this realm could already post the same message, and every
+  // privileged call is still gated on the Swift side by PluginBridge (docs/PLUGINS.md).
+  runSlashCommand(id) {
+    const entry = commands.find((c) => c[0] === id);
+    if (!entry) return false;
+    const sel = view.state.selection.main;
+    entry[2](view, null, sel.from, sel.to);
+    return true;
+  },
   receive(msg) {
     const p = msg.payload || {};
     switch (msg.type) {

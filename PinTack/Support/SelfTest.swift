@@ -3315,12 +3315,16 @@ enum SelfTest {
             return next()
         }
 
-        /// Posts the message the slash menu posts, from the note's own page.
-        func command(_ action: String, _ then: @escaping () -> Void) {
-            panel.card.editor.evaluateJavaScript(
-                "window.webkit.messageHandlers.pintack.postMessage("
-                    + "{ type: 'note.action', noteId: '\(loose.id)', payload: { action: '\(action)' } })")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.7, execute: then)
+        /// Runs the command from the slash menu's OWN table, so the name in the menu, the message it
+        /// posts and the Swift that matches that message are all proved together. Posting
+        /// `note.action` straight at Swift would prove only the last of the three, and the string
+        /// that joins them is where a typo lives.
+        var missing: [String] = []
+        func command(_ id: String, _ then: @escaping () -> Void) {
+            panel.card.editor.evaluateJavaScript("window.__pintack.runSlashCommand('\(id)')") { value, _ in
+                if (value as? Bool) != true { missing.append("/" + id) }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.7, execute: then)
+            }
         }
 
         command("addToStack") {
@@ -3341,14 +3345,18 @@ enum SelfTest {
                     command("settings") {
                         check("/settings opens Settings", MainWindowModel.shared.tab == .settings,
                               MainWindowModel.shared.tab.rawValue)
-                        command("allNotes") {
+                        command("allnotes") {
                             check("/allnotes opens All Notes", MainWindowModel.shared.tab == .allNotes,
                                   MainWindowModel.shared.tab.rawValue)
                             MainWindowController.shared.close()
-                            command("deleteNote") {
+                            command("destroy") {
                                 check("/destroy deletes the note, with the same Undo the key offers",
                                       wm.panel(for: loose.id) == nil && VaultStore.shared.note(id: loose.id) == nil,
                                       wm.panel(for: loose.id) == nil ? "closed and gone from the vault" : "still on the desk")
+                                check("every one of the six commands is in the slash menu by name",
+                                      missing.isEmpty,
+                                      missing.isEmpty ? "/stack, /addToStack, /removeFromStack, /settings, /allnotes, /destroy"
+                                                      : "not in the menu: " + missing.joined(separator: ", "))
                                 sm.unstack(pile.id)
                                 for panel in wm.openPanels { wm.close(noteID: panel.note.id) }
                                 next()
